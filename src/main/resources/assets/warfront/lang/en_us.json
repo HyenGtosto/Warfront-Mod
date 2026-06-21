@@ -1,0 +1,11 @@
+{
+  "key.categories.warfront": "Warfront",
+  "key.warfront.open_region_screen": "Open Strategic Map",
+  "screen.warfront.strategic_map": "Strategic Map",
+  "command.warfront.region.owner_set": "Region %s, %s owner set to %s",
+  "block.warfront.claim_core": "Claim Core",
+  "faction.warfront.unclaimed": "Unclaimed",
+  "faction.warfront.humanity": "Humanity",
+  "faction.warfront.zombie_horde": "Zombie Horde",
+  "faction.warfront.pillager_conquerors": "Pillager Conquerors"
+}
