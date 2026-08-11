@@ -18,6 +18,6 @@ public final class ClaimCoreEvents {
 
         RegionData regions = RegionData.get(level);
         RegionData.Region region = regions.regionAt(event.getPos());
-        regions.setOwner(region.x(), region.z(), Faction.HUMANITY);
+        regions.claim(region.x(), region.z(), Faction.HUMANITY, level.getRandom().nextFloat(), level.getRandom().nextFloat());
     }
 }
