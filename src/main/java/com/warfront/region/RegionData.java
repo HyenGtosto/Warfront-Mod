@@ -2,10 +2,14 @@ package com.warfront.region;
 
 import com.warfront.Warfront;
 import com.warfront.region.generator.ProceduralRegionGenerator;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -14,6 +18,7 @@ import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.saveddata.SavedData;
 
@@ -37,6 +42,7 @@ public final class RegionData extends SavedData {
     private final Map<Long, RegionState> regions = new HashMap<>();
     private final Map<Long, SubRegionState> subRegions = new HashMap<>();
     private final Map<Long, SiegeCampaign> activeSieges = new HashMap<>();
+    private final Map<Long, Integer> zombieRetaliationWeights = new HashMap<>();
     private final List<String> warfrontLogs = new ArrayList<>();
     private final java.util.Set<Long> visitedRegions = new java.util.HashSet<>();
     private long worldSeed;
@@ -69,6 +75,7 @@ public final class RegionData extends SavedData {
             CompoundTag regionTag = regionsTag.getCompound(index);
             Faction faction = Faction.byId(regionTag.getInt(FACTION_TAG));
             BaseType baseType = BaseType.byId(regionTag.getInt(BASE_TYPE_TAG));
+            long clusterId = regionTag.contains("cluster_id", Tag.TAG_LONG) ? regionTag.getLong("cluster_id") : 0L;
             if (faction != Faction.UNCLAIMED) {
                 float rawStab = regionTag.getFloat(STABILITY_TAG);
                 float rawRes = regionTag.getFloat(RESISTANCE_TAG);
@@ -81,7 +88,8 @@ public final class RegionData extends SavedData {
                         faction,
                         Math.clamp(rawStab, 0.0F, 100.0F),
                         Math.clamp(rawRes, 0.0F, 100.0F),
-                        baseType));
+                        baseType,
+                        clusterId));
             }
         }
 
@@ -93,6 +101,7 @@ public final class RegionData extends SavedData {
             int subZ = subTag.getInt(SUB_Z_TAG);
             Faction faction = Faction.byId(subTag.getInt(FACTION_TAG));
             float rawStab = subTag.getFloat(STABILITY_TAG);
+            long clusterId = subTag.contains("cluster_id", Tag.TAG_LONG) ? subTag.getLong("cluster_id") : 0L;
 
             if (rawStab > 0.0F && rawStab <= 1.0F) rawStab *= 100.0F;
 
@@ -100,7 +109,7 @@ public final class RegionData extends SavedData {
             boolean underSiege = subTag.getBoolean(SIEGE_TAG);
 
             long subKey = subRegionKeyFromRegionId(regionId, subX, subZ);
-            data.subRegions.put(subKey, new SubRegionState(faction, stability, underSiege));
+            data.subRegions.put(subKey, new SubRegionState(faction, stability, underSiege, clusterId));
         }
 
         ListTag siegesTag = tag.getList(SIEGES_TAG, Tag.TAG_COMPOUND);
@@ -115,13 +124,33 @@ public final class RegionData extends SavedData {
                 sources.add(new SourcePos(srcTag.getInt("src_x"), srcTag.getInt("src_z")));
             }
 
+            long durationTicks;
+            if (sTag.contains("duration_ticks", Tag.TAG_LONG)) {
+                durationTicks = sTag.getLong("duration_ticks");
+            } else if (attacker == Faction.HUMANITY) {
+                durationTicks = 4000L;
+            } else {
+                durationTicks = com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
+            }
+
+            int activeSubRegionsMask = sTag.contains("active_sub_regions_mask", Tag.TAG_INT)
+                    ? sTag.getInt("active_sub_regions_mask")
+                    : 0xF;
+
+            long attackerClusterId = sTag.contains("attacker_cluster_id", Tag.TAG_LONG)
+                    ? sTag.getLong("attacker_cluster_id")
+                    : 0L;
+
             data.activeSieges.put(targetId, new SiegeCampaign(
                     attacker,
                     sTag.getInt("tgt_rx"), sTag.getInt("tgt_rz"),
                     sources,
                     sTag.getInt("attack_val"),
                     sTag.getBoolean("encircled"),
-                    sTag.getLong("start_tick")
+                    sTag.getLong("start_tick"),
+                    durationTicks,
+                    activeSubRegionsMask,
+                    attackerClusterId
             ));
         }
 
@@ -137,6 +166,14 @@ public final class RegionData extends SavedData {
             }
         }
 
+        ListTag retTag = tag.getList("zombie_retaliation", Tag.TAG_COMPOUND);
+        for (int index = 0; index < retTag.size(); index++) {
+            CompoundTag rTag = retTag.getCompound(index);
+            data.zombieRetaliationWeights.put(rTag.getLong("region_id"), rTag.getInt("weight"));
+        }
+
+        data.migrateLegacyClusterIds();
+
         return data;
     }
 
@@ -150,6 +187,7 @@ public final class RegionData extends SavedData {
             regionTag.putFloat(STABILITY_TAG, entry.getValue().stability());
             regionTag.putFloat(RESISTANCE_TAG, entry.getValue().resistance());
             regionTag.putInt(BASE_TYPE_TAG, entry.getValue().baseType().id());
+            regionTag.putLong("cluster_id", entry.getValue().clusterId());
             regionsTag.add(regionTag);
         }
         tag.put(REGIONS_TAG, regionsTag);
@@ -168,6 +206,7 @@ public final class RegionData extends SavedData {
             subTag.putInt(FACTION_TAG, entry.getValue().owner().id());
             subTag.putFloat(STABILITY_TAG, entry.getValue().stability());
             subTag.putBoolean(SIEGE_TAG, entry.getValue().underSiege());
+            subTag.putLong("cluster_id", entry.getValue().clusterId());
             subRegionsTag.add(subTag);
         }
         tag.put(SUB_REGIONS_TAG, subRegionsTag);
@@ -183,6 +222,9 @@ public final class RegionData extends SavedData {
             sTag.putInt("attack_val", sc.attackValue());
             sTag.putBoolean("encircled", sc.encircled());
             sTag.putLong("start_tick", sc.startTick());
+            sTag.putLong("duration_ticks", sc.durationTicks());
+            sTag.putInt("active_sub_regions_mask", sc.activeSubRegionsMask());
+            sTag.putLong("attacker_cluster_id", sc.attackerClusterId());
 
             ListTag sourcesTag = new ListTag();
             for (SourcePos src : sc.sources()) {
@@ -209,6 +251,15 @@ public final class RegionData extends SavedData {
         }
         tag.put("visited_regions", visitedTag);
 
+        ListTag retTag = new ListTag();
+        for (Map.Entry<Long, Integer> entry : zombieRetaliationWeights.entrySet()) {
+            CompoundTag rTag = new CompoundTag();
+            rTag.putLong("region_id", entry.getKey());
+            rTag.putInt("weight", entry.getValue());
+            retTag.add(rTag);
+        }
+        tag.put("zombie_retaliation", retTag);
+
         return tag;
     }
 
@@ -234,7 +285,7 @@ public final class RegionData extends SavedData {
     public void addLog(ServerLevel level, String message) {
         if (message != null && !message.isBlank()) {
             warfrontLogs.add(message);
-            while (warfrontLogs.size() > 20) {
+            while (warfrontLogs.size() > 30) {
                 warfrontLogs.remove(0);
             }
             if (level != null) {
@@ -272,6 +323,49 @@ public final class RegionData extends SavedData {
         return new ArrayList<>(warfrontLogs);
     }
 
+    public List<Region> getRegionsOwnedBy(Faction faction) {
+        List<Region> list = new ArrayList<>();
+        for (Map.Entry<Long, RegionState> entry : regions.entrySet()) {
+            if (entry.getValue().owner() == faction) {
+                long key = entry.getKey();
+                int rx = ChunkPos.getX(key);
+                int rz = ChunkPos.getZ(key);
+                list.add(new Region(rx, rz, faction, entry.getValue().stability(), entry.getValue().resistance(), entry.getValue().baseType(), entry.getValue().clusterId()));
+            }
+        }
+        return list;
+    }
+
+    public void addZombieRetaliation(int regionX, int regionZ, int boost) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        int current = zombieRetaliationWeights.getOrDefault(key, 0);
+        zombieRetaliationWeights.put(key, Math.min(10, current + boost));
+        setDirty();
+    }
+
+    public int getZombieRetaliation(int regionX, int regionZ) {
+        return zombieRetaliationWeights.getOrDefault(ChunkPos.asLong(regionX, regionZ), 0);
+    }
+
+    public void decayZombieRetaliation() {
+        if (zombieRetaliationWeights.isEmpty()) return;
+        boolean changed = false;
+        java.util.Iterator<Map.Entry<Long, Integer>> iterator = zombieRetaliationWeights.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Long, Integer> entry = iterator.next();
+            int val = entry.getValue() - 1;
+            if (val <= 0) {
+                iterator.remove();
+            } else {
+                entry.setValue(val);
+            }
+            changed = true;
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
     public Map<Long, SiegeCampaign> getActiveSieges() {
         return activeSieges;
     }
@@ -284,12 +378,16 @@ public final class RegionData extends SavedData {
         return regionAt(Math.floorDiv(position.getX(), REGION_SIZE_BLOCKS), Math.floorDiv(position.getZ(), REGION_SIZE_BLOCKS));
     }
 
+    public RegionState getSavedRegionState(int regionX, int regionZ) {
+        return regions.get(ChunkPos.asLong(regionX, regionZ));
+    }
+
     public Region regionAt(int regionX, int regionZ) {
         RegionState state = regions.get(ChunkPos.asLong(regionX, regionZ));
         if (state == null) {
             state = ProceduralRegionGenerator.getInstance().generateRegion(this.level, worldSeed, regionX, regionZ);
         }
-        return new Region(regionX, regionZ, state.owner(), state.stability(), state.resistance(), state.baseType());
+        return new Region(regionX, regionZ, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId());
     }
 
     public SubRegionState subRegionAt(BlockPos position) {
@@ -308,7 +406,7 @@ public final class RegionData extends SavedData {
 
         // Fallback to base region state
         Region region = regionAt(regionX, regionZ);
-        return new SubRegionState(region.owner(), region.stability(), false);
+        return new SubRegionState(region.owner(), region.stability(), false, region.clusterId());
     }
 
     /**
@@ -418,7 +516,7 @@ public final class RegionData extends SavedData {
     public void setSiege(int regionX, int regionZ, int subX, int subZ, boolean underSiege) {
         long key = subRegionKey(regionX, regionZ, subX, subZ);
         SubRegionState current = subRegionAt(regionX, regionZ, subX, subZ);
-        subRegions.put(key, new SubRegionState(current.owner(), current.stability(), underSiege));
+        subRegions.put(key, new SubRegionState(current.owner(), current.stability(), underSiege, current.clusterId()));
         setDirty();
     }
 
@@ -426,7 +524,7 @@ public final class RegionData extends SavedData {
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 SubRegionState current = subRegionAt(regionX, regionZ, sx, sz);
-                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(current.owner(), current.stability(), underSiege));
+                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(current.owner(), current.stability(), underSiege, current.clusterId()));
             }
         }
         if (!underSiege) {
@@ -463,21 +561,43 @@ public final class RegionData extends SavedData {
     }
 
     public BaseType determineBaseTypeForConqueredRegion(ServerLevel level, int regionX, int regionZ, Faction faction) {
-        if (faction == Faction.HUMANITY || faction == Faction.UNCLAIMED) {
+        if (faction == Faction.UNCLAIMED) {
             return BaseType.NONE;
         }
-        if (!ProceduralRegionGenerator.getInstance().biomeAvailableForBase(level, regionX, regionZ)) {
-            return BaseType.NONE;
-        }
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                Region neighbor = regionAt(regionX + dx, regionZ + dz);
-                if (neighbor.baseType() != BaseType.NONE) {
-                    return BaseType.NONE;
+
+        Region currentRegion = regionAt(regionX, regionZ);
+        long targetClusterId = currentRegion.clusterId();
+
+        // Count nearby same-cluster regions owned by the conquering faction (MD <= 2)
+        int sameClusterRegionCount = 0;
+        boolean hasNearbyBaseInCluster = false;
+        int radius = 2;
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > radius) continue;
+
+                int nx = regionX + dx;
+                int nz = regionZ + dz;
+                Region neighbor = regionAt(nx, nz);
+
+                if (neighbor.owner() == faction && (targetClusterId == 0L || neighbor.clusterId() == targetClusterId)) {
+                    sameClusterRegionCount++;
+                    if (dx != 0 || dz != 0) {
+                        if (neighbor.baseType() == BaseType.OUTPOST || neighbor.baseType() == BaseType.HEADQUARTERS || neighbor.baseType() == BaseType.MEGA_BASE) {
+                            hasNearbyBaseInCluster = true;
+                        }
+                    }
                 }
             }
         }
-        return BaseType.OUTPOST;
+
+        // Qualifies for an OUTPOST if cluster has established territory (>= 3 regions) and no adjacent base in range
+        if (sameClusterRegionCount >= 3 && !hasNearbyBaseInCluster) {
+            return BaseType.OUTPOST;
+        }
+
+        return BaseType.NONE;
     }
 
     /**
@@ -511,13 +631,24 @@ public final class RegionData extends SavedData {
             int bit = subZ * 2 + subX;
             boolean isMissionActive = (activeCampaign.activeSubRegionsMask() & (1 << bit)) != 0;
             if (!isMissionActive) {
-                Warfront.LOGGER.info("Rejected claim on sub-region ({}, {}, sub: {}, {}) - mission button was NOT activated!", regionX, regionZ, subX, subZ);
                 return;
             }
         }
 
         long key = subRegionKey(regionX, regionZ, subX, subZ);
-        subRegions.put(key, new SubRegionState(faction, stability, false));
+        SubRegionState prevSubState = subRegionAt(regionX, regionZ, subX, subZ);
+        if (faction == Faction.HUMANITY && prevSubState.owner() == Faction.ZOMBIE_HORDE) {
+            addZombieRetaliation(regionX, regionZ, 2);
+        }
+        long subClusterId = prevSubState.clusterId();
+        if (subClusterId == 0L && faction.isAI()) {
+            if (activeCampaign != null && activeCampaign.attackerClusterId() != 0L) {
+                subClusterId = activeCampaign.attackerClusterId();
+            } else {
+                subClusterId = findAdjacentClusterId(regionX, regionZ, faction);
+            }
+        }
+        subRegions.put(key, new SubRegionState(faction, stability, false, subClusterId));
 
         int dominoThreshold = calculateDominoThreshold(regionX, regionZ);
         Region targetRegion = regionAt(regionX, regionZ);
@@ -537,11 +668,11 @@ public final class RegionData extends SavedData {
                 // Defense threshold reached -> DEFENSE SUCCESSFUL! Clear siege campaign completely!
                 setRegionSiege(regionX, regionZ, false);
                 activeSieges.remove(regionKey);
-                addLog(level, String.format("§a[Warfront] DEFENSE SUCCESSFUL! Enemy attack repelled from Region (%d, %d)!", regionX, regionZ));
+                addLog(level, String.format("§aDefense successful: Region (%d, %d), siege cleared.", regionX, regionZ));
                 broadcastTitle(level, Component.literal("§a§lDEFENSE SUCCESSFUL!"), Component.literal(String.format("§7Enemy attack repelled from Region (%d, %d)", regionX, regionZ)));
-                Warfront.LOGGER.info("Defense successful on Region ({}, {})! Siege campaign cleared.", regionX, regionZ);
+                Warfront.LOGGER.info("Defense successful: Region ({}, {}), siege cleared.", regionX, regionZ);
                 if (level != null) {
-                    com.warfront.network.RequestRegionMapPayload.sendMapSnapshotToAllPlayers(level);
+                    com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
             }
         } else {
@@ -557,20 +688,31 @@ public final class RegionData extends SavedData {
 
             if (matchingCount >= dominoThreshold) {
                 // Threshold reached -> auto-collapse region to faction & FULL REGION CAPTURE!
-                for (int sx = 0; sx <= 1; sx++) {
-                    for (int sz = 0; sz <= 1; sz++) {
-                        subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, 100.0F, false));
+                long clusterId = 0L;
+                SiegeCampaign campaign = activeSieges.get(regionKey);
+                if (campaign != null && campaign.attackerClusterId() != 0L) {
+                    clusterId = campaign.attackerClusterId();
+                } else if (faction.isAI()) {
+                    clusterId = findAdjacentClusterId(regionX, regionZ, faction);
+                    if (clusterId == 0L) {
+                        clusterId = ChunkPos.asLong(regionX, regionZ);
                     }
                 }
-                activeSieges.remove(regionKey);
+                for (int sx = 0; sx <= 1; sx++) {
+                    for (int sz = 0; sz <= 1; sz++) {
+                        subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, 100.0F, false, clusterId));
+                    }
+                }
                 BaseType baseType = determineBaseTypeForConqueredRegion(level, regionX, regionZ, faction);
-                setRegion(level, regionX, regionZ, faction, 100.0F, 50.0F, baseType);
+                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
+                setRegion(level, regionX, regionZ, faction, strength.stability(), strength.resistance(), baseType, clusterId);
                 if (faction == Faction.HUMANITY) {
-                    addLog(level, String.format("§a[Warfront] ATTACK SUCCESSFUL! Region (%d, %d) Conquered!", regionX, regionZ));
+                    addLog(level, String.format("§aRegion conquered: Region (%d, %d).", regionX, regionZ));
                     broadcastTitle(level, Component.literal("§a§lATTACK SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) Conquered", regionX, regionZ)));
                 }
                 if (level != null) {
-                    com.warfront.network.RequestRegionMapPayload.sendMapSnapshotToAllPlayers(level);
+                    com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
             }
         }
@@ -583,116 +725,63 @@ public final class RegionData extends SavedData {
                     currentCampaign.targetRegionX(), currentCampaign.targetRegionZ(),
                     currentCampaign.sources(), currentCampaign.attackValue(), currentCampaign.encircled(),
                     currentCampaign.startTick(), currentCampaign.durationTicks() + 1200L,
-                    currentCampaign.activeSubRegionsMask()));
+                    currentCampaign.activeSubRegionsMask(),
+                    currentCampaign.attackerClusterId()));
         }
 
         setDirty();
     }
 
     public void setOwner(int regionX, int regionZ, Faction faction) {
-        setRegion(null, regionX, regionZ, faction, 0.0F, 0.0F, BaseType.NONE);
+        long clusterId = 0L;
+        if (faction.isAI()) {
+            clusterId = findAdjacentClusterId(regionX, regionZ, faction);
+            if (clusterId == 0L) {
+                clusterId = ChunkPos.asLong(regionX, regionZ);
+            }
+        }
+        com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(this.level, regionX, regionZ, faction, BaseType.NONE, clusterId, worldSeed);
+        setRegion(null, regionX, regionZ, faction, strength.stability(), strength.resistance(), BaseType.NONE, clusterId);
     }
 
     public void claim(int regionX, int regionZ, Faction faction, float stability, float resistance) {
-        BaseType baseType = determineBaseTypeForConqueredRegion(regionX, regionZ, faction);
-        setRegion(null, regionX, regionZ, faction, stability, resistance, baseType);
+        claim(null, regionX, regionZ, faction, stability, resistance, BaseType.NONE);
     }
 
     public void claim(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType) {
-        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType);
-    }
-
-    public float getBaseResistance(Faction owner, BaseType baseType) {
-        if (owner == Faction.UNCLAIMED) return 0.0F;
-        return switch (baseType) {
-            case NONE -> 30.0F;
-            case OUTPOST -> 50.0F;
-            case HEADQUARTERS -> 70.0F;
-            case MEGA_BASE -> 90.0F;
-        };
-    }
-
-    public float getBaseStability(Faction owner, BaseType baseType) {
-        if (owner == Faction.UNCLAIMED) return 0.0F;
-        return switch (baseType) {
-            case NONE -> 30.0F;
-            case OUTPOST -> 50.0F;
-            case HEADQUARTERS -> 70.0F;
-            case MEGA_BASE -> 90.0F;
-        };
-    }
-
-    public float calculateEffectiveResistance(int regionX, int regionZ) {
-        Region region = regionAt(regionX, regionZ);
-        if (region.owner() == Faction.UNCLAIMED) {
-            return 0.0F;
-        }
-
-        float baseValue = getBaseResistance(region.owner(), region.baseType());
-        float boost = calculateSurroundingBaseBoost(regionX, regionZ, region.owner());
-
-        return Math.clamp(baseValue + boost, 0.0F, 100.0F);
-    }
-
-    public float calculateEffectiveStability(int regionX, int regionZ) {
-        Region region = regionAt(regionX, regionZ);
-        if (region.owner() == Faction.UNCLAIMED) {
-            return 0.0F;
-        }
-
-        float baseValue = getBaseStability(region.owner(), region.baseType());
-        float boost = calculateSurroundingBaseBoost(regionX, regionZ, region.owner());
-
-        return Math.clamp(baseValue + boost, 0.0F, 100.0F);
-    }
-
-    private float calculateSurroundingBaseBoost(int centerRX, int centerRZ, Faction faction) {
-        float totalBoost = 0.0F;
-        int checkRadius = 2; // Manhattan Distance <= 2
-
-        for (int dx = -checkRadius; dx <= checkRadius; dx++) {
-            for (int dz = -checkRadius; dz <= checkRadius; dz++) {
-                if (dx == 0 && dz == 0) continue; // Skip self
-
-                if (Math.abs(dx) + Math.abs(dz) <= checkRadius) {
-                    int neighborX = centerRX + dx;
-                    int neighborZ = centerRZ + dz;
-                    Region neighbor = regionAt(neighborX, neighborZ);
-
-                    if (neighbor.owner() == faction) {
-                        if (neighbor.baseType() == BaseType.OUTPOST) {
-                            totalBoost += 10.0F; // Each nearby active Outpost boosts by +10
-                        } else if (neighbor.baseType() == BaseType.HEADQUARTERS || neighbor.baseType() == BaseType.MEGA_BASE) {
-                            totalBoost += 15.0F; // HQ/Mega Command Aura boosts by +15
-                        }
-                    }
-                }
+        long clusterId = 0L;
+        long regionId = ChunkPos.asLong(regionX, regionZ);
+        SiegeCampaign campaign = activeSieges.get(regionId);
+        if (campaign != null && campaign.attackerClusterId() != 0L) {
+            clusterId = campaign.attackerClusterId();
+        } else if (faction.isAI()) {
+            clusterId = findAdjacentClusterId(regionX, regionZ, faction);
+            if (clusterId == 0L) {
+                clusterId = ChunkPos.asLong(regionX, regionZ);
             }
         }
-
-        return totalBoost;
+        if (stability <= 0.0F && resistance <= 0.0F) {
+            com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                    com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level != null ? level : this.level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
+            stability = strength.stability();
+            resistance = strength.resistance();
+        }
+        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId);
     }
 
-    private void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType) {
+    public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId) {
         long regionId = ChunkPos.asLong(regionX, regionZ);
         activeSieges.remove(regionId);
-        if (faction == Faction.UNCLAIMED) {
-            regions.remove(regionId);
-            for (int sx = 0; sx <= 1; sx++) {
-                for (int sz = 0; sz <= 1; sz++) {
-                    subRegions.remove(subRegionKey(regionX, regionZ, sx, sz));
-                }
-            }
-        } else {
-            regions.put(regionId, new RegionState(
-                    faction,
-                    Math.clamp(stability, 0.0F, 100.0F),
-                    Math.clamp(resistance, 0.0F, 100.0F),
-                    baseType));
-            for (int sx = 0; sx <= 1; sx++) {
-                for (int sz = 0; sz <= 1; sz++) {
-                    subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, stability, false));
-                }
+        regions.put(regionId, new RegionState(
+                faction,
+                Math.clamp(stability, 0.0F, 100.0F),
+                Math.clamp(resistance, 0.0F, 100.0F),
+                baseType,
+                clusterId));
+        for (int sx = 0; sx <= 1; sx++) {
+            for (int sz = 0; sz <= 1; sz++) {
+                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, stability, false, clusterId));
             }
         }
 
@@ -702,6 +791,131 @@ public final class RegionData extends SavedData {
         }
 
         setDirty();
+    }
+
+    public float calculateEffectiveResistance(int regionX, int regionZ) {
+        Region region = regionAt(regionX, regionZ);
+        return region.resistance();
+    }
+
+    public float calculateEffectiveStability(int regionX, int regionZ) {
+        Region region = regionAt(regionX, regionZ);
+        return region.stability();
+    }
+
+    public long findAdjacentClusterId(int regionX, int regionZ, Faction faction) {
+        int[][] offsets = new int[][] {
+            { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 },
+            { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 }
+        };
+        for (int[] off : offsets) {
+            Region reg = regionAt(regionX + off[0], regionZ + off[1]);
+            if (reg.owner() == faction && reg.clusterId() != 0L) {
+                return reg.clusterId();
+            }
+        }
+        return 0L;
+    }
+
+    public Set<Long> getAllPillagerClusterIds() {
+        return getAllClusterIds(null, Faction.PILLAGER_CONQUERORS);
+    }
+
+    public Set<Long> getAllPillagerClusterIds(ServerLevel level) {
+        return getAllClusterIds(level, Faction.PILLAGER_CONQUERORS);
+    }
+
+    public Set<Long> getAllClusterIds(ServerLevel level, Faction faction) {
+        Set<Long> set = new HashSet<>();
+        // 1. Scan stored regions in HashMap
+        for (RegionState state : regions.values()) {
+            if (state.owner() == faction && state.clusterId() != 0L) {
+                set.add(state.clusterId());
+            }
+        }
+
+        // 2. Scan procedural regions around active players & claimed Humanity regions
+        List<Region> humanityRegions = getRegionsOwnedBy(Faction.HUMANITY);
+        List<ChunkPos> scanOrigins = new ArrayList<>();
+
+        if (level != null && level.getServer() != null) {
+            for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                if (player.level() == level) {
+                    scanOrigins.add(new ChunkPos(Math.floorDiv(player.chunkPosition().x, 8), Math.floorDiv(player.chunkPosition().z, 8)));
+                }
+            }
+        }
+        for (Region hr : humanityRegions) {
+            scanOrigins.add(new ChunkPos(hr.x(), hr.z()));
+        }
+
+        int scanRadius = 15;
+        for (ChunkPos origin : scanOrigins) {
+            for (int rx = origin.x - scanRadius; rx <= origin.x + scanRadius; rx++) {
+                for (int rz = origin.z - scanRadius; rz <= origin.z + scanRadius; rz++) {
+                    Region reg = regionAt(rx, rz);
+                    if (reg.owner() == faction && reg.clusterId() != 0L) {
+                        set.add(reg.clusterId());
+                    }
+                }
+            }
+        }
+
+        return set;
+    }
+
+    private void migrateLegacyClusterIds() {
+        boolean changed = false;
+        Set<Long> visited = new HashSet<>();
+
+        for (Map.Entry<Long, RegionState> entry : regions.entrySet()) {
+            long regionId = entry.getKey();
+            RegionState state = entry.getValue();
+
+            if (state.owner() == Faction.PILLAGER_CONQUERORS && state.clusterId() == 0L && !visited.contains(regionId)) {
+                long newClusterId = regionId;
+                Queue<Long> queue = new ArrayDeque<>();
+                queue.add(regionId);
+                visited.add(regionId);
+
+                int[][] offsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+                while (!queue.isEmpty()) {
+                    long currKey = queue.poll();
+                    RegionState currState = regions.get(currKey);
+
+                    if (currState != null && currState.owner() == Faction.PILLAGER_CONQUERORS) {
+                        regions.put(currKey, new RegionState(currState.owner(), currState.stability(), currState.resistance(), currState.baseType(), newClusterId));
+                        for (int sx = 0; sx <= 1; sx++) {
+                            for (int sz = 0; sz <= 1; sz++) {
+                                long subKey = subRegionKeyFromRegionId(currKey, sx, sz);
+                                SubRegionState subState = subRegions.get(subKey);
+                                if (subState != null) {
+                                    subRegions.put(subKey, new SubRegionState(subState.owner(), subState.stability(), subState.underSiege(), newClusterId));
+                                }
+                            }
+                        }
+
+                        int rx = ChunkPos.getX(currKey);
+                        int rz = ChunkPos.getZ(currKey);
+                        for (int[] off : offsets) {
+                            long nKey = ChunkPos.asLong(rx + off[0], rz + off[1]);
+                            if (!visited.contains(nKey)) {
+                                RegionState nState = regions.get(nKey);
+                                if (nState != null && nState.owner() == Faction.PILLAGER_CONQUERORS && nState.clusterId() == 0L) {
+                                    visited.add(nKey);
+                                    queue.add(nKey);
+                                }
+                            }
+                        }
+                    }
+                }
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            setDirty();
+        }
     }
 
     public void checkAndExecuteGambit(ServerLevel level, int claimedRegionX, int claimedRegionZ) {
@@ -729,15 +943,15 @@ public final class RegionData extends SavedData {
                     // Cancel the AI siege on target region & clear underSiege status -> Defense Auto-Won!
                     setRegionSiege(targetX, targetZ, false);
 
-                    String logMsg = String.format("§a[GAMBIT SUCCESS] Captured enemy staging region (%d, %d)! Defense of Region (%d, %d) is AUTO-WON!",
+                    String logMsg = String.format("§aStaging region captured: Region (%d, %d). Siege defense cleared for Region (%d, %d).",
                             claimedRegionX, claimedRegionZ, targetX, targetZ);
                     addLog(logMsg);
 
-                    com.warfront.Warfront.LOGGER.info("GAMBIT SUCCESS! Captured staging region ({}, {}). Defense of Region ({}, {}) AUTO-WON!",
+                    com.warfront.Warfront.LOGGER.info("Staging region captured: Region ({}, {}). Siege defense cleared for Region ({}, {}).",
                             claimedRegionX, claimedRegionZ, targetX, targetZ);
                 }
             }
-            com.warfront.network.RequestRegionMapPayload.sendMapSnapshotToAllPlayers(level);
+            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
         }
     }
 
@@ -761,23 +975,28 @@ public final class RegionData extends SavedData {
             boolean encircled,
             long startTick,
             long durationTicks,
-            int activeSubRegionsMask
+            int activeSubRegionsMask,
+            long attackerClusterId
     ) {
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, 4000L, 0xF);
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, 4000L, 0xF, 0L);
         }
 
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, 0xF);
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, 0xF, 0L);
+        }
+
+        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask) {
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, activeSubRegionsMask, 0L);
         }
     }
 
-    public record RegionState(Faction owner, float stability, float resistance, BaseType baseType) {
+    public record RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
     }
 
-    public record SubRegionState(Faction owner, float stability, boolean underSiege) {
+    public record SubRegionState(Faction owner, float stability, boolean underSiege, long clusterId) {
     }
 
-    public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType) {
+    public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
     }
 }

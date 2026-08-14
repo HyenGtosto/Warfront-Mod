@@ -1,7 +1,8 @@
 package com.warfront.network;
 
 import com.warfront.Warfront;
-import com.warfront.client.RegionMapScreen;
+import com.warfront.client.map.RegionMapScreen;
+import com.warfront.map.MapViewType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -17,25 +18,44 @@ public record RegionMapPayload(
         java.util.List<SiegeArrowData> siegeArrows,
         java.util.List<String> logMessages,
         boolean isExplicitRequest,
-        boolean isCommandTerminalMap,
-        boolean isDebugMap
+        MapViewType viewType
 ) implements CustomPacketPayload {
 
-    public RegionMapPayload(int centerChunkX, int centerChunkZ, java.util.List<ChunkData> chunks, java.util.List<RegionMarkerData> markers, java.util.List<SiegeArrowData> siegeArrows, java.util.List<String> logMessages, boolean isExplicitRequest, boolean isCommandTerminalMap) {
-        this(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, logMessages, isExplicitRequest, isCommandTerminalMap, false);
+    public boolean isCommandTerminalMap() {
+        return viewType == MapViewType.COMMAND;
+    }
+
+    public boolean isDebugMap() {
+        return viewType == MapViewType.DEBUG;
     }
 
     public static final Type<RegionMapPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "region_map"));
 
-    private static final StreamCodec<RegistryFriendlyByteBuf, ChunkData> CHUNK_CODEC = StreamCodec.composite(
-            ByteBufCodecs.VAR_INT, ChunkData::chunkX,
-            ByteBufCodecs.VAR_INT, ChunkData::chunkZ,
-            ByteBufCodecs.INT, ChunkData::biomeColor,
-            ByteBufCodecs.VAR_INT, ChunkData::factionId,
-            ByteBufCodecs.BOOL, ChunkData::underSiege,
-            ByteBufCodecs.BOOL, ChunkData::isVisited,
-            ChunkData::new);
+    private static final StreamCodec<RegistryFriendlyByteBuf, ChunkData> CHUNK_CODEC = new StreamCodec<>() {
+        @Override
+        public ChunkData decode(RegistryFriendlyByteBuf buf) {
+            return new ChunkData(
+                    buf.readVarInt(),
+                    buf.readVarInt(),
+                    buf.readInt(),
+                    buf.readVarInt(),
+                    buf.readBoolean(),
+                    buf.readBoolean(),
+                    buf.readVarLong());
+        }
+
+        @Override
+        public void encode(RegistryFriendlyByteBuf buf, ChunkData value) {
+            buf.writeVarInt(value.chunkX());
+            buf.writeVarInt(value.chunkZ());
+            buf.writeInt(value.biomeColor());
+            buf.writeVarInt(value.factionId());
+            buf.writeBoolean(value.underSiege());
+            buf.writeBoolean(value.isVisited());
+            buf.writeVarLong(value.clusterId());
+        }
+    };
 
     private static final StreamCodec<RegistryFriendlyByteBuf, java.util.List<ChunkData>> CHUNKS_CODEC = ByteBufCodecs
             .<RegistryFriendlyByteBuf, ChunkData>list()
@@ -80,8 +100,7 @@ public record RegionMapPayload(
                     ARROWS_CODEC.decode(buf),
                     LOGS_CODEC.decode(buf),
                     ByteBufCodecs.BOOL.decode(buf),
-                    ByteBufCodecs.BOOL.decode(buf),
-                    ByteBufCodecs.BOOL.decode(buf)
+                    MapViewType.byId(ByteBufCodecs.VAR_INT.decode(buf))
             );
         }
 
@@ -94,15 +113,14 @@ public record RegionMapPayload(
             ARROWS_CODEC.encode(buf, payload.siegeArrows());
             LOGS_CODEC.encode(buf, payload.logMessages());
             ByteBufCodecs.BOOL.encode(buf, payload.isExplicitRequest());
-            ByteBufCodecs.BOOL.encode(buf, payload.isCommandTerminalMap());
-            ByteBufCodecs.BOOL.encode(buf, payload.isDebugMap());
+            ByteBufCodecs.VAR_INT.encode(buf, payload.viewType().id());
         }
     };
 
     public static void handle(RegionMapPayload payload, IPayloadContext context) {
         if (Minecraft.getInstance().screen instanceof RegionMapScreen screen) {
-            if (!payload.isExplicitRequest() && (screen.isDebugMap() || screen.isCommandTerminalMap() != payload.isCommandTerminalMap())) {
-                // Ignore mismatched background snapshots (e.g. background AI broadcast sent while Debug Map or Command Terminal is open)
+            if (screen.getViewType() != payload.viewType()) {
+                // Ignore mismatched background snapshots (e.g. background broadcast sent for a different view channel)
                 return;
             }
             screen.updateMapData(payload);
@@ -116,7 +134,10 @@ public record RegionMapPayload(
         return TYPE;
     }
 
-    public record ChunkData(int chunkX, int chunkZ, int biomeColor, int factionId, boolean underSiege, boolean isVisited) {
+    public record ChunkData(int chunkX, int chunkZ, int biomeColor, int factionId, boolean underSiege, boolean isVisited, long clusterId) {
+        public ChunkData(int chunkX, int chunkZ, int biomeColor, int factionId, boolean underSiege, boolean isVisited) {
+            this(chunkX, chunkZ, biomeColor, factionId, underSiege, isVisited, 0L);
+        }
     }
 
     public record RegionMarkerData(int regionX, int regionZ, int factionId, int baseTypeId) {

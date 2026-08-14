@@ -60,7 +60,7 @@ public final class RegionTriggerEvents {
         // Auto-conquest test feature: Secure sub-region on entry when under siege
         if (subState.underSiege()) {
             regions.claimSubRegion(level, subPos.regionX(), subPos.regionZ(), subPos.subX(), subPos.subZ(), Faction.HUMANITY, 100.0F);
-            regions.addLog(level, String.format("§a[Warfront] Sub-region (%d, %d) in Region (%d, %d) SECURED!",
+            regions.addLog(level, String.format("§aSub-region (%d, %d) in Region (%d, %d) secured.",
                     subPos.subX(), subPos.subZ(), subPos.regionX(), subPos.regionZ()));
             return;
         }

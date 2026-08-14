@@ -1,6 +1,7 @@
 package com.warfront.network;
 
 import com.warfront.Warfront;
+import com.warfront.map.MapViewType;
 import com.warfront.region.RegionData;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -11,35 +12,41 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, boolean isCommandTerminalMap, boolean isDebugMap) implements CustomPacketPayload {
+public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, MapViewType viewType) implements CustomPacketPayload {
     public RequestRegionDetailsPayload(int regionX, int regionZ, int subX, int subZ) {
-        this(regionX, regionZ, subX, subZ, false, false);
+        this(regionX, regionZ, subX, subZ, MapViewType.COMMAND);
     }
 
-    public RequestRegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, boolean isCommandTerminalMap) {
-        this(regionX, regionZ, subX, subZ, isCommandTerminalMap, false);
+    public boolean isCommandTerminalMap() {
+        return viewType == MapViewType.COMMAND;
+    }
+
+    public boolean isDebugMap() {
+        return viewType == MapViewType.DEBUG;
     }
 
     public static final Type<RequestRegionDetailsPayload> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "request_region_details"));
+
     public static final StreamCodec<RegistryFriendlyByteBuf, RequestRegionDetailsPayload> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, RequestRegionDetailsPayload::regionX,
             ByteBufCodecs.VAR_INT, RequestRegionDetailsPayload::regionZ,
             ByteBufCodecs.VAR_INT, RequestRegionDetailsPayload::subX,
             ByteBufCodecs.VAR_INT, RequestRegionDetailsPayload::subZ,
-            ByteBufCodecs.BOOL, RequestRegionDetailsPayload::isCommandTerminalMap,
-            ByteBufCodecs.BOOL, RequestRegionDetailsPayload::isDebugMap,
-            RequestRegionDetailsPayload::new);
+            ByteBufCodecs.VAR_INT, p -> p.viewType().id(),
+            (rx, rz, sx, sz, id) -> new RequestRegionDetailsPayload(rx, rz, sx, sz, MapViewType.byId(id)));
 
     public static void handle(RequestRegionDetailsPayload payload, IPayloadContext context) {
         ServerPlayer player = (ServerPlayer) context.player();
-        if (!payload.isDebugMap() && !isInsideMapSnapshot(player, payload.regionX(), payload.regionZ())) {
+        MapViewType viewType = payload.viewType();
+
+        if (!viewType.isDebug() && !isInsideMapSnapshot(player, payload.regionX(), payload.regionZ(), viewType.chunkDiameter())) {
             Warfront.LOGGER.warn("Rejected region detail request outside the map snapshot: {}, {}", payload.regionX(), payload.regionZ());
             return;
         }
 
         RegionData regions = RegionData.get(player.serverLevel());
-        boolean isVisited = payload.isDebugMap() || !payload.isCommandTerminalMap() || regions.isRegionVisited(payload.regionX(), payload.regionZ());
+        boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisited(payload.regionX(), payload.regionZ());
 
         if (!isVisited) {
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
@@ -59,11 +66,9 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
             }
 
             int dominoThreshold = regions.calculateDominoThreshold(payload.regionX(), payload.regionZ());
-
             int reachableMask = regions.computeReachableMask(payload.regionX(), payload.regionZ());
             int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
             boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ());
-            // Pass back the current campaign mask so the client can restore button state after reopening
             int existingSiegeMask = (siege != null) ? siege.activeSubRegionsMask() : 0;
 
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
@@ -75,15 +80,15 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
         }
     }
 
-    private static boolean isInsideMapSnapshot(ServerPlayer player, int regionX, int regionZ) {
+    private static boolean isInsideMapSnapshot(ServerPlayer player, int regionX, int regionZ, int diameter) {
         int chunksPerRegion = RegionData.REGION_SIZE_BLOCKS / 16;
-        int mapOriginX = player.chunkPosition().x - RequestRegionMapPayload.COMMAND_TERMINAL_CHUNK_DIAMETER / 2;
-        int mapOriginZ = player.chunkPosition().z - RequestRegionMapPayload.COMMAND_TERMINAL_CHUNK_DIAMETER / 2;
+        int mapOriginX = player.chunkPosition().x - diameter / 2;
+        int mapOriginZ = player.chunkPosition().z - diameter / 2;
         int regionStartX = regionX * chunksPerRegion;
         int regionStartZ = regionZ * chunksPerRegion;
-        return regionStartX < mapOriginX + RequestRegionMapPayload.COMMAND_TERMINAL_CHUNK_DIAMETER
+        return regionStartX < mapOriginX + diameter
                 && regionStartX + chunksPerRegion > mapOriginX
-                && regionStartZ < mapOriginZ + RequestRegionMapPayload.COMMAND_TERMINAL_CHUNK_DIAMETER
+                && regionStartZ < mapOriginZ + diameter
                 && regionStartZ + chunksPerRegion > mapOriginZ;
     }
 

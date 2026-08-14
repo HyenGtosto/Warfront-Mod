@@ -1,7 +1,7 @@
 package com.warfront.network;
 
 import com.warfront.Warfront;
-import com.warfront.client.RegionMapScreen;
+import com.warfront.client.map.RegionMapScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;

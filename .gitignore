@@ -4,6 +4,7 @@ build/
 _mdk-template/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/**/build/
+.agents/
 
 ### IntelliJ IDEA ###
 .idea/

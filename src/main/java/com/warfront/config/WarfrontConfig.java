@@ -14,6 +14,7 @@ public final class WarfrontConfig {
         // Sub-Region & Siege Settings
         public static final ModConfigSpec.IntValue SUB_REGION_DOMINO_THRESHOLD;
         public static final ModConfigSpec.IntValue CHUNK_TRIGGER_COOLDOWN_SECONDS;
+        public static final ModConfigSpec.IntValue SIEGE_RESOLUTION_DURATION_SECONDS;
 
         // AI Warfare Algorithm Settings (Extensible for upcoming AI Attack System)
         public static final ModConfigSpec.IntValue AI_ATTACK_INTERVAL_TICKS;
@@ -26,15 +27,15 @@ public final class WarfrontConfig {
                 builder.comment("Procedural Region Generation Settings").push("procedural_generation");
                 PILLAGER_SEPARATION = builder
                                 .comment("Manhattan cell separation between Pillager conqueror base centers (higher = rarer bases)")
-                                .defineInRange("pillager_separation", 12, 2, 32);
+                                .defineInRange("pillager_separation", 16, 8, 32);
 
                 ZOMBIE_SEPARATION = builder
                                 .comment("Manhattan cell separation between Zombie horde base centers (higher = rarer bases)")
-                                .defineInRange("zombie_separation", 12, 2, 32);
+                                .defineInRange("zombie_separation", 16, 8, 32);
 
                 FACTION_BUFFER_DISTANCE = builder
                                 .comment("Minimum region buffer clearance distance enforced between different rival factions during procedural generation")
-                                .defineInRange("faction_buffer_distance", 2, 0, 8);
+                                .defineInRange("faction_buffer_distance", 3, 1, 8);
 
                 MEGA_BASE_CHANCE = builder
                                 .comment("Probability (~15%) for an enemy cluster center to generate as a Mega Variant (Mega Command Center / Heart of Infection)")
@@ -49,12 +50,16 @@ public final class WarfrontConfig {
                 CHUNK_TRIGGER_COOLDOWN_SECONDS = builder
                                 .comment("Cooldown (in seconds) before entering the same chunk in hostile territory triggers another enemy spawn event")
                                 .defineInRange("chunk_trigger_cooldown_seconds", 60, 5, 3600);
+
+                SIEGE_RESOLUTION_DURATION_SECONDS = builder
+                                .comment("Duration (in seconds) of active siege resolution timers before campaigns expire")
+                                .defineInRange("siege_resolution_duration_seconds", 5, 1, 3600);
                 builder.pop();
 
                 builder.comment("AI Warfare & Attack Algorithm Settings").push("ai_warfare");
                 AI_ATTACK_INTERVAL_TICKS = builder
                                 .comment("Interval in game ticks (20 ticks = 1 second) between AI faction attack evaluation cycles")
-                                .defineInRange("ai_attack_interval_ticks", 6000, 600, 72000);
+                                .defineInRange("ai_attack_interval_ticks", 200, 20, 72000);
 
                 AI_EXPANSION_CHANCE = builder
                                 .comment("Probability during an evaluation cycle for an AI faction to launch an attack on a neighboring sub-region")

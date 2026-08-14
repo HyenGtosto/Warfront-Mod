@@ -33,8 +33,6 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         RegionData regions = RegionData.get(level);
 
         if (!com.warfront.region.generator.ProceduralRegionGenerator.getInstance().biomeAvailableForExpansion(level, payload.regionX(), payload.regionZ())) {
-            Warfront.LOGGER.warn("Rejected attack request from {} on Region ({}, {}) due to restricted expansion biome", player.getName().getString(), payload.regionX(), payload.regionZ());
-            player.displayClientMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Cannot launch attack into restricted expansion territory!"), false);
             return;
         }
 
@@ -48,8 +46,6 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             int validDefenseMask = requestedMask & ~securedMask; // filter out already safe sub-regions
 
             if (validDefenseMask == 0) {
-                Warfront.LOGGER.warn("Rejected defense request from {} on Region ({}, {}) - no active siege sub-regions requested",
-                        player.getName().getString(), payload.regionX(), payload.regionZ());
                 return;
             }
 
@@ -59,9 +55,9 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                             existingSiege.sources(), existingSiege.attackValue(), existingSiege.encircled(),
                             existingSiege.startTick(), existingSiege.durationTicks(), finalMask));
 
-            Warfront.LOGGER.info("Player {} confirmed defense missions on Region ({}, {}) with active mask {}.",
+            Warfront.LOGGER.info("Defense missions confirmed: {} → Region ({}, {}), active mask {}.",
                     player.getName().getString(), payload.regionX(), payload.regionZ(), finalMask);
-            RequestRegionMapPayload.send9xCommandTerminalMapSnapshotToPlayer(player);
+            RequestRegionMapPayload.notifyActiveMapTerminals(level);
             return;
         }
 
@@ -81,14 +77,12 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         }
 
         if (validRequestedMask == 0) {
-            Warfront.LOGGER.warn("Rejected attack request from {} on Region ({}, {}) - no un-conquered sub-regions requested",
-                    player.getName().getString(), payload.regionX(), payload.regionZ());
             return;
         }
 
         int finalMask = validRequestedMask;
         long startTick = level.getGameTime();
-        long durationTicks = 4000L;
+        long durationTicks = com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
 
         if (existingSiege != null && existingSiege.attacker() == com.warfront.region.Faction.HUMANITY) {
             int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
@@ -101,11 +95,11 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         java.util.List<RegionData.SourcePos> sources = java.util.List.of(new RegionData.SourcePos(payload.regionX() - 1, payload.regionZ()));
         regions.setRegionSiegeWithCampaign(payload.regionX(), payload.regionZ(),
                 new RegionData.SiegeCampaign(com.warfront.region.Faction.HUMANITY, payload.regionX(), payload.regionZ(), sources, 1, false, startTick, durationTicks, finalMask));
-        Warfront.LOGGER.info("Player {} launched/updated campaign on Region ({}, {}) with active mask {}.",
+        Warfront.LOGGER.info("Campaign launched/updated: {} → Region ({}, {}), active mask {}.",
                 player.getName().getString(), payload.regionX(), payload.regionZ(), finalMask);
 
-        // Re-send updated Command Terminal map snapshot to player to reflect siege state
-        RequestRegionMapPayload.send9xCommandTerminalMapSnapshotToPlayer(player);
+        // Re-send updated Map snapshots to active map terminals
+        RequestRegionMapPayload.notifyActiveMapTerminals(level);
     }
 
     @Override

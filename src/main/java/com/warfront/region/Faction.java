@@ -31,6 +31,10 @@ public enum Faction {
         return color;
     }
 
+    public boolean isAI() {
+        return this == PILLAGER_CONQUERORS || this == ZOMBIE_HORDE;
+    }
+
     public Component displayName() {
         return Component.translatable("faction.warfront." + commandName);
     }

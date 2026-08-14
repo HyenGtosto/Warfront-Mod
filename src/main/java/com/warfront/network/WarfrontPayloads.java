@@ -16,6 +16,8 @@ public final class WarfrontPayloads {
                 RequestRegionDetailsPayload::handle);
         registrar.playToServer(LaunchAttackPayload.TYPE, LaunchAttackPayload.STREAM_CODEC,
                 LaunchAttackPayload::handle);
+        registrar.playToServer(CloseMapSessionPayload.TYPE, CloseMapSessionPayload.STREAM_CODEC,
+                CloseMapSessionPayload::handle);
         registrar.playToClient(RegionMapPayload.TYPE, RegionMapPayload.STREAM_CODEC, RegionMapPayload::handle);
         registrar.playToClient(RegionDetailsPayload.TYPE, RegionDetailsPayload.STREAM_CODEC, RegionDetailsPayload::handle);
     }

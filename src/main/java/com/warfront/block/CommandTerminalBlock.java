@@ -18,7 +18,7 @@ public class CommandTerminalBlock extends Block {
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
         if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
-            RequestRegionMapPayload.send9xCommandTerminalMapSnapshotToPlayer(serverPlayer);
+            com.warfront.network.RequestRegionMapPayload.sendSnapshot(serverPlayer, com.warfront.map.MapViewType.COMMAND, true);
         }
         return InteractionResult.sidedSuccess(level.isClientSide());
     }

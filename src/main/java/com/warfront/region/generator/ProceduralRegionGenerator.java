@@ -95,9 +95,26 @@ public class ProceduralRegionGenerator {
     }
 
     /**
+     * Evaluates procedural region state for unsaved regions without calculating strength values, preventing recursion loops.
+     */
+    public RegionData.RegionState generateRawRegionState(ServerLevel level, long worldSeed, int regionX, int regionZ) {
+        for (int i = 0; i < factionGenerators.size(); i++) {
+            FactionGenerator generator = factionGenerators.get(i);
+            if (generator instanceof GridClusterFactionGenerator gridGen) {
+                Optional<RegionData.RegionState> result = gridGen.generateRawRegionState(level, worldSeed, regionX, regionZ);
+                if (result.isPresent()) {
+                    if (biomeAvailableForBase(level, regionX, regionZ)) {
+                        return result.get();
+                    }
+                }
+            }
+        }
+        return new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L);
+    }
+
+    /**
      * Evaluates procedural region state for unsaved regions.
-     * Enforces a buffer of at least FACTION_BUFFER_DISTANCE regions between different factions
-     * and filters out regions where the region center is in a restricted biome.
+     * Evaluates symmetrical grid cluster generators for Pillagers and Zombies.
      */
     public RegionData.RegionState generateRegion(ServerLevel level, long worldSeed, int regionX, int regionZ) {
         for (int i = 0; i < factionGenerators.size(); i++) {
@@ -105,36 +122,12 @@ public class ProceduralRegionGenerator {
             Optional<RegionData.RegionState> result = generator.generateRegion(level, worldSeed, regionX, regionZ);
 
             if (result.isPresent()) {
-                if (!isWithinBufferOfHigherPriorityFaction(worldSeed, regionX, regionZ, i)
-                        && biomeAvailableForBase(level, regionX, regionZ)) {
+                if (biomeAvailableForBase(level, regionX, regionZ)) {
                     return result.get();
                 }
             }
         }
-        return new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE);
-    }
-
-    /**
-     * Verifies that (regionX, regionZ) is not within FACTION_BUFFER_DISTANCE of any region
-     * claimed by a higher-priority faction generator (index < currentGeneratorIndex).
-     */
-    private boolean isWithinBufferOfHigherPriorityFaction(long worldSeed, int regionX, int regionZ,
-            int currentGeneratorIndex) {
-        int bufferDistance = com.warfront.config.WarfrontConfig.FACTION_BUFFER_DISTANCE.get();
-        for (int dx = -bufferDistance; dx <= bufferDistance; dx++) {
-            for (int dz = -bufferDistance; dz <= bufferDistance; dz++) {
-                int neighborX = regionX + dx;
-                int neighborZ = regionZ + dz;
-
-                for (int higherIndex = 0; higherIndex < currentGeneratorIndex; higherIndex++) {
-                    FactionGenerator higherGenerator = factionGenerators.get(higherIndex);
-                    if (higherGenerator.generateRegion(worldSeed, neighborX, neighborZ).isPresent()) {
-                        return true; // Conflict: Too close to higher-priority faction border
-                    }
-                }
-            }
-        }
-        return false;
+        return new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L);
     }
 
     /**
@@ -144,21 +137,29 @@ public class ProceduralRegionGenerator {
         return biomeAvailableForBase(level, regionX, regionZ);
     }
 
+    private final Map<Long, Boolean> baseBiomeCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<Long, Boolean> expansionBiomeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public void clearBiomeCache() {
+        baseBiomeCache.clear();
+        expansionBiomeCache.clear();
+    }
+
     /**
      * Checks if the region at (regionX, regionZ) is allowed for faction expansion/attacks (excludes if restricted biomes exceed 50% across 8x8 chunks).
      */
     public boolean biomeAvailableForExpansion(ServerLevel level, int regionX, int regionZ) {
-        return isBiomeAllowedFullRegion(level, regionX, regionZ, RESTRICTED_EXPANSION_BIOMES);
-    }
-
-    /**
-     * Relaxed center-focused biome check for initial procedural base placement.
-     * Evaluates the inner 4x4 chunk area (16 sample points) surrounding the center of the region.
-     */
-    private final Map<Long, Boolean> baseBiomeCache = new java.util.concurrent.ConcurrentHashMap<>();
-
-    public void clearBiomeCache() {
-        baseBiomeCache.clear();
+        if (level == null) {
+            return true;
+        }
+        long key = ChunkPos.asLong(regionX, regionZ);
+        Boolean cached = expansionBiomeCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        boolean result = isBiomeAllowedFullRegion(level, regionX, regionZ, RESTRICTED_EXPANSION_BIOMES);
+        expansionBiomeCache.put(key, result);
+        return result;
     }
 
     /**

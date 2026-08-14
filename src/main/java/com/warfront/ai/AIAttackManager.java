@@ -1,6 +1,9 @@
 package com.warfront.ai;
 
 import com.warfront.Warfront;
+import com.warfront.ai.strategy.AttackContext;
+
+import com.warfront.ai.strategy.HQPos;
 import com.warfront.config.WarfrontConfig;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
@@ -8,17 +11,23 @@ import com.warfront.region.RegionData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 
 public final class AIAttackManager {
     private static final Random RANDOM = new Random();
-    private static final long TEST_SIEGE_TIMEOUT_TICKS = 4000L; // 20 seconds (20 ticks/sec)
-    private static final int PLAYER_SQUARE_RADIUS_REGIONS = 6; // AI attacks constrained within 6 regions of player
+    private static final int PLAYER_SQUARE_RADIUS_REGIONS = 12; // 24x24 region grid (radius 12)
     private static long lastEvaluationTick = 0L;
 
     private AIAttackManager() {
@@ -32,7 +41,7 @@ public final class AIAttackManager {
 
         long gameTime = level.getGameTime();
 
-        // 1. Check 20-second siege timeout resolution test feature
+        // 1. Check active siege resolution timeouts
         checkSiegeTimeouts(level, gameTime);
 
         // 2. Evaluate AI expansion cycles
@@ -52,120 +61,200 @@ public final class AIAttackManager {
         Iterator<RegionData.SiegeCampaign> iterator = new ArrayList<>(regions.getActiveSieges().values()).iterator();
         while (iterator.hasNext()) {
             RegionData.SiegeCampaign campaign = iterator.next();
-            if (gameTime - campaign.startTick() >= campaign.durationTicks()) {
-                int trx = campaign.targetRegionX();
-                int trz = campaign.targetRegionZ();
-                Faction attacker = campaign.attacker();
+            try {
+                if (gameTime - campaign.startTick() >= campaign.durationTicks()) {
+                    int trx = campaign.targetRegionX();
+                    int trz = campaign.targetRegionZ();
+                    Faction attacker = campaign.attacker();
 
-                if (attacker != Faction.HUMANITY) {
-                    int dominoThreshold = regions.calculateDominoThreshold(trx, trz);
+                    if (attacker != Faction.HUMANITY) {
+                        int dominoThreshold = regions.calculateDominoThreshold(trx, trz);
 
-                    int securedCount = 0;
-                    for (int sx = 0; sx <= 1; sx++) {
-                        for (int sz = 0; sz <= 1; sz++) {
-                            if (!regions.subRegionAt(trx, trz, sx, sz).underSiege()) {
-                                securedCount++;
+                        int securedCount = 0;
+                        for (int sx = 0; sx <= 1; sx++) {
+                            for (int sz = 0; sz <= 1; sz++) {
+                                if (!regions.subRegionAt(trx, trz, sx, sz).underSiege()) {
+                                    securedCount++;
+                                }
                             }
                         }
-                    }
 
-                    if (securedCount >= dominoThreshold) {
-                        // Player successfully defended enough sectors before timer expired -> DEFENSE VICTORY!
-                        regions.setRegionSiege(trx, trz, false);
-                        regions.addLog(level, String.format("§a[Warfront] DEFENSE SUCCESSFUL! Region (%d, %d) held off %s attack!", trx, trz, attacker.commandName()));
-                        Warfront.LOGGER.info("AI Siege timeout: Region ({}, {}) defended successfully", trx, trz);
+                        if (securedCount >= dominoThreshold) {
+                            // Player successfully defended enough sectors before timer expired -> DEFENSE VICTORY!
+                            regions.setRegionSiege(trx, trz, false);
+                            regions.addLog(level, String.format("§aSiege expired: Region (%d, %d) defended against %s.", trx, trz, attacker.commandName()));
+                            Warfront.LOGGER.info("Siege expired: Region ({}, {}) defended.", trx, trz);
+                        } else {
+                            // Defense failed -> Defending region falls to attacking AI faction!
+                            BaseType baseType = regions.determineBaseTypeForConqueredRegion(trx, trz, attacker);
+                            regions.claim(level, trx, trz, attacker, 0.0F, 0.0F, baseType);
+                            regions.addLog(level, String.format("§cSiege expired: Region (%d, %d) conquered by %s.", trx, trz, attacker.commandName()));
+                            Warfront.LOGGER.info("Siege expired: Region ({}, {}) conquered by {}.", trx, trz, attacker.commandName());
+                        }
                     } else {
-                        // Defense failed -> Defending region falls to attacking AI faction!
-                        BaseType baseType = regions.determineBaseTypeForConqueredRegion(trx, trz, attacker);
-                        regions.claim(level, trx, trz, attacker, 100.0F, 50.0F, baseType);
-                        regions.addLog(level, String.format("§c[Warfront Alert] Region (%d, %d) has FALLEN to %s!", trx, trz, attacker.commandName()));
-                        Warfront.LOGGER.info("AI Siege timeout: Region ({}, {}) conquered by {}", trx, trz, attacker.commandName());
+                        // Player campaign expired - conquered sub-regions are KEPT, siege window closes
+                        regions.setRegionSiege(trx, trz, false);
+                        int heldSectors = Integer.bitCount(regions.computeConqueredMask(trx, trz));
+                        String outcome = String.format("§eCampaign expired: Region (%d, %d), %d sectors held.", trx, trz, heldSectors);
+                        regions.addLog(level, outcome);
+                        Warfront.LOGGER.info("Campaign expired: Region ({}, {}), {} sectors held.", trx, trz, heldSectors);
                     }
-                } else {
-                    // Player campaign expired - conquered sub-regions are KEPT, siege window closes
-                    regions.setRegionSiege(trx, trz, false);
-                    int heldSectors = Integer.bitCount(regions.computeConqueredMask(trx, trz));
-                    String outcome = (heldSectors > 0)
-                            ? String.format("§e[Warfront] Campaign on (%d, %d) expired — %d sector(s) held. Launch a new campaign to finish.", trx, trz, heldSectors)
-                            : String.format("§c[Warfront] Campaign on (%d, %d) failed — no sectors captured.", trx, trz);
-                    regions.addLog(level, outcome);
-                    Warfront.LOGGER.info("Player campaign expired on Region ({}, {}): {} sectors held", trx, trz, heldSectors);
-                }
 
-                mapStateChanged = true;
+                    mapStateChanged = true;
+                }
+            } catch (Exception e) {
+                Warfront.LOGGER.error("Siege timeout error: Region ({}, {}): {}", campaign.targetRegionX(), campaign.targetRegionZ(), e.getMessage(), e);
             }
         }
 
         if (mapStateChanged) {
-            com.warfront.network.RequestRegionMapPayload.sendMapSnapshotToAllPlayers(level);
+            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
         }
     }
 
     private static void evaluateAIFactionAttacks(ServerLevel level) {
         RegionData regions = RegionData.get(level);
+        regions.decayZombieRetaliation();
+
         double expansionChance = WarfrontConfig.AI_EXPANSION_CHANCE.get();
         int maxSieges = WarfrontConfig.AI_MAX_SIMULTANEOUS_SIEGES.get();
 
-        Faction[] aiFactions = new Faction[] { Faction.PILLAGER_CONQUERORS, Faction.ZOMBIE_HORDE };
+        int activeSiegesCount = regions.getActiveSieges().size();
+        if (activeSiegesCount >= maxSieges) {
+            return;
+        }
 
-        for (Faction faction : aiFactions) {
+        int openSlots = maxSieges - activeSiegesCount;
+
+        Set<Long> pillagerClusterIds = regions.getAllClusterIds(level, Faction.PILLAGER_CONQUERORS);
+        Set<Long> zombieClusterIds = regions.getAllClusterIds(level, Faction.ZOMBIE_HORDE);
+
+        List<StrategicActor> actors = new ArrayList<>();
+        if (pillagerClusterIds.isEmpty()) {
+            actors.add(new StrategicActor(Faction.PILLAGER_CONQUERORS, 0L));
+        } else {
+            for (long cid : pillagerClusterIds) {
+                actors.add(new StrategicActor(Faction.PILLAGER_CONQUERORS, cid));
+            }
+        }
+        if (zombieClusterIds.isEmpty()) {
+            actors.add(new StrategicActor(Faction.ZOMBIE_HORDE, 0L));
+        } else {
+            for (long cid : zombieClusterIds) {
+                actors.add(new StrategicActor(Faction.ZOMBIE_HORDE, cid));
+            }
+        }
+
+        // Randomize the complete actor pool without replacement for emergent warfare patterns
+        Collections.shuffle(actors, RANDOM);
+
+        // Instantiate short-lived BFS component cache for this evaluation cycle
+        Map<Long, Optional<HQPos>> evaluationCache = new HashMap<>();
+
+        int slotAttemptsExecuted = 0;
+        int turnIndex = 0;
+        Set<StrategicActor> exhaustedActors = new HashSet<>();
+
+        while (slotAttemptsExecuted < openSlots && regions.getActiveSieges().size() < maxSieges) {
+            if (exhaustedActors.size() >= actors.size()) {
+                break; // All strategic actors candidate-exhausted -> Terminate cycle cleanly
+            }
+
+            StrategicActor actor = actors.get(turnIndex % actors.size());
+            turnIndex++;
+
+            if (exhaustedActors.contains(actor)) {
+                continue; // Skip exhausted actor without consuming slot attempt opportunity
+            }
+
+            Faction faction = actor.faction();
+            List<com.warfront.ai.strategy.AttackCandidate> localCandidates = new ArrayList<>();
+            List<com.warfront.ai.strategy.AttackCandidate> remoteCandidates = new ArrayList<>();
+            findFrontlineAttackCandidatesDualZone(level, regions, faction, actor.clusterId(), localCandidates, remoteCandidates);
+
+            List<com.warfront.ai.strategy.AttackCandidate> candidates;
+            if (!localCandidates.isEmpty() && !remoteCandidates.isEmpty()) {
+                // Weighted Dual-Zone: 80% chance for local active player grid (24x24), 20% for remote territory
+                candidates = (RANDOM.nextDouble() < 0.8D) ? localCandidates : remoteCandidates;
+            } else if (!localCandidates.isEmpty()) {
+                candidates = localCandidates;
+            } else {
+                candidates = remoteCandidates;
+            }
+
+            if (candidates.isEmpty()) {
+                exhaustedActors.add(actor);
+                continue; // Do NOT count as slot attempt opportunity; pass turn immediately
+            }
+
+            // Actor has candidates -> consume 1 slot attempt opportunity
+            slotAttemptsExecuted++;
+
+            // Roll independent per-slot expansion chance
             if (RANDOM.nextDouble() > expansionChance) {
+                continue; // Skipped slot attempt based on roll
+            }
+
+            com.warfront.ai.strategy.FactionAttackStrategy strategy = com.warfront.ai.strategy.FactionStrategyRegistry.getStrategy(faction);
+            AttackContext context = new AttackContext(level, regions, faction, PLAYER_SQUARE_RADIUS_REGIONS, RANDOM, evaluationCache);
+
+            Optional<com.warfront.ai.strategy.AttackTarget> targetOpt = strategy.chooseAttackTarget(faction, context, candidates);
+            if (targetOpt.isEmpty()) {
+                exhaustedActors.add(actor);
                 continue;
             }
 
-            int activeSieges = regions.getActiveSieges().size();
-            if (activeSieges >= maxSieges) {
-                continue;
+            com.warfront.ai.strategy.AttackTarget chosen = targetOpt.get();
+
+            // Calculate reinforcements & encirclement status
+            SiegeDetails details = calculateSiegeDetails(regions, chosen.targetRegionX(), chosen.targetRegionZ(),
+                    chosen.sourceRegionX(), chosen.sourceRegionZ(), faction);
+
+            long durationTicks = WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
+
+            long attackerClusterId = chosen.attackerClusterId();
+            if (attackerClusterId == 0L && faction.isAI()) {
+                attackerClusterId = regions.regionAt(chosen.sourceRegionX(), chosen.sourceRegionZ()).clusterId();
             }
 
-            List<FrontlineAttackCandidate> candidates = findFrontlineAttackCandidates(level, regions, faction);
-            if (!candidates.isEmpty()) {
-                FrontlineAttackCandidate chosen = candidates.get(RANDOM.nextInt(candidates.size()));
+            RegionData.SiegeCampaign campaign = new RegionData.SiegeCampaign(
+                    faction, // Explicit AI attacker identifier
+                    chosen.targetRegionX(), chosen.targetRegionZ(),
+                    details.sources(),
+                    details.attackValue(),
+                    details.encircled(),
+                    level.getGameTime(),
+                    durationTicks,
+                    0xF,
+                    attackerClusterId);
 
-                // Calculate reinforcements & encirclement status
-                SiegeDetails details = calculateSiegeDetails(regions, chosen.targetRegionX(), chosen.targetRegionZ(),
-                        chosen.sourceRegionX(), chosen.sourceRegionZ(), faction);
+            regions.setRegionSiegeWithCampaign(chosen.targetRegionX(), chosen.targetRegionZ(), campaign);
 
-                float targetStability = regions.calculateEffectiveStability(chosen.targetRegionX(), chosen.targetRegionZ());
-                // Siege timeout scales with player region stability (from 400 ticks / 20s up to 4000 ticks / 200s for 100 stability)
-                long durationTicks = Math.max(400L, (long) (targetStability * 40.0F));
+            RegionData.Region targetRegion = regions.regionAt(chosen.targetRegionX(), chosen.targetRegionZ());
+            String defenderInfo = String.format("[%s - %s]", targetRegion.owner().commandName(), targetRegion.baseType().name());
 
-                RegionData.SiegeCampaign campaign = new RegionData.SiegeCampaign(
-                        faction, // Explicit AI attacker identifier
-                        chosen.targetRegionX(), chosen.targetRegionZ(),
-                        details.sources(),
-                        details.attackValue(),
-                        details.encircled(),
-                        level.getGameTime(),
-                        durationTicks);
-
-                regions.setRegionSiegeWithCampaign(chosen.targetRegionX(), chosen.targetRegionZ(), campaign);
-
-                String logMsg;
-                if (details.encircled()) {
-                    logMsg = String.format("§4[CRITICAL SIEGE] %s have ENCIRCLED Region (%d, %d)! Threat Level: %d!",
-                            faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), details.attackValue());
-                } else if (details.sources().size() > 1) {
-                    logMsg = String.format("§c[Warfront Alert] %s launched a MULTI-FLANK siege on Region (%d, %d) from %d directions!",
-                            faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), details.sources().size());
-                } else {
-                    logMsg = String.format("§c[Warfront Alert] %s launched a siege campaign on Region (%d, %d)!",
-                            faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ());
-                }
-                regions.addLog(level, logMsg);
-
-                // Force update strategic map screen for all online players live
-                com.warfront.network.RequestRegionMapPayload.sendMapSnapshotToAllPlayers(level);
-                Warfront.LOGGER.info("{} launched attack on Region ({}, {}), AttackValue: {}, Sources: {}",
-                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), details.attackValue(),
-                        details.sources().size());
+            String logMsg;
+            if (details.encircled()) {
+                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s, attack value %d, encircled.",
+                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue());
+            } else if (details.sources().size() > 1) {
+                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s, attack value %d, %d sources.",
+                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue(), details.sources().size());
+            } else {
+                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s.",
+                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo);
             }
+            regions.addLog(level, logMsg);
+
+            // Force update strategic map screen for active map terminals
+            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+            Warfront.LOGGER.info("Attack launched: {} → Region ({}, {}) {}, attack value {}, {} sources.",
+                    faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue(),
+                    details.sources().size());
         }
     }
 
-    private record FrontlineAttackCandidate(int sourceRegionX, int sourceRegionZ, int targetRegionX,
-            int targetRegionZ) {
-    }
+    private record StrategicActor(Faction faction, long clusterId) {}
 
     private record SiegeDetails(int attackValue, List<RegionData.SourcePos> sources, boolean encircled) {
     }
@@ -206,51 +295,99 @@ public final class AIAttackManager {
         return new SiegeDetails(attackValue, sources, encircled);
     }
 
-    private static List<FrontlineAttackCandidate> findFrontlineAttackCandidates(ServerLevel level, RegionData regions,
-            Faction attacker) {
-        List<FrontlineAttackCandidate> candidates = new ArrayList<>();
+    private static void findFrontlineAttackCandidatesDualZone(ServerLevel level, RegionData regions, Faction attacker, long clusterId,
+            List<com.warfront.ai.strategy.AttackCandidate> localOut, List<com.warfront.ai.strategy.AttackCandidate> remoteOut) {
+        List<RegionData.Region> attackerRegions = regions.getRegionsOwnedBy(attacker);
+        Set<Long> processedKeys = new HashSet<>();
+        for (RegionData.Region r : attackerRegions) {
+            processedKeys.add(ChunkPos.asLong(r.x(), r.z()));
+        }
+
+        // Also scan procedural regions around all active players and claimed HUMANITY regions
+        List<RegionData.Region> humanityRegions = regions.getRegionsOwnedBy(Faction.HUMANITY);
+        List<ChunkPos> scanOrigins = new ArrayList<>();
+
+        if (level != null && level.getServer() != null) {
+            for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                if (player.level() == level) {
+                    scanOrigins.add(new ChunkPos(Math.floorDiv(player.chunkPosition().x, 8), Math.floorDiv(player.chunkPosition().z, 8)));
+                }
+            }
+        }
+        for (RegionData.Region hr : humanityRegions) {
+            scanOrigins.add(new ChunkPos(hr.x(), hr.z()));
+        }
+
         int scanRadius = 15;
-
-        for (int rx = -scanRadius; rx <= scanRadius; rx++) {
-            for (int rz = -scanRadius; rz <= scanRadius; rz++) {
-                RegionData.Region sourceRegion = regions.regionAt(rx, rz);
-                if (sourceRegion.owner() == attacker) {
-                    int[][] offsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-                    for (int[] offset : offsets) {
-                        int targetRX = rx + offset[0];
-                        int targetRZ = rz + offset[1];
-
-                        // Testing constraint: AI attacks can ONLY generate within 6 regions of a player
-                        if (!isWithinPlayerRadius(level, targetRX, targetRZ, PLAYER_SQUARE_RADIUS_REGIONS)) {
-                            continue;
-                        }
-
-                        RegionData.Region targetRegion = regions.regionAt(targetRX, targetRZ);
-
-                        if (targetRegion.owner() != attacker
-                                && !regions.subRegionAt(targetRX, targetRZ, 0, 0).underSiege()
-                                && com.warfront.region.generator.ProceduralRegionGenerator.getInstance().biomeAvailableForExpansion(level, targetRX, targetRZ)) {
-                            candidates.add(new FrontlineAttackCandidate(rx, rz, targetRX, targetRZ));
+        for (ChunkPos origin : scanOrigins) {
+            for (int rx = origin.x - scanRadius; rx <= origin.x + scanRadius; rx++) {
+                for (int rz = origin.z - scanRadius; rz <= origin.z + scanRadius; rz++) {
+                    long key = ChunkPos.asLong(rx, rz);
+                    if (processedKeys.add(key)) {
+                        if (regions.regionAt(rx, rz).owner() == attacker) {
+                            attackerRegions.add(regions.regionAt(rx, rz));
                         }
                     }
                 }
             }
         }
 
-        return candidates;
+        int[][] offsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+
+        for (RegionData.Region sourceRegion : attackerRegions) {
+            if (clusterId != 0L && sourceRegion.clusterId() != clusterId) {
+                continue;
+            }
+
+            int rx = sourceRegion.x();
+            int rz = sourceRegion.z();
+
+            boolean isLocal = isNearPlayerEntity(level, rx, rz, PLAYER_SQUARE_RADIUS_REGIONS);
+            boolean isRemote = !isLocal && isNearHumanityTerritory(regions, rx, rz, PLAYER_SQUARE_RADIUS_REGIONS);
+
+            if (!isLocal && !isRemote) {
+                continue;
+            }
+
+            for (int[] offset : offsets) {
+                int targetRX = rx + offset[0];
+                int targetRZ = rz + offset[1];
+
+                RegionData.Region targetRegion = regions.regionAt(targetRX, targetRZ);
+
+                if (targetRegion.owner() != attacker
+                        && !regions.subRegionAt(targetRX, targetRZ, 0, 0).underSiege()
+                        && com.warfront.region.generator.ProceduralRegionGenerator.getInstance().biomeAvailableForExpansion(level, targetRX, targetRZ)) {
+                    com.warfront.ai.strategy.AttackCandidate candidate = new com.warfront.ai.strategy.AttackCandidate(rx, rz, targetRX, targetRZ);
+                    if (isLocal) {
+                        localOut.add(candidate);
+                    } else {
+                        remoteOut.add(candidate);
+                    }
+                }
+            }
+        }
     }
 
-    private static boolean isWithinPlayerRadius(ServerLevel level, int targetRX, int targetRZ, int radiusRegions) {
-        if (level.getServer() == null) {
-            return true;
-        }
+    private static boolean isNearPlayerEntity(ServerLevel level, int rx, int rz, int radiusRegions) {
+        if (level == null || level.getServer() == null) return false;
         for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
             if (player.level() == level) {
-                int playerRX = Math.floorDiv(player.chunkPosition().x, 8);
-                int playerRZ = Math.floorDiv(player.chunkPosition().z, 8);
-                if (Math.abs(targetRX - playerRX) <= radiusRegions && Math.abs(targetRZ - playerRZ) <= radiusRegions) {
+                int prx = Math.floorDiv(player.chunkPosition().x, 8);
+                int prz = Math.floorDiv(player.chunkPosition().z, 8);
+                if (Math.abs(rx - prx) <= radiusRegions && Math.abs(rz - prz) <= radiusRegions) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isNearHumanityTerritory(RegionData regions, int rx, int rz, int radiusRegions) {
+        List<RegionData.Region> humanityRegions = regions.getRegionsOwnedBy(Faction.HUMANITY);
+        for (RegionData.Region hr : humanityRegions) {
+            if (Math.abs(rx - hr.x()) <= radiusRegions && Math.abs(rz - hr.z()) <= radiusRegions) {
+                return true;
             }
         }
         return false;

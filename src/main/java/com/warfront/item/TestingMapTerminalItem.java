@@ -18,8 +18,7 @@ public class TestingMapTerminalItem extends Item {
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
-            // Send massive 3072x3072 block snapshot via isolated DebugMapHandler for rapid world generation testing
-            com.warfront.network.DebugMapHandler.send3kDebugMapSnapshot(serverPlayer);
+            com.warfront.network.RequestRegionMapPayload.sendSnapshot(serverPlayer, com.warfront.map.MapViewType.DEBUG, true);
         }
         return InteractionResultHolder.sidedSuccess(stack, level.isClientSide());
     }

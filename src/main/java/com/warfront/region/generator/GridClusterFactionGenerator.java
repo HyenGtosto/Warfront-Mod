@@ -31,22 +31,46 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         return generateRegion(null, worldSeed, regionX, regionZ);
     }
 
-    public Optional<RegionData.RegionState> generateRegion(ServerLevel level, long worldSeed, int regionX,
-            int regionZ) {
+    public static int[] getCanonicalCellCenter(long worldSeed, int cellX, int cellZ, int separation, long seedSalt) {
+        long cellSeed = hashCell(worldSeed, cellX, cellZ, seedSalt);
+        int margin = 4;
+        int range = Math.max(1, separation - 2 * margin);
+        int cx = cellX * separation + margin + (int) (Math.abs(cellSeed ^ 0x5DEECE66DL) % range);
+        int cz = cellZ * separation + margin + (int) (Math.abs((cellSeed >> 16) ^ 0x5DEECE66DL) % range);
+        return new int[] { cx, cz };
+    }
+
+    public Optional<RegionData.RegionState> generateRawRegionState(ServerLevel level, long worldSeed, int regionX, int regionZ) {
+        return generateRegionInternal(level, worldSeed, regionX, regionZ, false);
+    }
+
+    public Optional<RegionData.RegionState> generateRegion(ServerLevel level, long worldSeed, int regionX, int regionZ) {
+        return generateRegionInternal(level, worldSeed, regionX, regionZ, true);
+    }
+
+    private Optional<RegionData.RegionState> generateRegionInternal(ServerLevel level, long worldSeed, int regionX,
+            int regionZ, boolean calculateStrength) {
         int separation = config.separation();
         int baseCellX = Math.floorDiv(regionX, separation);
         int baseCellZ = Math.floorDiv(regionZ, separation);
 
-        // Check the current cell and neighboring cells in case a cluster spills over
-        // cell boundaries
+        // Check the current cell and neighboring cells in case a cluster spills over cell boundaries
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 int cellX = baseCellX + dx;
                 int cellZ = baseCellZ + dz;
 
+                // Symmetric 50/50 Faction Selection per Cell
+                long factionSeed = hashCell(worldSeed, cellX, cellZ, 3003L);
+                Faction cellFaction = ((Math.abs(factionSeed ^ 0x77777777L) % 100) < 50) ? Faction.ZOMBIE_HORDE : Faction.PILLAGER_CONQUERORS;
+                if (cellFaction != this.faction) {
+                    continue; // Cell assigned to rival faction in 50/50 symmetric split -> yield cell
+                }
+
                 long cellSeed = hashCell(worldSeed, cellX, cellZ, config.seedSalt());
-                int centerX = cellX * separation + (int) (Math.abs(cellSeed ^ 0x5DEECE66DL) % separation);
-                int centerZ = cellZ * separation + (int) (Math.abs((cellSeed >> 16) ^ 0x5DEECE66DL) % separation);
+                int[] center = getCanonicalCellCenter(worldSeed, cellX, cellZ, separation, config.seedSalt());
+                int centerX = center[0];
+                int centerZ = center[1];
 
                 int spawnDistance = Math.abs(centerX) + Math.abs(centerZ);
                 if (spawnDistance < config.minDistanceFromSpawn()) {
@@ -57,23 +81,17 @@ public class GridClusterFactionGenerator implements FactionGenerator {
                 int megaThreshold = (int) (com.warfront.config.WarfrontConfig.MEGA_BASE_CHANCE.get() * 100.0D);
                 boolean isMegaVariant = (Math.abs(cellSeed ^ 0x9E3779B9L) % 100) < megaThreshold;
 
-                int sizeRange = config.maxClusterSize() - config.minClusterSize() + 1;
-                int clusterSize = config.minClusterSize() + (int) (Math.abs(cellSeed >> 32) % sizeRange);
-
-                // Strict Restraints: Reject candidate location if land domain is insufficient
-                // or cardinal outposts land on water!
+                // Strict Restraints: Require at least a valid Big Base domain. Single-region / 1-tile bases are completely scrapped!
                 if (isMegaVariant) {
                     if (!isValidMegaBaseLocation(level, centerX, centerZ)) {
-                        // Fallback: If Mega Base cannot fit inland, attempt to downgrade to a Big Base
-                        // or cancel
                         isMegaVariant = false;
                         if (!isValidBigBaseLocation(level, centerX, centerZ)) {
-                            continue; // Coastal location too cramped for any large base -> cancel cluster!
+                            continue; // Location too cramped for any large base -> cancel cluster completely!
                         }
                     }
-                } else if (clusterSize >= 2) {
+                } else {
                     if (!isValidBigBaseLocation(level, centerX, centerZ)) {
-                        clusterSize = 1; // Downgrade to Small Base if coastal land is too cramped for Big Base
+                        continue; // Location too cramped for Big Base -> cancel cluster completely!
                     }
                 }
 
@@ -81,16 +99,15 @@ public class GridClusterFactionGenerator implements FactionGenerator {
                 int relX = regionX - centerX;
                 int relZ = regionZ - centerZ;
 
-                // Prevent cluster fusion: If another neighboring cell center is closer to
-                // (regionX, regionZ), yield to that cell!
+                // Prevent cluster fusion: If another neighboring cell center is closer to (regionX, regionZ), yield to that cell!
                 if (isCloserToAnotherCell(worldSeed, separation, regionX, regionZ, cellX, cellZ, manhattanDistance)) {
                     continue;
                 }
 
+                long clusterId = net.minecraft.world.level.ChunkPos.asLong(cellX, cellZ);
+
                 if (isMegaVariant) {
-                    // Mega Variant: 1 Mega Core (0,0) + 4 Inner Walled Headquarters (MD = 1
-                    // cardinals) + 4 Outer Perimeter Outposts (MD = 3 cardinals) + 35% Organic
-                    // Fringe
+                    // Mega Variant: 1 Mega Core (0,0) + 4 Inner Walled Headquarters (MD = 1 cardinals) + 4 Outer Perimeter Outposts (MD = 3 cardinals) + 35% Organic Fringe
                     if (manhattanDistance <= 2) {
                         BaseType baseType = BaseType.NONE;
 
@@ -101,58 +118,69 @@ public class GridClusterFactionGenerator implements FactionGenerator {
                             baseType = BaseType.HEADQUARTERS;
                         }
 
-                        float baseMetric = (baseType == BaseType.MEGA_BASE) ? 90.0F
-                                : (baseType == BaseType.HEADQUARTERS) ? 70.0F : 30.0F;
-
-                        return Optional.of(new RegionData.RegionState(faction, baseMetric, baseMetric, baseType));
+                        if (!calculateStrength) {
+                            return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, clusterId));
+                        }
+                        com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
+                        return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, clusterId));
                     } else if (manhattanDistance == 3) {
                         boolean isCardinalTip = (relX == 0 || relZ == 0);
                         if (isCardinalTip) {
                             // Guaranteed 4 perimeter Outposts at cardinal tips (MD = 3)
-                            return Optional.of(new RegionData.RegionState(faction, 50.0F, 50.0F, BaseType.OUTPOST));
+                            if (!calculateStrength) {
+                                return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.OUTPOST, clusterId));
+                            }
+                            com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                    com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.OUTPOST, clusterId, worldSeed);
+                            return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.OUTPOST, clusterId));
                         } else {
-                            // 8 outer fringe corners at MD = 3: 35% chance to claim as plain territory
-                            // (BaseType.NONE)
+                            // 8 outer fringe corners at MD = 3: 35% chance to claim as plain territory (BaseType.NONE)
                             long fringeHash = hashCell(worldSeed, regionX, regionZ, 8888L);
                             if ((Math.abs(fringeHash) % 100) < 35) {
-                                return Optional.of(new RegionData.RegionState(faction, 30.0F, 30.0F, BaseType.NONE));
+                                if (!calculateStrength) {
+                                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, clusterId));
+                                }
+                                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, clusterId, worldSeed);
+                                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, clusterId));
                             }
                         }
                     }
-                } else if (clusterSize >= 2) {
-                    // Big Standard Base: Core 13-region domain (MD <= 2 with 4 cardinal outposts at
-                    // MD = 2) + 35% Organic Fringe at MD = 3 edge spots (-2,1), (-2,-1), (-1,2),
-                    // (-1,-2), etc.
+                } else {
+                    // Big Standard Base: Core 13-region domain (MD <= 2 with 4 cardinal outposts at MD = 2) + 35% Organic Fringe at MD = 3 edge spots
                     if (manhattanDistance == 0) {
-                        return Optional.of(new RegionData.RegionState(faction, 70.0F, 70.0F, BaseType.HEADQUARTERS));
+                        if (!calculateStrength) {
+                            return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.HEADQUARTERS, clusterId));
+                        }
+                        com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.HEADQUARTERS, clusterId, worldSeed);
+                        return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.HEADQUARTERS, clusterId));
                     } else if (manhattanDistance == 1) {
-                        return Optional.of(new RegionData.RegionState(faction, 30.0F, 30.0F, BaseType.NONE));
+                        if (!calculateStrength) {
+                            return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, clusterId));
+                        }
+                        com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, clusterId, worldSeed);
+                        return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, clusterId));
                     } else if (manhattanDistance == 2) {
                         boolean isCardinalTip = (relX == 0 || relZ == 0);
                         BaseType baseType = isCardinalTip ? BaseType.OUTPOST : BaseType.NONE;
-                        float baseMetric = isCardinalTip ? 50.0F : 30.0F;
-                        return Optional.of(new RegionData.RegionState(faction, baseMetric, baseMetric, baseType));
+                        if (!calculateStrength) {
+                            return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, clusterId));
+                        }
+                        com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
+                        return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, clusterId));
                     } else if (manhattanDistance == 3 && relX != 0 && relZ != 0) {
-                        // The 8 edge spots surrounding the 13-region diamond: (-2,1), (-2,-1), (-1,2),
-                        // (-1,-2), etc.
                         long fringeHash = hashCell(worldSeed, regionX, regionZ, 8888L);
                         if ((Math.abs(fringeHash) % 100) < 35) {
-                            return Optional.of(new RegionData.RegionState(faction, 30.0F, 30.0F, BaseType.NONE));
-                        }
-                    }
-                } else {
-                    // Small Standard Base: Core 5-region cross (MD <= 1) + 60% corner outposts at
-                    // (|relX|==1 && |relZ|==1)
-                    if (manhattanDistance <= 1) {
-                        BaseType baseType = (manhattanDistance == 0) ? BaseType.HEADQUARTERS : BaseType.NONE;
-                        float baseMetric = (baseType == BaseType.HEADQUARTERS) ? 70.0F : 30.0F;
-                        return Optional.of(new RegionData.RegionState(faction, baseMetric, baseMetric, baseType));
-                    } else if (Math.abs(relX) == 1 && Math.abs(relZ) == 1) {
-                        // Diagonal corner at MD = 2: 60% chance to spawn an Outpost attached to the
-                        // 5-region base
-                        long cornerHash = hashCell(worldSeed, regionX, regionZ, 7777L);
-                        if ((Math.abs(cornerHash) % 100) < 60) {
-                            return Optional.of(new RegionData.RegionState(faction, 50.0F, 50.0F, BaseType.OUTPOST));
+                            if (!calculateStrength) {
+                                return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, clusterId));
+                            }
+                            com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                                    com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, clusterId, worldSeed);
+                            return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, clusterId));
                         }
                     }
                 }
@@ -171,10 +199,9 @@ public class GridClusterFactionGenerator implements FactionGenerator {
 
                 int otherCellX = selfCellX + cdx;
                 int otherCellZ = selfCellZ + cdz;
-                long otherSeed = hashCell(worldSeed, otherCellX, otherCellZ, config.seedSalt());
-                int otherCenterX = otherCellX * separation + (int) (Math.abs(otherSeed ^ 0x5DEECE66DL) % separation);
-                int otherCenterZ = otherCellZ * separation
-                        + (int) (Math.abs((otherSeed >> 16) ^ 0x5DEECE66DL) % separation);
+                int[] otherCenter = getCanonicalCellCenter(worldSeed, otherCellX, otherCellZ, separation, config.seedSalt());
+                int otherCenterX = otherCenter[0];
+                int otherCenterZ = otherCenter[1];
 
                 int otherDist = Math.abs(targetRX - otherCenterX) + Math.abs(targetRZ - otherCenterZ);
                 if (otherDist < selfDistance) {
