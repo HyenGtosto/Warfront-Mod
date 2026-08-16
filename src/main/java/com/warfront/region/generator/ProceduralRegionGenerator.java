@@ -94,22 +94,35 @@ public class ProceduralRegionGenerator {
         return generateRegion(null, worldSeed, regionX, regionZ);
     }
 
+    private final Map<Long, RegionData.RegionState> proceduralRawStateCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * Evaluates procedural region state for unsaved regions without calculating strength values, preventing recursion loops.
+     * Reuses proceduralRawStateCache to make snapshot building instant.
      */
     public RegionData.RegionState generateRawRegionState(ServerLevel level, long worldSeed, int regionX, int regionZ) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        RegionData.RegionState cached = proceduralRawStateCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+
         for (int i = 0; i < factionGenerators.size(); i++) {
             FactionGenerator generator = factionGenerators.get(i);
             if (generator instanceof GridClusterFactionGenerator gridGen) {
                 Optional<RegionData.RegionState> result = gridGen.generateRawRegionState(level, worldSeed, regionX, regionZ);
                 if (result.isPresent()) {
                     if (biomeAvailableForBase(level, regionX, regionZ)) {
-                        return result.get();
+                        RegionData.RegionState state = result.get();
+                        proceduralRawStateCache.put(key, state);
+                        return state;
                     }
                 }
             }
         }
-        return new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L);
+        RegionData.RegionState unclaimed = new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L);
+        proceduralRawStateCache.put(key, unclaimed);
+        return unclaimed;
     }
 
     /**

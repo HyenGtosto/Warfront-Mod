@@ -207,14 +207,14 @@ public final class AIAttackManager {
             com.warfront.ai.strategy.AttackTarget chosen = targetOpt.get();
 
             // Calculate reinforcements & encirclement status
-            SiegeDetails details = calculateSiegeDetails(regions, chosen.targetRegionX(), chosen.targetRegionZ(),
+            SiegeDetails details = calculateSiegeDetails(level, regions, chosen.targetRegionX(), chosen.targetRegionZ(),
                     chosen.sourceRegionX(), chosen.sourceRegionZ(), faction);
 
             long durationTicks = WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
 
             long attackerClusterId = chosen.attackerClusterId();
             if (attackerClusterId == 0L && faction.isAI()) {
-                attackerClusterId = regions.regionAt(chosen.sourceRegionX(), chosen.sourceRegionZ()).clusterId();
+                attackerClusterId = getRawOrSavedRegionState(level, regions, chosen.sourceRegionX(), chosen.sourceRegionZ()).clusterId();
             }
 
             RegionData.SiegeCampaign campaign = new RegionData.SiegeCampaign(
@@ -259,7 +259,16 @@ public final class AIAttackManager {
     private record SiegeDetails(int attackValue, List<RegionData.SourcePos> sources, boolean encircled) {
     }
 
-    private static SiegeDetails calculateSiegeDetails(RegionData regions, int targetRX, int targetRZ, int primarySrcX,
+    private static RegionData.RegionState getRawOrSavedRegionState(ServerLevel level, RegionData regions, int rx, int rz) {
+        RegionData.RegionState state = regions.getSavedRegionState(rx, rz);
+        if (state != null) {
+            return state;
+        }
+        long seed = (level != null) ? level.getSeed() : 0L;
+        return com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, seed, rx, rz);
+    }
+
+    private static SiegeDetails calculateSiegeDetails(ServerLevel level, RegionData regions, int targetRX, int targetRZ, int primarySrcX,
             int primarySrcZ, Faction attacker) {
         int[][] cardinalOffsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
         int hostileNeighborCount = 0;
@@ -269,7 +278,7 @@ public final class AIAttackManager {
         for (int[] offset : cardinalOffsets) {
             int nrx = targetRX + offset[0];
             int nrz = targetRZ + offset[1];
-            RegionData.Region neighbor = regions.regionAt(nrx, nrz);
+            RegionData.RegionState neighbor = getRawOrSavedRegionState(level, regions, nrx, nrz);
 
             if (neighbor.owner() != Faction.HUMANITY && neighbor.owner() != Faction.UNCLAIMED) {
                 hostileNeighborCount++;
@@ -297,6 +306,7 @@ public final class AIAttackManager {
 
     private static void findFrontlineAttackCandidatesDualZone(ServerLevel level, RegionData regions, Faction attacker, long clusterId,
             List<com.warfront.ai.strategy.AttackCandidate> localOut, List<com.warfront.ai.strategy.AttackCandidate> remoteOut) {
+        long startNano = System.nanoTime();
         List<RegionData.Region> attackerRegions = regions.getRegionsOwnedBy(attacker);
         Set<Long> processedKeys = new HashSet<>();
         for (RegionData.Region r : attackerRegions) {
@@ -319,13 +329,16 @@ public final class AIAttackManager {
         }
 
         int scanRadius = 15;
+        int rawStateLookups = 0;
         for (ChunkPos origin : scanOrigins) {
             for (int rx = origin.x - scanRadius; rx <= origin.x + scanRadius; rx++) {
                 for (int rz = origin.z - scanRadius; rz <= origin.z + scanRadius; rz++) {
                     long key = ChunkPos.asLong(rx, rz);
                     if (processedKeys.add(key)) {
-                        if (regions.regionAt(rx, rz).owner() == attacker) {
-                            attackerRegions.add(regions.regionAt(rx, rz));
+                        rawStateLookups++;
+                        RegionData.RegionState state = getRawOrSavedRegionState(level, regions, rx, rz);
+                        if (state.owner() == attacker) {
+                            attackerRegions.add(new RegionData.Region(rx, rz, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId()));
                         }
                     }
                 }
@@ -353,9 +366,9 @@ public final class AIAttackManager {
                 int targetRX = rx + offset[0];
                 int targetRZ = rz + offset[1];
 
-                RegionData.Region targetRegion = regions.regionAt(targetRX, targetRZ);
+                RegionData.RegionState targetState = getRawOrSavedRegionState(level, regions, targetRX, targetRZ);
 
-                if (targetRegion.owner() != attacker
+                if (targetState.owner() != attacker
                         && !regions.subRegionAt(targetRX, targetRZ, 0, 0).underSiege()
                         && com.warfront.region.generator.ProceduralRegionGenerator.getInstance().biomeAvailableForExpansion(level, targetRX, targetRZ)) {
                     com.warfront.ai.strategy.AttackCandidate candidate = new com.warfront.ai.strategy.AttackCandidate(rx, rz, targetRX, targetRZ);
@@ -367,6 +380,10 @@ public final class AIAttackManager {
                 }
             }
         }
+
+        long elapsedMs = (System.nanoTime() - startNano) / 1_000_000L;
+        Warfront.LOGGER.info("AI Candidate Scan ({}) completed in {} ms: {} regions evaluated, 0 strength calculations, 0 biome queries",
+                attacker.commandName(), elapsedMs, rawStateLookups);
     }
 
     private static boolean isNearPlayerEntity(ServerLevel level, int rx, int rz, int radiusRegions) {

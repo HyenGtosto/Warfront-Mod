@@ -65,9 +65,26 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         buildAndSendSnapshot(player, viewType, isExplicitRequest);
     }
 
+    private static final Map<Long, Integer> CHUNK_BIOME_COLOR_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static int getOrComputeBiomeColor(ServerLevel level, int chunkX, int chunkZ, BlockPos.MutableBlockPos samplePos, int seaLevel) {
+        long key = net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
+        Integer cached = CHUNK_BIOME_COLOR_CACHE.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        samplePos.set(chunkX * 16 + 8, seaLevel, chunkZ * 16 + 8);
+        int color = BiomeMapColors.colorFor(level.getBiome(samplePos));
+        if (CHUNK_BIOME_COLOR_CACHE.size() > 16384) {
+            CHUNK_BIOME_COLOR_CACHE.clear();
+        }
+        CHUNK_BIOME_COLOR_CACHE.put(key, color);
+        return color;
+    }
+
     private static void buildAndSendSnapshot(ServerPlayer player, MapViewType viewType, boolean isExplicitRequest) {
+        long startNano = System.nanoTime();
         ServerLevel level = player.serverLevel();
-        com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearBiomeCache();
         RegionData regions = RegionData.get(level);
 
         int diameter = viewType.chunkDiameter();
@@ -84,10 +101,20 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         int minRegionZ = Math.floorDiv(originChunkZ, 8);
         int maxRegionZ = Math.floorDiv(originChunkZ + diameter - 1, 8);
 
-        Map<Long, CachedRegionData> regionCache = new HashMap<>();
+        int totalRegions = (maxRegionX - minRegionX + 1) * (maxRegionZ - minRegionZ + 1);
+        int savedCount = 0;
+        int proceduralCount = 0;
+
+        Map<Long, CachedRegionData> regionCache = new HashMap<>(totalRegions);
         for (int rx = minRegionX; rx <= maxRegionX; rx++) {
             for (int rz = minRegionZ; rz <= maxRegionZ; rz++) {
-                RegionData.Region region = regions.regionAt(rx, rz);
+                RegionData.RegionState state = regions.getSavedRegionState(rx, rz);
+                if (state != null) {
+                    savedCount++;
+                } else {
+                    proceduralCount++;
+                    state = com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, level.getSeed(), rx, rz);
+                }
 
                 // Fog-of-war rule: DEBUG view is always visited; COMMAND view checks persistent visited state; SCOUT view is local
                 boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisited(rx, rz);
@@ -98,11 +125,11 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
                 RegionData.SubRegionState s11 = regions.subRegionAt(rx, rz, 1, 1);
 
                 regionCache.put(net.minecraft.world.level.ChunkPos.asLong(rx, rz),
-                        new CachedRegionData(isVisited, s00, s10, s01, s11));
+                        new CachedRegionData(isVisited, state.baseType(), state.owner(), s00, s10, s01, s11));
 
                 // Fog-of-war rule: Base markers ONLY included if region is VISITED or in DEBUG view
-                if (isVisited && region.baseType() != com.warfront.region.BaseType.NONE) {
-                    markers.add(new RegionMapPayload.RegionMarkerData(rx, rz, region.owner().id(), region.baseType().id()));
+                if (isVisited && state.baseType() != com.warfront.region.BaseType.NONE) {
+                    markers.add(new RegionMapPayload.RegionMarkerData(rx, rz, state.owner().id(), state.baseType().id()));
                 }
             }
         }
@@ -113,15 +140,12 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         for (int chunkZ = originChunkZ; chunkZ < originChunkZ + diameter; chunkZ++) {
             int rz = Math.floorDiv(chunkZ, 8);
             int subZ = Math.floorMod(chunkZ, 8) >= 4 ? 1 : 0;
-            int blockZ = chunkZ * 16 + 8;
 
             for (int chunkX = originChunkX; chunkX < originChunkX + diameter; chunkX++) {
                 int rx = Math.floorDiv(chunkX, 8);
                 int subX = Math.floorMod(chunkX, 8) >= 4 ? 1 : 0;
-                int blockX = chunkX * 16 + 8;
 
-                samplePos.set(blockX, seaLevel, blockZ);
-                int biomeColor = BiomeMapColors.colorFor(level.getBiome(samplePos));
+                int biomeColor = getOrComputeBiomeColor(level, chunkX, chunkZ, samplePos, seaLevel);
 
                 CachedRegionData cache = regionCache.get(net.minecraft.world.level.ChunkPos.asLong(rx, rz));
                 RegionData.SubRegionState subRegion = cache.getSubRegion(subX, subZ);
@@ -154,10 +178,14 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
 
         List<String> logMessages = regions.getWarfrontLogs();
 
+        long elapsedMs = (System.nanoTime() - startNano) / 1_000_000L;
+        Warfront.LOGGER.info("Map Snapshot ({}) built in {} ms: {} total regions ({} saved, {} procedural), {} chunks",
+                viewType.name(), elapsedMs, totalRegions, savedCount, proceduralCount, diameter * diameter);
+
         PacketDistributor.sendToPlayer(player, new RegionMapPayload(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, logMessages, isExplicitRequest, viewType));
     }
 
-    private record CachedRegionData(boolean isVisited,
+    private record CachedRegionData(boolean isVisited, com.warfront.region.BaseType baseType, com.warfront.region.Faction owner,
             RegionData.SubRegionState s00, RegionData.SubRegionState s10,
             RegionData.SubRegionState s01, RegionData.SubRegionState s11) {
         public RegionData.SubRegionState getSubRegion(int subX, int subZ) {
