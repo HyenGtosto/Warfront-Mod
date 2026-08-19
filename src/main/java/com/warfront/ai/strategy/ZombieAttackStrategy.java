@@ -13,9 +13,18 @@ import java.util.Optional;
  * Tier Structure:
  * - Tier 1: Direct attacks targeting HUMANITY-owned regions/sub-regions (Exclusive Priority).
  * - Tier 2: Player-directed forward push (dist <= 8 regions AND vector dot > 0).
- * - Tier 3: Normal faction behavior (spiral expansion / enemy-vs-enemy warfare).
  */
 public class ZombieAttackStrategy implements FactionAttackStrategy {
+
+    private static RegionData.RegionState getRawOrSavedRegionState(AttackContext context, int rx, int rz) {
+        RegionData.RegionState state = context.regions().getSavedRegionState(rx, rz);
+        if (state != null) {
+            return state;
+        }
+        net.minecraft.server.level.ServerLevel level = context.level();
+        long seed = (level != null) ? level.getSeed() : 0L;
+        return com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, seed, rx, rz);
+    }
 
     @Override
     public Optional<AttackTarget> chooseAttackTarget(Faction faction, AttackContext context, List<AttackCandidate> validCandidates) {
@@ -23,6 +32,7 @@ public class ZombieAttackStrategy implements FactionAttackStrategy {
             return Optional.empty();
         }
 
+        long startNano = System.nanoTime();
         RegionData regions = context.regions();
 
         // 1. Filter out candidates from stranded/cut-off components disconnected from a valid Zombie HQ
@@ -49,7 +59,7 @@ public class ZombieAttackStrategy implements FactionAttackStrategy {
         }
         if (!retaliationCandidates.isEmpty()) {
             AttackCandidate picked = selectWeightedRandom(retaliationCandidates, context);
-            long cid = regions.regionAt(picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
+            long cid = getRawOrSavedRegionState(context, picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
             return Optional.of(picked.toTarget(cid));
         }
 
@@ -65,7 +75,7 @@ public class ZombieAttackStrategy implements FactionAttackStrategy {
 
             HQPos humanityTarget = StrategicConnectivityHelper.findClosestHumanityRegion(c.sourceRegionX(), c.sourceRegionZ(), regions);
 
-            boolean isDirectHumanityAttack = regions.regionAt(c.targetRegionX(), c.targetRegionZ()).owner() == Faction.HUMANITY;
+            boolean isDirectHumanityAttack = getRawOrSavedRegionState(context, c.targetRegionX(), c.targetRegionZ()).owner() == Faction.HUMANITY;
 
             double distToHumanityTarget = humanityTarget != null ? Math.hypot(c.targetRegionX() - humanityTarget.x(), c.targetRegionZ() - humanityTarget.z()) : Double.MAX_VALUE;
 
@@ -100,22 +110,26 @@ public class ZombieAttackStrategy implements FactionAttackStrategy {
             }
         }
 
+        long elapsedMs = (System.nanoTime() - startNano) / 1_000_000L;
+        com.warfront.Warfront.LOGGER.info("[PERF AI] Zombie attack scoring completed in {} ms ({} candidates evaluated, 0 strength calculations)",
+                elapsedMs, connectedCandidates.size());
+
         // Strict Tiered Selection: Higher tiers execute exclusively!
         if (!tier1Direct.isEmpty()) {
             AttackCandidate picked = selectWeightedRandom(tier1Direct, context);
-            long cid = regions.regionAt(picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
+            long cid = getRawOrSavedRegionState(context, picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
             return Optional.of(picked.toTarget(cid));
         }
 
         if (!tier2PushForward.isEmpty()) {
             AttackCandidate picked = selectWeightedRandom(tier2PushForward, context);
-            long cid = regions.regionAt(picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
+            long cid = getRawOrSavedRegionState(context, picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
             return Optional.of(picked.toTarget(cid));
         }
 
         if (!tier3Normal.isEmpty()) {
             AttackCandidate picked = selectWeightedRandom(tier3Normal, context);
-            long cid = regions.regionAt(picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
+            long cid = getRawOrSavedRegionState(context, picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
             return Optional.of(picked.toTarget(cid));
         }
 

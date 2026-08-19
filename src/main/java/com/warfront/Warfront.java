@@ -26,6 +26,7 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener(BiomeMapColorReloadListener::register);
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.ai.AIAttackManager::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.spawn.RoamingEntityTracker::onServerTick);
     }
 }
 

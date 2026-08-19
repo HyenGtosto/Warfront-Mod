@@ -154,6 +154,7 @@ public final class AIAttackManager {
         int slotAttemptsExecuted = 0;
         int turnIndex = 0;
         Set<StrategicActor> exhaustedActors = new HashSet<>();
+        boolean anyAttackLaunched = false;
 
         while (slotAttemptsExecuted < openSlots && regions.getActiveSieges().size() < maxSieges) {
             if (exhaustedActors.size() >= actors.size()) {
@@ -229,8 +230,9 @@ public final class AIAttackManager {
                     attackerClusterId);
 
             regions.setRegionSiegeWithCampaign(chosen.targetRegionX(), chosen.targetRegionZ(), campaign);
+            anyAttackLaunched = true;
 
-            RegionData.Region targetRegion = regions.regionAt(chosen.targetRegionX(), chosen.targetRegionZ());
+            RegionData.RegionState targetRegion = getRawOrSavedRegionState(level, regions, chosen.targetRegionX(), chosen.targetRegionZ());
             String defenderInfo = String.format("[%s - %s]", targetRegion.owner().commandName(), targetRegion.baseType().name());
 
             String logMsg;
@@ -246,11 +248,14 @@ public final class AIAttackManager {
             }
             regions.addLog(level, logMsg);
 
-            // Force update strategic map screen for active map terminals
-            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
             Warfront.LOGGER.info("Attack launched: {} → Region ({}, {}) {}, attack value {}, {} sources.",
                     faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue(),
                     details.sources().size());
+        }
+
+        // Force update strategic map screen for active map terminals AT MOST ONCE after complete loop
+        if (anyAttackLaunched) {
+            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
         }
     }
 

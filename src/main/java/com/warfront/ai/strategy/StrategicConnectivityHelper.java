@@ -20,6 +20,16 @@ public final class StrategicConnectivityHelper {
     private StrategicConnectivityHelper() {
     }
 
+    private static RegionData.RegionState getRawOrSavedRegionState(RegionData regions, int rx, int rz) {
+        RegionData.RegionState state = regions.getSavedRegionState(rx, rz);
+        if (state != null) {
+            return state;
+        }
+        ServerLevel level = regions.getLevel();
+        long seed = (level != null) ? level.getSeed() : 0L;
+        return com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, seed, rx, rz);
+    }
+
     /**
      * Performs a 4-cardinal BFS over contiguous same-faction territory to locate a connected HQ (HEADQUARTERS or MEGA_BASE).
      * Uses the per-evaluation cycle cache to store results for all regions in the visited component.
@@ -30,7 +40,7 @@ public final class StrategicConnectivityHelper {
             return cache.get(startKey);
         }
 
-        RegionData.Region startReg = regions.regionAt(sourceRX, sourceRZ);
+        RegionData.RegionState startReg = getRawOrSavedRegionState(regions, sourceRX, sourceRZ);
         long targetClusterId = startReg.clusterId();
 
         Queue<Long> queue = new ArrayDeque<>();
@@ -49,7 +59,7 @@ public final class StrategicConnectivityHelper {
 
             int rx = ChunkPos.getX(currentKey);
             int rz = ChunkPos.getZ(currentKey);
-            RegionData.Region reg = regions.regionAt(rx, rz);
+            RegionData.RegionState reg = getRawOrSavedRegionState(regions, rx, rz);
 
             if (reg.owner() == faction && (targetClusterId == 0L || reg.clusterId() == targetClusterId)) {
                 if (foundHQ.isEmpty() && (reg.baseType() == BaseType.HEADQUARTERS || reg.baseType() == BaseType.MEGA_BASE)) {
@@ -63,7 +73,7 @@ public final class StrategicConnectivityHelper {
 
                     if (!visited.contains(nkey)) {
                         visited.add(nkey);
-                        RegionData.Region nreg = regions.regionAt(nrx, nrz);
+                        RegionData.RegionState nreg = getRawOrSavedRegionState(regions, nrx, nrz);
                         if (nreg.owner() == faction && (targetClusterId == 0L || nreg.clusterId() == targetClusterId)) {
                             queue.add(nkey);
                         }

@@ -67,6 +67,10 @@ public final class RegionData extends SavedData {
         return data;
     }
 
+    public ServerLevel getLevel() {
+        return level;
+    }
+
     private static RegionData load(CompoundTag tag, HolderLookup.Provider registries) {
         RegionData data = new RegionData();
 
@@ -404,9 +408,14 @@ public final class RegionData extends SavedData {
             return saved;
         }
 
-        // Fallback to base region state
-        Region region = regionAt(regionX, regionZ);
-        return new SubRegionState(region.owner(), region.stability(), false, region.clusterId());
+        // Fallback to base region state without calculating strength
+        RegionState state = getSavedRegionState(regionX, regionZ);
+        if (state == null) {
+            ServerLevel targetLevel = (this.level != null) ? this.level : null;
+            long seed = (targetLevel != null) ? targetLevel.getSeed() : 0L;
+            state = com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(targetLevel, seed, regionX, regionZ);
+        }
+        return new SubRegionState(state.owner(), state.stability(), false, state.clusterId());
     }
 
     /**
@@ -535,7 +544,12 @@ public final class RegionData extends SavedData {
 
     public void setRegionSiegeWithCampaign(int targetX, int targetZ, SiegeCampaign campaign) {
         int mask = campaign.activeSubRegionsMask();
-        Region targetRegion = regionAt(targetX, targetZ);
+        RegionState targetRegion = getSavedRegionState(targetX, targetZ);
+        if (targetRegion == null) {
+            ServerLevel targetLevel = (this.level != null) ? this.level : null;
+            long seed = (targetLevel != null) ? targetLevel.getSeed() : 0L;
+            targetRegion = com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(targetLevel, seed, targetX, targetZ);
+        }
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 int bit = sz * 2 + sx;
@@ -565,7 +579,9 @@ public final class RegionData extends SavedData {
             return BaseType.NONE;
         }
 
-        Region currentRegion = regionAt(regionX, regionZ);
+        long startNano = System.nanoTime();
+        ServerLevel targetLevel = (level != null) ? level : this.level;
+        RegionState currentRegion = getRawOrSavedRegionStateForBaseDet(targetLevel, regionX, regionZ);
         long targetClusterId = currentRegion.clusterId();
 
         // Count nearby same-cluster regions owned by the conquering faction (MD <= 2)
@@ -579,7 +595,7 @@ public final class RegionData extends SavedData {
 
                 int nx = regionX + dx;
                 int nz = regionZ + dz;
-                Region neighbor = regionAt(nx, nz);
+                RegionState neighbor = getRawOrSavedRegionStateForBaseDet(targetLevel, nx, nz);
 
                 if (neighbor.owner() == faction && (targetClusterId == 0L || neighbor.clusterId() == targetClusterId)) {
                     sameClusterRegionCount++;
@@ -592,12 +608,24 @@ public final class RegionData extends SavedData {
             }
         }
 
+        long elapsedMs = (System.nanoTime() - startNano) / 1_000_000L;
+        com.warfront.Warfront.LOGGER.info("[PERF AI] Conquered base determination for Region ({}, {}) completed in {} ms (13 neighbor raw states evaluated, 0 strength calculations)",
+                regionX, regionZ, elapsedMs);
+
         // Qualifies for an OUTPOST if cluster has established territory (>= 3 regions) and no adjacent base in range
         if (sameClusterRegionCount >= 3 && !hasNearbyBaseInCluster) {
             return BaseType.OUTPOST;
         }
 
         return BaseType.NONE;
+    }
+
+    private RegionState getRawOrSavedRegionStateForBaseDet(ServerLevel level, int rx, int rz) {
+        RegionState saved = getSavedRegionState(rx, rz);
+        if (saved != null) return saved;
+        ServerLevel targetLevel = (level != null) ? level : this.level;
+        long seed = (targetLevel != null) ? targetLevel.getSeed() : 0L;
+        return com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(targetLevel, seed, rx, rz);
     }
 
     /**

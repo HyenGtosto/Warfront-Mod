@@ -17,12 +17,33 @@ import java.util.Optional;
  */
 public class PillagerAttackStrategy implements FactionAttackStrategy {
 
+    private static RegionData.RegionState getRawOrSavedRegionState(AttackContext context, int rx, int rz) {
+        RegionData.RegionState state = context.regions().getSavedRegionState(rx, rz);
+        if (state != null) {
+            return state;
+        }
+        net.minecraft.server.level.ServerLevel level = context.level();
+        long seed = (level != null) ? level.getSeed() : 0L;
+        return com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, seed, rx, rz);
+    }
+
+    private static RegionData.RegionState getRawOrSavedRegionState(RegionData regions, int rx, int rz) {
+        RegionData.RegionState state = regions.getSavedRegionState(rx, rz);
+        if (state != null) {
+            return state;
+        }
+        net.minecraft.server.level.ServerLevel level = regions.getLevel();
+        long seed = (level != null) ? level.getSeed() : 0L;
+        return com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, seed, rx, rz);
+    }
+
     @Override
     public Optional<AttackTarget> chooseAttackTarget(Faction faction, AttackContext context, List<AttackCandidate> validCandidates) {
         if (validCandidates == null || validCandidates.isEmpty()) {
             return Optional.empty();
         }
 
+        long startNano = System.nanoTime();
         RegionData regions = context.regions();
 
         // 1. Filter out candidates from stranded/cut-off components (no connected HQ)
@@ -70,10 +91,10 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
             double angleDiff = Math.abs(normalizeAngle(targetAngle - mainAngle));
             double halfArc = Math.PI / 4.0D; // 45 degrees (90-degree total arc)
 
-            boolean isDirectHumanityAttack = regions.regionAt(targetX, targetZ).owner() == Faction.HUMANITY;
+            boolean isDirectHumanityAttack = getRawOrSavedRegionState(context, targetX, targetZ).owner() == Faction.HUMANITY;
             boolean isInsideSector = angleDiff <= halfArc;
 
-            int pillagerNeighbors = countPillagerNeighbors(regions, targetX, targetZ);
+            int pillagerNeighbors = countPillagerNeighbors(context, targetX, targetZ);
 
             // 1. Sector Arc Score (Alignment with central sector axis)
             double arcScore;
@@ -83,11 +104,11 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
                 arcScore = Math.max(0.1D, 5.0D - 10.0D * (angleDiff - halfArc));
             }
 
-            long clusterId = regions.regionAt(candidate.sourceRegionX(), candidate.sourceRegionZ()).clusterId();
+            long clusterId = getRawOrSavedRegionState(context, candidate.sourceRegionX(), candidate.sourceRegionZ()).clusterId();
 
             // 2. Explicit Radial-Depth Front Completion Metric & Per-Cluster Sector Density Transition
-            double avgClusterDist = calculateAverageClusterDistance(regions, candidate.sourceRegionX(), candidate.sourceRegionZ(), originX, originZ, clusterId);
-            double sectorDensity = calculateSectorDensity(regions, originX, originZ, mainAngle, halfArc, avgClusterDist, clusterId);
+            double avgClusterDist = calculateAverageClusterDistance(context, candidate.sourceRegionX(), candidate.sourceRegionZ(), originX, originZ, clusterId);
+            double sectorDensity = calculateSectorDensity(context, originX, originZ, mainAngle, halfArc, avgClusterDist, clusterId);
             boolean isFrontEstablished = sectorDensity >= 0.65D;
 
             double depthDiff = targetDist - avgClusterDist;
@@ -125,23 +146,27 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
             }
         }
 
+        long elapsedMs = (System.nanoTime() - startNano) / 1_000_000L;
+        com.warfront.Warfront.LOGGER.info("[PERF AI] Pillager attack scoring completed in {} ms ({} candidates evaluated, 0 strength calculations)",
+                elapsedMs, connectedCandidates.size());
+
         // Tiered Selection: 90° sector candidates execute first!
         if (!tier1Frontline.isEmpty()) {
             AttackCandidate picked = selectWeightedRandom(tier1Frontline, context);
-            long cid = regions.regionAt(picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
+            long cid = getRawOrSavedRegionState(context, picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
             return Optional.of(picked.toTarget(cid));
         }
 
         if (!tier2Fallback.isEmpty()) {
             AttackCandidate picked = selectWeightedRandom(tier2Fallback, context);
-            long cid = regions.regionAt(picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
+            long cid = getRawOrSavedRegionState(context, picked.sourceRegionX(), picked.sourceRegionZ()).clusterId();
             return Optional.of(picked.toTarget(cid));
         }
 
         return Optional.empty();
     }
 
-    private static double calculateSectorDensity(RegionData regions, int originX, int originZ, double mainAngle, double halfArc, double avgClusterDist, long clusterId) {
+    private static double calculateSectorDensity(AttackContext context, int originX, int originZ, double mainAngle, double halfArc, double avgClusterDist, long clusterId) {
         int occupied = 0;
         int total = 0;
         int maxR = (int) Math.ceil(avgClusterDist) + 1;
@@ -154,7 +179,7 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
                     double diff = Math.abs(normalizeAngle(angle - mainAngle));
                     if (diff <= halfArc) {
                         total++;
-                        RegionData.Region reg = regions.regionAt(originX + dx, originZ + dz);
+                        RegionData.RegionState reg = getRawOrSavedRegionState(context, originX + dx, originZ + dz);
                         if (reg.owner() == Faction.PILLAGER_CONQUERORS && (clusterId == 0L || reg.clusterId() == clusterId)) {
                             occupied++;
                         }
@@ -165,13 +190,13 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
         return total > 0 ? (double) occupied / total : 1.0D;
     }
 
-    private static double calculateAverageClusterDistance(RegionData regions, int sourceRX, int sourceRZ, int originX, int originZ, long clusterId) {
+    private static double calculateAverageClusterDistance(AttackContext context, int sourceRX, int sourceRZ, int originX, int originZ, long clusterId) {
         int radius = 5;
         double sumDist = 0.0D;
         int count = 0;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                RegionData.Region reg = regions.regionAt(sourceRX + dx, sourceRZ + dz);
+                RegionData.RegionState reg = getRawOrSavedRegionState(context, sourceRX + dx, sourceRZ + dz);
                 if (reg.owner() == Faction.PILLAGER_CONQUERORS && (clusterId == 0L || reg.clusterId() == clusterId)) {
                     sumDist += Math.hypot((sourceRX + dx) - originX, (sourceRZ + dz) - originZ);
                     count++;
@@ -181,11 +206,11 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
         return count > 0 ? sumDist / count : Math.hypot(sourceRX - originX, sourceRZ - originZ);
     }
 
-    private static int countPillagerNeighbors(RegionData regions, int rx, int rz) {
+    private static int countPillagerNeighbors(AttackContext context, int rx, int rz) {
         int count = 0;
         int[][] offsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
         for (int[] off : offsets) {
-            if (regions.regionAt(rx + off[0], rz + off[1]).owner() == Faction.PILLAGER_CONQUERORS) {
+            if (getRawOrSavedRegionState(context, rx + off[0], rz + off[1]).owner() == Faction.PILLAGER_CONQUERORS) {
                 count++;
             }
         }

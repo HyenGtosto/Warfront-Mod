@@ -21,6 +21,11 @@ public final class WarfrontConfig {
         public static final ModConfigSpec.DoubleValue AI_EXPANSION_CHANCE;
         public static final ModConfigSpec.IntValue AI_MAX_SIMULTANEOUS_SIEGES;
 
+        // Roaming Enemy AI Activation Settings
+        public static final ModConfigSpec.IntValue ROAMING_AI_ACTIVATION_RADIUS;
+        public static final ModConfigSpec.IntValue ROAMING_AI_DEACTIVATION_RADIUS;
+        public static final ModConfigSpec.IntValue SUBREGION_SPAWN_COOLDOWN_SECONDS;
+
         static {
                 ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -68,6 +73,20 @@ public final class WarfrontConfig {
                 AI_MAX_SIMULTANEOUS_SIEGES = builder
                                 .comment("Maximum number of active simultaneous siege campaigns a single AI faction can manage")
                                 .defineInRange("ai_max_simultaneous_sieges", 3, 1, 20);
+                builder.pop();
+
+                builder.comment("Roaming Enemy AI Activation Settings").push("roaming_enemies");
+                ROAMING_AI_ACTIVATION_RADIUS = builder
+                                .comment("Block distance at which a Warfront roaming enemy's AI activates when a player approaches")
+                                .defineInRange("roaming_ai_activation_radius", 48, 8, 128);
+
+                ROAMING_AI_DEACTIVATION_RADIUS = builder
+                                .comment("Block distance beyond which a Warfront roaming enemy's AI deactivates when all players move away. Must be > activation radius to prevent hysteresis oscillation.")
+                                .defineInRange("roaming_ai_deactivation_radius", 64, 8, 256);
+
+                SUBREGION_SPAWN_COOLDOWN_SECONDS = builder
+                                .comment("Cooldown (in seconds) before the same subregion can spawn another exploration enemy encounter")
+                                .defineInRange("subregion_spawn_cooldown_seconds", 8, 1, 300);
                 builder.pop();
 
                 SPEC = builder.build();
