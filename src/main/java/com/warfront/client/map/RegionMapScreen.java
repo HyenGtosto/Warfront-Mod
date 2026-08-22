@@ -32,6 +32,7 @@ public final class RegionMapScreen extends Screen {
 
     private Button launchAttackButton;
     private Button defendAreaButton;
+    private Button cancelAttackButton;
     private Button confirmCampaignButton;
     private Button mapTabButton;
     private Button logsTabButton;
@@ -154,6 +155,9 @@ public final class RegionMapScreen extends Screen {
         for (Renderable renderable : this.renderables) {
             renderable.render(graphics, mouseX, mouseY, partialTick);
         }
+
+        // Draw colored 1px borders on subregion buttons (red=toggled, green=confirmed)
+        renderSubRegionButtonBorders(graphics);
     }
 
     private void onRegionClicked(double mouseX, double mouseY, MapViewport viewport) {
@@ -257,22 +261,27 @@ public final class RegionMapScreen extends Screen {
                 .build());
         defendAreaButton.visible = false;
 
-        int subWidth = Math.max(20, (rightWidth - 4) / 2);
+        cancelAttackButton = addRenderableWidget(Button.builder(Component.literal("§c§lCANCEL ATTACK"),
+                b -> onCancelAttack())
+                .bounds(rightLeft, top, rightWidth, btnHeight)
+                .build());
+        cancelAttackButton.visible = false;
+
+        // 1×4 vertical stack — all buttons use full rightWidth
         for (int i = 0; i < 4; i++) {
             int subX = i % 2;
             int subZ = i / 2;
-            int btnX = rightLeft + subX * (subWidth + 4);
-            int btnY = top + subZ * (btnHeight + 4);
+            int btnY = top + i * (btnHeight + 2);
             int index = i;
             subRegionMissionButtons[i] = addRenderableWidget(Button.builder(
-                    Component.literal(String.format("Sub(%d,%d): §7READY", subX, subZ)),
+                    Component.literal(String.format("(%d,%d) Mission", subX, subZ)),
                     b -> toggleSubRegionMission(index))
-                    .bounds(btnX, btnY, subWidth, btnHeight)
+                    .bounds(rightLeft, btnY, rightWidth, btnHeight)
                     .build());
             subRegionMissionButtons[i].visible = false;
         }
 
-        int confirmY = top + 2 * (btnHeight + 4);
+        int confirmY = top + 4 * (btnHeight + 2) + 4;
         confirmCampaignButton = addRenderableWidget(Button.builder(
                 Component.literal("§a§lCONFIRM CAMPAIGN"),
                 b -> onConfirmCampaign())
@@ -298,11 +307,30 @@ public final class RegionMapScreen extends Screen {
     private void toggleSubRegionMission(int index) {
         state.toggleSubRegionMission(index);
         if (subRegionMissionButtons[index] != null) {
-            int subX = index % 2;
-            int subZ = index / 2;
-            String status = state.isSubRegionMissionToggled(index) ? "§aACTIVE" : "§7READY";
-            subRegionMissionButtons[index].setMessage(Component.literal(String.format("Sub(%d,%d): %s", subX, subZ, status)));
+            subRegionMissionButtons[index].setMessage(Component.literal(buildSubRegionLabel(index)));
         }
+    }
+
+    /** Builds the button label for subregion {@code index} using the mission cache when available. */
+    private String buildSubRegionLabel(int index) {
+        int subX = index % 2;
+        int subZ = index / 2;
+        SelectedRegion sel = state.getSelectedRegion();
+        if (sel != null) {
+            int bit = subZ * 2 + subX;
+            if ((sel.conqueredMask() & (1 << bit)) != 0) {
+                return String.format("(%d,%d) §aSecured", subX, subZ);
+            }
+            if ((sel.reachableMask() & (1 << bit)) == 0) {
+                return String.format("(%d,%d) §8Blocked", subX, subZ);
+            }
+        }
+        com.warfront.mission.SubRegionMission[] missions =
+                (sel != null) ? state.getCachedMissions(sel.regionX(), sel.regionZ()) : null;
+        String label = (missions != null && index < missions.length)
+                ? missions[index].displayLabel()
+                : "Mission";
+        return String.format("(%d,%d) %s", subX, subZ, label);
     }
 
     private void updateActionButtons() {
@@ -312,6 +340,8 @@ public final class RegionMapScreen extends Screen {
         if (!state.getViewType().canLaunchAttacks() || !isMapView || selectedRegion == null || (state.getViewType().hasFogOfWar() && !selectedRegion.isVisited())) {
             if (launchAttackButton != null) launchAttackButton.visible = false;
             if (defendAreaButton != null) defendAreaButton.visible = false;
+            if (cancelAttackButton != null) cancelAttackButton.visible = false;
+            if (confirmCampaignButton != null) confirmCampaignButton.visible = false;
             for (int i = 0; i < 4; i++) {
                 if (subRegionMissionButtons[i] != null) subRegionMissionButtons[i].visible = false;
             }
@@ -334,6 +364,7 @@ public final class RegionMapScreen extends Screen {
         if (!isActivated) {
             launchAttackButton.visible = canAttack;
             defendAreaButton.visible = canDefend;
+            if (cancelAttackButton != null) cancelAttackButton.visible = false;
             if (confirmCampaignButton != null) confirmCampaignButton.visible = false;
             for (int i = 0; i < 4; i++) {
                 if (subRegionMissionButtons[i] != null) subRegionMissionButtons[i].visible = false;
@@ -341,6 +372,7 @@ public final class RegionMapScreen extends Screen {
         } else {
             launchAttackButton.visible = false;
             defendAreaButton.visible = false;
+            if (cancelAttackButton != null) cancelAttackButton.visible = selectedRegion.underSiege();
             boolean showConfirm = canAttack || canDefend;
             if (confirmCampaignButton != null) confirmCampaignButton.visible = showConfirm;
             for (int i = 0; i < 4; i++) {
@@ -355,19 +387,14 @@ public final class RegionMapScreen extends Screen {
                     if (isConquered) {
                         subRegionMissionButtons[i].active = false;
                         state.setSubRegionMissionToggled(i, false);
-                        subRegionMissionButtons[i].setMessage(Component.literal(
-                                String.format("\u00a7aSub(%d,%d): SECURED", sx, sz)));
                     } else if (!reachable) {
                         subRegionMissionButtons[i].active = false;
                         state.setSubRegionMissionToggled(i, false);
-                        subRegionMissionButtons[i].setMessage(Component.literal(
-                                String.format("\u00a78Sub(%d,%d): BLOCKED", sx, sz)));
                     } else {
                         subRegionMissionButtons[i].active = true;
-                        String status = state.isSubRegionMissionToggled(i) ? "\u00a7aACTIVE" : "\u00a77READY";
-                        subRegionMissionButtons[i].setMessage(Component.literal(
-                                String.format("Sub(%d,%d): %s", sx, sz, status)));
                     }
+                    // Always rebuild the label via the shared helper to keep format consistent
+                    subRegionMissionButtons[i].setMessage(Component.literal(buildSubRegionLabel(i)));
                 }
             }
         }
@@ -385,13 +412,35 @@ public final class RegionMapScreen extends Screen {
                 && !selectedRegion.underSiege()) {
             long regKey = net.minecraft.world.level.ChunkPos.asLong(selectedRegion.regionX(), selectedRegion.regionZ());
             state.getActivatedRegions().add(regKey);
+            state.setCampaignConfirmed(false);
+
+            // Generate and cache missions for this region (no-op on repeated clicks)
+            state.getOrGenerateMissions(
+                    selectedRegion.regionX(), selectedRegion.regionZ(),
+                    selectedRegion.owner(), selectedRegion.baseType(),
+                    selectedRegion.resistance(), selectedRegion.stability());
+
             for (int i = 0; i < 4; i++) {
                 state.setSubRegionMissionToggled(i, false);
                 if (subRegionMissionButtons[i] != null) {
-                    int sx = i % 2;
-                    int sz = i / 2;
-                    subRegionMissionButtons[i].setMessage(Component.literal(String.format("Sub(%d,%d): §7READY", sx, sz)));
+                    subRegionMissionButtons[i].setMessage(Component.literal(buildSubRegionLabel(i)));
                 }
+            }
+            updateActionButtons();
+        }
+    }
+
+    private void onCancelAttack() {
+        SelectedRegion selectedRegion = state.getSelectedRegion();
+        if (selectedRegion != null && selectedRegion.underSiege()) {
+            PacketDistributor.sendToServer(new com.warfront.network.CancelAttackPayload(
+                    selectedRegion.regionX(), selectedRegion.regionZ(),
+                    selectedRegion.subX(), selectedRegion.subZ(), state.getViewType()));
+            long regKey = net.minecraft.world.level.ChunkPos.asLong(selectedRegion.regionX(), selectedRegion.regionZ());
+            state.getActivatedRegions().remove(regKey);
+            state.setCampaignConfirmed(false);
+            for (int i = 0; i < 4; i++) {
+                state.setSubRegionMissionToggled(i, false);
             }
             updateActionButtons();
         }
@@ -430,6 +479,9 @@ public final class RegionMapScreen extends Screen {
         PacketDistributor.sendToServer(new com.warfront.network.LaunchAttackPayload(
                 selectedRegion.regionX(), selectedRegion.regionZ(), selectedRegion.subX(), selectedRegion.subZ(), subMask));
 
+        // Mark confirmed so local UI updates immediately
+        state.setCampaignConfirmed(true);
+
         PacketDistributor.sendToServer(new RequestRegionDetailsPayload(
                 selectedRegion.regionX(), selectedRegion.regionZ(),
                 selectedRegion.subX(), selectedRegion.subZ(), state.getViewType()));
@@ -447,8 +499,57 @@ public final class RegionMapScreen extends Screen {
         }
     }
 
+    /**
+     * Draws a 1px colored border around subregion mission buttons.
+     * GREEN for subregions included in the server's active campaign (existingSiegeMask);
+     * RED for subregions toggled by the player before confirmation.
+     */
+    private void renderSubRegionButtonBorders(GuiGraphics graphics) {
+        SelectedRegion sel = state.getSelectedRegion();
+        if (sel == null) return;
+        long regKey = net.minecraft.world.level.ChunkPos.asLong(sel.regionX(), sel.regionZ());
+        boolean isActivated = state.getActivatedRegions().contains(regKey) || sel.underSiege();
+        if (!isActivated) return;
+
+        for (int i = 0; i < 4; i++) {
+            Button btn = subRegionMissionButtons[i];
+            if (btn == null || !btn.visible) continue;
+
+            int sx = i % 2;
+            int sz = i / 2;
+            int bit = sz * 2 + sx;
+
+            boolean isConquered = (sel.conqueredMask() & (1 << bit)) != 0;
+            if (isConquered) continue;
+
+            boolean inActiveCampaign = sel.underSiege() && ((sel.existingSiegeMask() & (1 << bit)) != 0);
+            boolean isToggled = state.isSubRegionMissionToggled(i);
+
+            if (inActiveCampaign) {
+                // Included in active server campaign -> GREEN border
+                drawButtonBorder(graphics, btn, 0xFF00BB00);
+            } else if (isToggled) {
+                // Toggled by player before confirmation -> RED border
+                drawButtonBorder(graphics, btn, 0xFFCC0000);
+            }
+        }
+    }
+
+    /** Draws a single-pixel border around a button using absolute screen coordinates. */
+    private void drawButtonBorder(GuiGraphics graphics, Button btn, int color) {
+        int x = btn.getX();
+        int y = btn.getY();
+        int w = btn.getWidth();
+        int h = btn.getHeight();
+        graphics.fill(x,         y,         x + w,     y + 1,     color); // top
+        graphics.fill(x,         y + h - 1, x + w,     y + h,     color); // bottom
+        graphics.fill(x,         y,         x + 1,     y + h,     color); // left
+        graphics.fill(x + w - 1, y,         x + w,     y + h,     color); // right
+    }
+
     @Override
     public boolean isPauseScreen() {
         return false;
     }
 }
+

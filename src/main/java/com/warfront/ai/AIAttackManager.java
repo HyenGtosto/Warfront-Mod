@@ -94,6 +94,8 @@ public final class AIAttackManager {
                     } else {
                         // Player campaign expired - conquered sub-regions are KEPT, siege window closes
                         regions.setRegionSiege(trx, trz, false);
+                        regions.getActiveSieges().remove(net.minecraft.world.level.ChunkPos.asLong(trx, trz));
+                        com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, trx, trz);
                         int heldSectors = Integer.bitCount(regions.computeConqueredMask(trx, trz));
                         String outcome = String.format("§eCampaign expired: Region (%d, %d), %d sectors held.", trx, trz, heldSectors);
                         regions.addLog(level, outcome);

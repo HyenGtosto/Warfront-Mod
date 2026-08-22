@@ -116,6 +116,7 @@ public final class EnemyEncounterSpawner {
                 spawned++;
                 if (entity instanceof Mob mob) {
                     RoamingEntityTracker.register(mob, regionX, regionZ, subX, subZ, faction);
+                    mob.getPersistentData().putString("targetRoleName", role.toString());
                 }
             }
         }

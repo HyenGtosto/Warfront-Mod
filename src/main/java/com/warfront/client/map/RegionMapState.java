@@ -1,6 +1,8 @@
 package com.warfront.client.map;
 
 import com.warfront.map.MapViewType;
+import com.warfront.mission.MissionProfile;
+import com.warfront.mission.SubRegionMission;
 import com.warfront.network.RegionDetailsPayload;
 import com.warfront.network.RegionMapPayload;
 import com.warfront.region.BaseType;
@@ -44,6 +46,20 @@ public final class RegionMapState {
     private SelectedRegion selectedRegion;
     private final boolean[] subRegionMissionToggled = new boolean[4];
     private final Set<Long> activatedRegions = new HashSet<>();
+
+    /**
+     * Client-side mission cache: regionKey → 4 SubRegionMissions.
+     * Populated only when the player clicks LAUNCH ATTACK on a region.
+     * Generation is deterministic so caching avoids redundant recalculation.
+     */
+    private final Map<Long, SubRegionMission[]> missionCache = new HashMap<>();
+
+    /**
+     * True after the player clicks CONFIRM CAMPAIGN successfully.
+     * Used by the renderer to show green borders on subregion buttons.
+     * Reset when a different region is selected.
+     */
+    private boolean campaignConfirmed = false;
 
     private long lastTickTimeMs = 0L;
     private int syncTimerTicks = 0;
@@ -121,6 +137,17 @@ public final class RegionMapState {
                 && selectedRegion.regionZ() == payload.regionZ()
                 && selectedRegion.underSiege();
 
+        // Reset selection and confirmed state when the player switches regions or selects a non-sieged region
+        boolean differentRegion = selectedRegion == null
+                || selectedRegion.regionX() != payload.regionX()
+                || selectedRegion.regionZ() != payload.regionZ();
+        if (differentRegion || !payload.underSiege()) {
+            campaignConfirmed = false;
+            for (int i = 0; i < 4; i++) {
+                subRegionMissionToggled[i] = false;
+            }
+        }
+
         selectedRegion = new SelectedRegion(
                 payload.regionX(),
                 payload.regionZ(),
@@ -155,7 +182,7 @@ public final class RegionMapState {
                     subRegionMissionToggled[i] = false;
                 }
             }
-        } else if (!payload.underSiege() && prevWasSieged) {
+        } else {
             activatedRegions.remove(regKey);
         }
     }
@@ -267,4 +294,43 @@ public final class RegionMapState {
     public Set<Long> getActivatedRegions() {
         return activatedRegions;
     }
+
+    // -----------------------------------------------------------------------
+    // Mission cache
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the cached missions for the region, generating and caching them
+     * on first call. Must only be called after the player has clicked LAUNCH
+     * ATTACK (i.e. when selectedRegion is non-null).
+     */
+    public SubRegionMission[] getOrGenerateMissions(
+            int regionX, int regionZ,
+            com.warfront.region.Faction faction,
+            com.warfront.region.BaseType baseType,
+            float resistance, float stability) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        return missionCache.computeIfAbsent(key, k ->
+                MissionProfile.generateForRegion(regionX, regionZ, faction, baseType, resistance, stability));
+    }
+
+    /**
+     * Returns the cached missions for a region, or {@code null} if not yet generated.
+     */
+    public SubRegionMission[] getCachedMissions(int regionX, int regionZ) {
+        return missionCache.get(ChunkPos.asLong(regionX, regionZ));
+    }
+
+    // -----------------------------------------------------------------------
+    // Campaign confirmed state
+    // -----------------------------------------------------------------------
+
+    public boolean isCampaignConfirmed() {
+        return campaignConfirmed;
+    }
+
+    public void setCampaignConfirmed(boolean confirmed) {
+        this.campaignConfirmed = confirmed;
+    }
 }
+

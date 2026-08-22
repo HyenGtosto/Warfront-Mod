@@ -95,6 +95,15 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         java.util.List<RegionData.SourcePos> sources = java.util.List.of(new RegionData.SourcePos(payload.regionX() - 1, payload.regionZ()));
         regions.setRegionSiegeWithCampaign(payload.regionX(), payload.regionZ(),
                 new RegionData.SiegeCampaign(com.warfront.region.Faction.HUMANITY, payload.regionX(), payload.regionZ(), sources, 1, false, startTick, durationTicks, finalMask));
+
+        // Initialize server-side active campaign mission progress tracking
+        float effectiveResistance = regions.calculateEffectiveResistance(payload.regionX(), payload.regionZ());
+        float effectiveStability = regions.calculateEffectiveStability(payload.regionX(), payload.regionZ());
+        com.warfront.mission.ActiveCampaignMissionManager.startCampaign(
+                level, payload.regionX(), payload.regionZ(),
+                targetRegion.owner(), targetRegion.baseType(),
+                effectiveResistance, effectiveStability, finalMask);
+
         Warfront.LOGGER.info("Campaign launched/updated: {} → Region ({}, {}), active mask {}.",
                 player.getName().getString(), payload.regionX(), payload.regionZ(), finalMask);
 

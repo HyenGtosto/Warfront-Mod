@@ -28,6 +28,7 @@ public final class RegionMapRenderer {
     private static ResourceLocation base1Loc;
     private static ResourceLocation base2Loc;
     private static ResourceLocation base3Loc;
+    private static ResourceLocation missionLogoLoc;
 
     private static ResourceLocation getBaseTexture(BaseType baseType) {
         ensureBaseTexturesLoaded();
@@ -45,6 +46,7 @@ public final class RegionMapRenderer {
         base1Loc = loadTexture("pillager_base1");
         base2Loc = loadTexture("pillager_base2");
         base3Loc = loadTexture("pillager_base3");
+        missionLogoLoc = loadTexture("mission_logo");
     }
 
     private static ResourceLocation loadTexture(String name) {
@@ -106,6 +108,8 @@ public final class RegionMapRenderer {
         renderRegionMarkers(graphics, viewport, state, camera);
         renderHoveredRegion(graphics, viewport, camera, mouseX, mouseY);
         renderSelectedRegionHighlight(graphics, viewport, state, camera);
+        renderSelectedSubRegionFilter(graphics, viewport, state, camera);
+        renderMissionIcons(graphics, viewport, state, camera);
         renderPlayerMarker(graphics, viewport, state, camera);
         graphics.disableScissor();
 
@@ -528,6 +532,89 @@ public final class RegionMapRenderer {
                 && drawY >= viewport.mapTop() && drawY <= viewport.mapTop() + viewport.mapSize()) {
             graphics.fill(drawX - 3, drawY - 3, drawX + 4, drawY + 4, 0xFF000000);
             graphics.fill(drawX - 2, drawY - 2, drawX + 3, drawY + 3, 0xFF00FFFF);
+        }
+    }
+
+    /**
+     * Draws a semi-transparent dark overlay over each subregion that is currently
+     * toggled (selected by the player) on an activated region. Provides a map-level
+     * visual cue consistent with the existing faction-color filter approach.
+     */
+    private void renderSelectedSubRegionFilter(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
+        SelectedRegion sel = state.getSelectedRegion();
+        if (sel == null) return;
+
+        long regKey = net.minecraft.world.level.ChunkPos.asLong(sel.regionX(), sel.regionZ());
+        boolean isActivated = state.getActivatedRegions().contains(regKey) || sel.underSiege();
+        if (!isActivated) return;
+
+        for (int i = 0; i < 4; i++) {
+            if (!state.isSubRegionMissionToggled(i)) continue;
+
+            int subX = i % 2;
+            int subZ = i / 2;
+            int bit = subZ * 2 + subX;
+            if ((sel.conqueredMask() & (1 << bit)) != 0) continue; // skip conquered
+
+            int subMinCX = sel.regionX() * 8 + subX * 4;
+            int subMinCZ = sel.regionZ() * 8 + subZ * 4;
+
+            int sx0 = (int) Math.round(viewport.mapLeft() + (subMinCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+            int sy0 = (int) Math.round(viewport.mapTop() + (subMinCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
+            int sx1 = (int) Math.round(viewport.mapLeft() + (subMinCX + 4 - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+            int sy1 = (int) Math.round(viewport.mapTop() + (subMinCZ + 4 - camera.topChunk(viewport)) * camera.getChunkTileSize());
+
+            // Semi-transparent dark overlay (~32% opacity)
+            graphics.fill(sx0, sy0, sx1, sy1, 0x50000000);
+        }
+    }
+
+    /**
+     * Renders the mission logo icon centered inside each non-conquered subregion
+     * of the currently activated selected region.
+     * Only draws when the region has been activated (LAUNCH ATTACK clicked) and
+     * missions have been generated into the state cache.
+     */
+    private void renderMissionIcons(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
+        ensureBaseTexturesLoaded(); // also initialises missionLogoLoc
+        if (missionLogoLoc == null) return;
+
+        SelectedRegion sel = state.getSelectedRegion();
+        if (sel == null) return;
+
+        long regKey = net.minecraft.world.level.ChunkPos.asLong(sel.regionX(), sel.regionZ());
+        boolean isActivated = state.getActivatedRegions().contains(regKey) || sel.underSiege();
+        if (!isActivated) return;
+
+        com.warfront.mission.SubRegionMission[] missions = state.getCachedMissions(sel.regionX(), sel.regionZ());
+        if (missions == null) return;
+
+        for (int i = 0; i < 4; i++) {
+            int subX = i % 2;
+            int subZ = i / 2;
+            int bit = subZ * 2 + subX;
+            if ((sel.conqueredMask() & (1 << bit)) != 0) continue; // conquered — no icon
+
+            // Center of this subregion in chunk coordinates
+            double centerCX = sel.regionX() * 8 + subX * 4 + 2.0;
+            double centerCZ = sel.regionZ() * 8 + subZ * 4 + 2.0;
+
+            double iconChunks = 2.0; // icon occupies 2×2 chunk space, centered in the 4×4 subregion
+            double startCX = centerCX - iconChunks / 2.0;
+            double startCZ = centerCZ - iconChunks / 2.0;
+
+            int drawX = (int) Math.round(viewport.mapLeft() + (startCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+            int drawY = (int) Math.round(viewport.mapTop() + (startCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
+            int drawW = (int) Math.round(iconChunks * camera.getChunkTileSize());
+            int drawH = (int) Math.round(iconChunks * camera.getChunkTileSize());
+
+            // Cull icons that are entirely outside the map area
+            if (drawX + drawW < viewport.mapLeft() || drawX > viewport.mapLeft() + viewport.mapSize()
+                    || drawY + drawH < viewport.mapTop() || drawY > viewport.mapTop() + viewport.mapSize()) {
+                continue;
+            }
+
+            graphics.blit(missionLogoLoc, drawX, drawY, drawW, drawH, 0.0F, 0.0F, 1, 1, 1, 1);
         }
     }
 

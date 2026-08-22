@@ -43,16 +43,6 @@ public final class RegionTriggerEvents {
         // Exploration rule: Unlocks a 3x3 region square around player upon visiting
         regions.unlock3x3Around(subPos.regionX(), subPos.regionZ());
 
-        RegionData.SubRegionState subState = regions.subRegionAt(subPos.regionX(), subPos.regionZ(), subPos.subX(), subPos.subZ());
-
-        // Auto-conquest test feature: Secure sub-region on entry when under siege
-        if (subState.underSiege()) {
-            regions.claimSubRegion(level, subPos.regionX(), subPos.regionZ(), subPos.subX(), subPos.subZ(), Faction.HUMANITY, 100.0F);
-            regions.addLog(level, String.format("§aSub-region (%d, %d) in Region (%d, %d) secured.",
-                    subPos.subX(), subPos.subZ(), subPos.regionX(), subPos.regionZ()));
-            return;
-        }
-
         // Delegate out-of-war exploration spawning to ExplorationSpawnManager.
         // The manager scans nearby regions around the player, checks per-region
         // cooldowns, and selects distributed spawn positions within each eligible
