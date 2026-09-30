@@ -1,5 +1,7 @@
 package com.warfront.event;
 
+import com.warfront.mission.ActiveCampaignMissionManager;
+import com.warfront.network.ActiveMissionHudPayload;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import com.warfront.region.SubRegionPos;
@@ -17,6 +19,9 @@ public final class RegionTriggerEvents {
     // Tracks last known chunk position per player to detect chunk entry
     private static final Map<UUID, Long> LAST_PLAYER_CHUNK = new HashMap<>();
 
+    // Tracks if player currently has the active mission HUD open
+    private static final Map<UUID, Boolean> PLAYER_IN_ACTIVE_MISSION = new HashMap<>();
+
     private RegionTriggerEvents() {
     }
 
@@ -25,28 +30,67 @@ public final class RegionTriggerEvents {
             return;
         }
 
+        UUID playerUUID = player.getUUID();
         ChunkPos currentChunk = player.chunkPosition();
         long currentChunkLong = currentChunk.toLong();
-        UUID playerUUID = player.getUUID();
         Long previousChunkLong = LAST_PLAYER_CHUNK.put(playerUUID, currentChunkLong);
-
-        // Only trigger when the player actually enters a NEW chunk
-        if (previousChunkLong != null && previousChunkLong.equals(currentChunkLong)) {
-            return;
-        }
 
         int chunkX = currentChunk.x;
         int chunkZ = currentChunk.z;
         SubRegionPos subPos = SubRegionPos.fromChunk(chunkX, chunkZ);
+        int rx = subPos.regionX();
+        int rz = subPos.regionZ();
+        int sx = subPos.subX();
+        int sz = subPos.subZ();
 
-        RegionData regions = RegionData.get(level);
-        // Exploration rule: Unlocks a 3x3 region square around player upon visiting
-        regions.unlock3x3Around(subPos.regionX(), subPos.regionZ());
+        // 1. Chunk entry trigger for unlocking map regions and out-of-war exploration spawning
+        if (previousChunkLong == null || !previousChunkLong.equals(currentChunkLong)) {
+            RegionData regions = RegionData.get(level);
+            regions.unlock3x3Around(rx, rz);
+            ExplorationSpawnManager.evaluateNearbyRegions(player, level);
+        }
 
-        // Delegate out-of-war exploration spawning to ExplorationSpawnManager.
-        // The manager scans nearby regions around the player, checks per-region
-        // cooldowns, and selects distributed spawn positions within each eligible
-        // enemy-owned region. Spawn logic and position selection do not live here.
-        ExplorationSpawnManager.evaluateNearbyRegions(player, level);
+        // 2. Periodic in-war mission sync & spawning (every 20 ticks / 1 second)
+        if (player.tickCount % 20 == 0) {
+            ActiveCampaignMissionManager.ActiveSubRegionProgress progress =
+                    ActiveCampaignMissionManager.getActiveProgress(rx, rz, sx, sz);
+
+            if (progress != null && !progress.isCompleted()) {
+                // Handle in-world reinforcement spawning
+                ActiveCampaignMissionManager.onPlayerInSubregion(level, rx, rz, sx, sz, player);
+
+                // Send HUD synchronization packet
+                RegionData regions = RegionData.get(level);
+                RegionData.SiegeCampaign siege = regions.getSiege(rx, rz);
+                long remainingTicks = 0L;
+                if (siege != null) {
+                    long elapsed = level.getGameTime() - siege.startTick();
+                    remainingTicks = Math.max(0L, siege.durationTicks() - elapsed);
+                }
+                boolean isDefense = (siege != null && siege.attacker() != Faction.HUMANITY);
+
+                player.connection.send(new ActiveMissionHudPayload(
+                        true,
+                        rx, rz, sx, sz,
+                        progress.displayName(),
+                        progress.currentKills(),
+                        progress.requiredKills(),
+                        remainingTicks,
+                        progress.targetFaction().id(),
+                        isDefense
+                ));
+                PLAYER_IN_ACTIVE_MISSION.put(playerUUID, true);
+            } else {
+                // If player was previously inside an active mission, hide the HUD
+                if (Boolean.TRUE.equals(PLAYER_IN_ACTIVE_MISSION.put(playerUUID, false))) {
+                    player.connection.send(new ActiveMissionHudPayload(
+                            false,
+                            0, 0, 0, 0,
+                            "",
+                            0, 0, 0L, 0, false
+                    ));
+                }
+            }
+        }
     }
 }

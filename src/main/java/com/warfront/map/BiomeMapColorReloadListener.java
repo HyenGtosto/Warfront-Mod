@@ -16,7 +16,7 @@ import org.slf4j.Logger;
 
 public final class BiomeMapColorReloadListener extends SimpleJsonResourceReloadListener {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final String DIRECTORY = "warfront/biome_map_colors";
+    private static final String DIRECTORY = "biome_map_colors";
     public static final BiomeMapColorReloadListener INSTANCE = new BiomeMapColorReloadListener();
 
     private BiomeMapColorReloadListener() {

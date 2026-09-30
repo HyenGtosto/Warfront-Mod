@@ -1,6 +1,7 @@
 package com.warfront.mission;
 
 import com.warfront.region.BaseType;
+import com.warfront.region.BiomeCategory;
 import com.warfront.region.Faction;
 
 import java.util.EnumMap;
@@ -50,6 +51,15 @@ public final class MissionProfile {
     public static SubRegionMission[] generateForRegion(
             int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability) {
 
-        return getGenerator(faction).generateMissions(regionX, regionZ, faction, baseType, resistance, stability);
+        return generateForRegion(regionX, regionZ, faction, baseType, resistance, stability, BiomeCategory.STANDARD);
+    }
+
+    /**
+     * Generates 4 deterministic subregion missions for a region with an explicit biome classification.
+     */
+    public static SubRegionMission[] generateForRegion(
+            int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability, BiomeCategory biomeCategory) {
+
+        return getGenerator(faction).generateMissionsWithBiome(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory);
     }
 }

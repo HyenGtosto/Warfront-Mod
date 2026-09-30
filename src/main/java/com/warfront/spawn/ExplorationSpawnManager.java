@@ -45,7 +45,7 @@ public final class ExplorationSpawnManager {
     public static final int MAX_SPAWN_DIST_BLOCKS = 96;
 
     /** Number of candidate positions tested inside a selected subregion. */
-    private static final int MAX_SPAWN_CANDIDATES = 16;
+    private static final int MAX_SPAWN_CANDIDATES = 24;
 
     /**
      * Subregion cooldown map: subRegionKey -> last spawn game time.
@@ -94,11 +94,6 @@ public final class ExplorationSpawnManager {
                 int rx = playerRegionX + drx;
                 int rz = playerRegionZ + drz;
 
-                // Out-of-war guard: skip region if under active siege
-                if (regions.getSiege(rx, rz) != null) {
-                    continue;
-                }
-
                 long regionId = ChunkPos.asLong(rx, rz);
 
                 for (int subX = 0; subX <= 1; subX++) {
@@ -108,6 +103,11 @@ public final class ExplorationSpawnManager {
                         // Cooldown check at subregion level
                         Long lastSpawn = SUBREGION_SPAWN_COOLDOWNS.get(subKey);
                         if (lastSpawn != null && (gameTime - lastSpawn) < cooldownTicks) {
+                            continue;
+                        }
+
+                        // Skip subregions with ongoing active campaign missions (mission handler manages active sectors)
+                        if (com.warfront.mission.ActiveCampaignMissionManager.hasActiveMission(rx, rz, subX, subZ)) {
                             continue;
                         }
 
@@ -158,7 +158,7 @@ public final class ExplorationSpawnManager {
         // Retrieve resistance from saved/calculated stored state (no recalculation)
         float resistance = regions.calculateEffectiveResistance(selected.regionX(), selected.regionZ());
 
-        int spawned = EnemyEncounterSpawner.spawnRoamingEncounter(
+        int spawned = EnemyEncounterSpawner.spawnWanderingEncounter(
                 level,
                 selected.regionX(), selected.regionZ(),
                 selected.subX(), selected.subZ(),
@@ -175,7 +175,7 @@ public final class ExplorationSpawnManager {
     /**
      * Generates candidate spawn origins inside the selected subregion's 64×64 block area,
      * validating each against distance constraints [MIN_SPAWN_DIST_BLOCKS, MAX_SPAWN_DIST_BLOCKS]
-     * and valid surface terrain.
+     * and valid dry-land surface terrain (strictly non-water/non-liquid).
      */
     private static int[] selectSpawnOriginInSubRegion(
             ServerLevel level,
@@ -191,9 +191,9 @@ public final class ExplorationSpawnManager {
                 continue;
             }
 
-            int spawnY = level.getHeight(Heightmap.Types.WORLD_SURFACE, candX, candZ);
-            if (spawnY <= level.getMinBuildHeight()) {
-                continue;
+            int spawnY = EnemyEncounterSpawner.findDryLandSurfaceY(level, candX, candZ);
+            if (spawnY == Integer.MIN_VALUE) {
+                continue; // Reject water, liquid, or obstructed positions
             }
 
             return new int[] { candX, candZ };

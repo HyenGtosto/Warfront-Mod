@@ -50,27 +50,7 @@ public final class RegionMapRenderer {
     }
 
     private static ResourceLocation loadTexture(String name) {
-        String resPath = "/textures/" + name + ".png";
-        String assetRelPath = "textures/gui/map/" + name + ".png";
-
-        try {
-            File srcFile = new File("src/main/resources" + resPath);
-            File destFile = new File("src/main/resources/assets/warfront/" + assetRelPath);
-            if (srcFile.exists() && !destFile.exists()) {
-                destFile.getParentFile().mkdirs();
-                java.nio.file.Files.copy(srcFile.toPath(), destFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (Exception ignored) {}
-
-        try (java.io.InputStream is = RegionMapRenderer.class.getResourceAsStream(resPath)) {
-            if (is != null) {
-                com.mojang.blaze3d.platform.NativeImage img = com.mojang.blaze3d.platform.NativeImage.read(is);
-                DynamicTexture dynTex = new DynamicTexture(img);
-                return Minecraft.getInstance().getTextureManager().register("warfront_" + name, dynTex);
-            }
-        } catch (Exception ignored) {}
-
-        return ResourceLocation.fromNamespaceAndPath("warfront", assetRelPath);
+        return ResourceLocation.fromNamespaceAndPath("warfront", "textures/gui/map/" + name + ".png");
     }
 
     private DynamicTexture mapTexture;
@@ -164,7 +144,7 @@ public final class RegionMapRenderer {
                                     || (west == null || !west.isVisited() || west.factionId() != chunk.factionId())
                                     || (east == null || !east.isVisited() || east.factionId() != chunk.factionId());
 
-                            boolean isClusterBorder = !isBorder && (
+                            boolean isClusterBorder = (chunk.factionId() != Faction.HUMANITY.id() && chunk.factionId() != Faction.UNCLAIMED.id()) && !isBorder && (
                                        (north != null && north.clusterId() != chunk.clusterId())
                                     || (south != null && south.clusterId() != chunk.clusterId())
                                     || (west != null && west.clusterId() != chunk.clusterId())
@@ -549,7 +529,8 @@ public final class RegionMapRenderer {
         if (!isActivated) return;
 
         for (int i = 0; i < 4; i++) {
-            if (!state.isSubRegionMissionToggled(i)) continue;
+            boolean isSelectedOrActive = state.isSubRegionMissionToggled(i) || state.isSubRegionConfirmed(sel.regionX(), sel.regionZ(), i);
+            if (!isSelectedOrActive) continue;
 
             int subX = i % 2;
             int subZ = i / 2;
@@ -724,6 +705,19 @@ public final class RegionMapRenderer {
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
                     Component.literal(headerText),
                     Component.literal(String.format("§fTime Left: §c%02d:%02d", mins, secs)));
+        } else if (selectedRegion.isAwaitingReinforcements()) {
+            if (selectedRegion.isEncircled()) {
+                renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
+                        Component.literal("§c§lENCIRCLED"),
+                        Component.literal("§7Reinforcements Blocked"));
+            } else {
+                long totalSecs = selectedRegion.reinforcementRemainingTicks() / 20L;
+                long mins = totalSecs / 60L;
+                long secs = totalSecs % 60L;
+                renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
+                        Component.literal("§6§lREINFORCING"),
+                        Component.literal(String.format("§fArrival: §e%02d:%02d", mins, secs)));
+            }
         } else if (selectedRegion.owner() != Faction.HUMANITY && selectedRegion.owner() != Faction.UNCLAIMED) {
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
                     Component.literal("§c§lATTACK TARGET"),

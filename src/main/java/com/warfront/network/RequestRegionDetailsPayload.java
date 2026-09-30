@@ -69,14 +69,35 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
             int reachableMask = regions.computeReachableMask(payload.regionX(), payload.regionZ());
             int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
             boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ());
-            int existingSiegeMask = (siege != null) ? siege.activeSubRegionsMask() : 0;
+            int existingSiegeMask = 0;
+            if (siege != null) {
+                if (siege.attacker() == com.warfront.region.Faction.HUMANITY) {
+                    existingSiegeMask = siege.activeSubRegionsMask();
+                } else {
+                    existingSiegeMask = com.warfront.mission.ActiveCampaignMissionManager.getActiveSubRegionsMask(payload.regionX(), payload.regionZ());
+                }
+            }
+
+            int attackerFactionId = (siege != null) ? siege.attacker().id() : com.warfront.region.Faction.UNCLAIMED.id();
+
+            boolean isAwaitingReinf = regions.hasActiveReinforcement(payload.regionX(), payload.regionZ());
+            long reinfRemainingTicks = 0L;
+            boolean isEncircled = regions.isEncircled(payload.regionX(), payload.regionZ(), region.owner());
+            if (isAwaitingReinf) {
+                RegionData.ReinforcementState rs = regions.getReinforcement(payload.regionX(), payload.regionZ());
+                if (rs != null) {
+                    long elapsed = player.serverLevel().getGameTime() - rs.startTick();
+                    reinfRemainingTicks = Math.max(0L, rs.durationTicks() - elapsed);
+                }
+            }
 
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
-                    subState.owner().id(), effectiveStability, effectiveResistance,
-                    region.baseType().id(), subState.underSiege(), true,
-                    remainingTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask));
+                    region.owner().id(), effectiveStability, effectiveResistance,
+                    region.baseType().id(), (siege != null), true,
+                    remainingTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask,
+                    attackerFactionId, isAwaitingReinf, reinfRemainingTicks, isEncircled));
         }
     }
 

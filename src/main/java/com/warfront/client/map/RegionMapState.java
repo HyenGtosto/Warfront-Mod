@@ -132,20 +132,18 @@ public final class RegionMapState {
     }
 
     public void selectRegion(RegionDetailsPayload payload) {
-        boolean prevWasSieged = selectedRegion != null
+        boolean isSameRegion = selectedRegion != null
                 && selectedRegion.regionX() == payload.regionX()
-                && selectedRegion.regionZ() == payload.regionZ()
-                && selectedRegion.underSiege();
+                && selectedRegion.regionZ() == payload.regionZ();
 
-        // Reset selection and confirmed state when the player switches regions or selects a non-sieged region
-        boolean differentRegion = selectedRegion == null
-                || selectedRegion.regionX() != payload.regionX()
-                || selectedRegion.regionZ() != payload.regionZ();
-        if (differentRegion || !payload.underSiege()) {
-            campaignConfirmed = false;
+        long regKey = ChunkPos.asLong(payload.regionX(), payload.regionZ());
+
+        if (!isSameRegion) {
+            // Reset toggles and staging only when switching to a completely different region
             for (int i = 0; i < 4; i++) {
                 subRegionMissionToggled[i] = false;
             }
+            campaignConfirmed = false;
         }
 
         selectedRegion = new SelectedRegion(
@@ -164,26 +162,20 @@ public final class RegionMapState {
                 payload.reachableMask(),
                 payload.regionReachable(),
                 payload.existingSiegeMask(),
-                payload.conqueredMask());
+                payload.conqueredMask(),
+                Faction.byId(payload.attackerFactionId()),
+                payload.isAwaitingReinforcements(),
+                payload.reinforcementRemainingTicks(),
+                payload.isEncircled());
 
-        long regKey = ChunkPos.asLong(payload.regionX(), payload.regionZ());
-
-        if (payload.underSiege() && payload.existingSiegeMask() != 0) {
+        if (payload.underSiege()) {
             activatedRegions.add(regKey);
-            for (int i = 0; i < 4; i++) {
-                int sx = i % 2;
-                int sz = i / 2;
-                int bit = sz * 2 + sx;
-                boolean isConquered = (payload.conqueredMask() & (1 << bit)) != 0;
-                if (!isConquered) {
-                    boolean wasActive = (payload.existingSiegeMask() & (1 << bit)) != 0;
-                    subRegionMissionToggled[i] = wasActive;
-                } else {
-                    subRegionMissionToggled[i] = false;
-                }
+            if (payload.existingSiegeMask() != 0) {
+                setConfirmedSubMask(payload.regionX(), payload.regionZ(), payload.existingSiegeMask());
             }
-        } else {
+        } else if (!isSameRegion) {
             activatedRegions.remove(regKey);
+            clearConfirmedSubMask(payload.regionX(), payload.regionZ());
         }
     }
 
@@ -201,6 +193,14 @@ public final class RegionMapState {
                 long newTicks = Math.max(0L, selectedRegion.remainingSiegeTicks() - (secondsElapsed * 20L));
                 selectedRegion = selectedRegion.withRemainingSiegeTicks(newTicks);
                 if (newTicks == 0L) {
+                    return TickAction.REFRESH_ALL;
+                }
+            }
+
+            if (selectedRegion != null && selectedRegion.isAwaitingReinforcements() && !selectedRegion.isEncircled() && selectedRegion.reinforcementRemainingTicks() > 0) {
+                long newReinfTicks = Math.max(0L, selectedRegion.reinforcementRemainingTicks() - (secondsElapsed * 20L));
+                selectedRegion = selectedRegion.withReinforcementRemainingTicks(newReinfTicks);
+                if (newReinfTicks == 0L) {
                     return TickAction.REFRESH_ALL;
                 }
             }
@@ -322,8 +322,32 @@ public final class RegionMapState {
     }
 
     // -----------------------------------------------------------------------
-    // Campaign confirmed state
+    // Campaign confirmed state & subregion mission tracking
     // -----------------------------------------------------------------------
+
+    private final Map<Long, Integer> confirmedMissionsMap = new HashMap<>();
+
+    public int getConfirmedSubMask(int regionX, int regionZ) {
+        return confirmedMissionsMap.getOrDefault(ChunkPos.asLong(regionX, regionZ), 0);
+    }
+
+    public void setConfirmedSubMask(int regionX, int regionZ, int mask) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        int existing = confirmedMissionsMap.getOrDefault(key, 0);
+        confirmedMissionsMap.put(key, existing | mask);
+    }
+
+    public void clearConfirmedSubMask(int regionX, int regionZ) {
+        confirmedMissionsMap.remove(ChunkPos.asLong(regionX, regionZ));
+    }
+
+    public boolean isSubRegionConfirmed(int regionX, int regionZ, int index) {
+        int mask = getConfirmedSubMask(regionX, regionZ);
+        int subX = index % 2;
+        int subZ = index / 2;
+        int bit = subZ * 2 + subX;
+        return (mask & (1 << bit)) != 0;
+    }
 
     public boolean isCampaignConfirmed() {
         return campaignConfirmed;

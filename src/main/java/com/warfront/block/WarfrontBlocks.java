@@ -31,6 +31,21 @@ public final class WarfrontBlocks {
     public static final DeferredItem<Item> TESTING_MAP_TERMINAL = ITEMS.register("testing_map_terminal",
             () -> new com.warfront.item.TestingMapTerminalItem(new Item.Properties().stacksTo(1)));
 
+    public static final DeferredItem<Item> PILLAGER_ARMORED_ELITE_SPAWN_EGG = ITEMS.register("pillager_armored_elite_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_ARMORED_ELITE, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_WARRIOR_SPAWN_EGG = ITEMS.register("pillager_warrior_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_WARRIOR, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_SCOUT_SPAWN_EGG = ITEMS.register("pillager_scout_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_SCOUT, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_MARKSMAN_SPAWN_EGG = ITEMS.register("pillager_marksman_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_MARKSMAN, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_COMMANDER_SPAWN_EGG = ITEMS.register("pillager_commander_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_COMMANDER, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
     private WarfrontBlocks() {
     }
 
@@ -40,6 +55,13 @@ public final class WarfrontBlocks {
             event.accept(COMMAND_TERMINAL_ITEM);
             event.accept(MAP_TERMINAL);
             event.accept(TESTING_MAP_TERMINAL);
+        }
+        if (event.getTabKey() == CreativeModeTabs.SPAWN_EGGS) {
+            event.accept(PILLAGER_ARMORED_ELITE_SPAWN_EGG);
+            event.accept(PILLAGER_WARRIOR_SPAWN_EGG);
+            event.accept(PILLAGER_SCOUT_SPAWN_EGG);
+            event.accept(PILLAGER_MARKSMAN_SPAWN_EGG);
+            event.accept(PILLAGER_COMMANDER_SPAWN_EGG);
         }
     }
 }

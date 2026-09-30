@@ -66,8 +66,20 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
     }
 
     private static final Map<Long, Integer> CHUNK_BIOME_COLOR_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static long cachedWorldSeed = Long.MIN_VALUE;
+
+    public static void clearColorCache() {
+        CHUNK_BIOME_COLOR_CACHE.clear();
+        cachedWorldSeed = Long.MIN_VALUE;
+    }
 
     private static int getOrComputeBiomeColor(ServerLevel level, int chunkX, int chunkZ, BlockPos.MutableBlockPos samplePos, int seaLevel) {
+        long currentSeed = level.getSeed();
+        if (cachedWorldSeed != currentSeed) {
+            cachedWorldSeed = currentSeed;
+            CHUNK_BIOME_COLOR_CACHE.clear();
+        }
+
         long key = net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
         Integer cached = CHUNK_BIOME_COLOR_CACHE.get(key);
         if (cached != null) {
@@ -75,7 +87,7 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         }
         samplePos.set(chunkX * 16 + 8, seaLevel, chunkZ * 16 + 8);
         int color = BiomeMapColors.colorFor(level.getBiome(samplePos));
-        if (CHUNK_BIOME_COLOR_CACHE.size() > 16384) {
+        if (CHUNK_BIOME_COLOR_CACHE.size() > 262144) {
             CHUNK_BIOME_COLOR_CACHE.clear();
         }
         CHUNK_BIOME_COLOR_CACHE.put(key, color);

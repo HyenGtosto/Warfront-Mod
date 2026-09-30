@@ -16,11 +16,15 @@ public record RegionDetailsPayload(
         int baseTypeId, boolean underSiege, boolean isVisited,
         long remainingSiegeTicks, int dominoThreshold,
         int reachableMask, boolean regionReachable,
-        int existingSiegeMask, int conqueredMask
+        int existingSiegeMask, int conqueredMask,
+        int attackerFactionId,
+        boolean isAwaitingReinforcements,
+        long reinforcementRemainingTicks,
+        boolean isEncircled
 ) implements CustomPacketPayload {
 
     public RegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, int factionId, float stability, float resistance, int baseTypeId, boolean underSiege, boolean isVisited) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0);
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false);
     }
 
     public static final Type<RegionDetailsPayload> TYPE = new Type<>(
@@ -45,7 +49,11 @@ public record RegionDetailsPayload(
                     ByteBufCodecs.VAR_INT.decode(buf),
                     ByteBufCodecs.BOOL.decode(buf),
                     ByteBufCodecs.VAR_INT.decode(buf),
-                    ByteBufCodecs.VAR_INT.decode(buf)
+                    ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.BOOL.decode(buf),
+                    ByteBufCodecs.VAR_LONG.decode(buf),
+                    ByteBufCodecs.BOOL.decode(buf)
             );
         }
 
@@ -67,6 +75,10 @@ public record RegionDetailsPayload(
             ByteBufCodecs.BOOL.encode(buf, payload.regionReachable());
             ByteBufCodecs.VAR_INT.encode(buf, payload.existingSiegeMask());
             ByteBufCodecs.VAR_INT.encode(buf, payload.conqueredMask());
+            ByteBufCodecs.VAR_INT.encode(buf, payload.attackerFactionId());
+            ByteBufCodecs.BOOL.encode(buf, payload.isAwaitingReinforcements());
+            ByteBufCodecs.VAR_LONG.encode(buf, payload.reinforcementRemainingTicks());
+            ByteBufCodecs.BOOL.encode(buf, payload.isEncircled());
         }
     };
 

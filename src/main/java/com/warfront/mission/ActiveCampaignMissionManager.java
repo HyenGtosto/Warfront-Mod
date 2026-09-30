@@ -6,10 +6,12 @@ import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -29,35 +31,108 @@ public final class ActiveCampaignMissionManager {
     }
 
     public static class ActiveSubRegionProgress {
+        private final UUID missionInstanceId;
         private final int regionX;
         private final int regionZ;
         private final int subX;
         private final int subZ;
         private final Faction targetFaction;
         private final String targetRoleName;
+        private final String displayName;
+        private final MissionType missionType;
         private final int requiredKills;
         private int currentKills;
         private boolean completed;
 
-        public ActiveSubRegionProgress(int regionX, int regionZ, int subX, int subZ, Faction targetFaction, String targetRoleName, int requiredKills) {
+        public ActiveSubRegionProgress(
+                int regionX, int regionZ,
+                int subX, int subZ,
+                Faction targetFaction,
+                String targetRoleName,
+                String displayName,
+                MissionType missionType,
+                int requiredKills
+        ) {
+            this(UUID.randomUUID(), regionX, regionZ, subX, subZ, targetFaction, targetRoleName, displayName, missionType, requiredKills);
+        }
+
+        public ActiveSubRegionProgress(
+                UUID missionInstanceId,
+                int regionX, int regionZ,
+                int subX, int subZ,
+                Faction targetFaction,
+                String targetRoleName,
+                String displayName,
+                MissionType missionType,
+                int requiredKills
+        ) {
+            this.missionInstanceId = missionInstanceId != null ? missionInstanceId : UUID.randomUUID();
             this.regionX = regionX;
             this.regionZ = regionZ;
             this.subX = subX;
             this.subZ = subZ;
             this.targetFaction = targetFaction;
             this.targetRoleName = targetRoleName;
+            this.displayName = displayName;
+            this.missionType = missionType;
             this.requiredKills = requiredKills;
             this.currentKills = 0;
             this.completed = false;
         }
 
+        public UUID missionInstanceId() { return missionInstanceId; }
+        public int regionX() { return regionX; }
+        public int regionZ() { return regionZ; }
         public int subX() { return subX; }
         public int subZ() { return subZ; }
         public Faction targetFaction() { return targetFaction; }
         public String targetRoleName() { return targetRoleName; }
+        public String displayName() { return displayName; }
+        public MissionType missionType() { return missionType; }
         public int requiredKills() { return requiredKills; }
         public int currentKills() { return currentKills; }
         public boolean isCompleted() { return completed; }
+
+        public void incrementKills() { this.currentKills++; }
+        public void setCompleted(boolean completed) { this.completed = completed; }
+    }
+
+    /**
+     * Checks if a subregion has an active, uncompleted mission in the campaign.
+     */
+    public static boolean hasActiveMission(int regionX, int regionZ, int subX, int subZ) {
+        long regionKey = ChunkPos.asLong(regionX, regionZ);
+        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
+        if (subMissions == null || subMissions.isEmpty()) {
+            return false;
+        }
+        int bit = subZ * 2 + subX;
+        ActiveSubRegionProgress progress = subMissions.get(bit);
+        return progress != null && !progress.isCompleted();
+    }
+
+    /**
+     * Authoritative query: Checks if a specific mission instance is currently active and uncompleted.
+     */
+    public static boolean isMissionInstanceActive(UUID missionInstanceId, int regionX, int regionZ, int subX, int subZ) {
+        if (missionInstanceId == null) {
+            return false;
+        }
+        ActiveSubRegionProgress progress = getActiveProgress(regionX, regionZ, subX, subZ);
+        return progress != null && missionInstanceId.equals(progress.missionInstanceId()) && !progress.isCompleted();
+    }
+
+    /**
+     * Retrieves the active subregion progress if present.
+     */
+    public static ActiveSubRegionProgress getActiveProgress(int regionX, int regionZ, int subX, int subZ) {
+        long regionKey = ChunkPos.asLong(regionX, regionZ);
+        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
+        if (subMissions == null || subMissions.isEmpty()) {
+            return null;
+        }
+        int bit = subZ * 2 + subX;
+        return subMissions.get(bit);
     }
 
     /**
@@ -82,8 +157,20 @@ public final class ActiveCampaignMissionManager {
             int bit = subZ * 2 + subX;
 
             if ((activeSubRegionsMask & (1 << bit)) != 0) {
+                ActiveSubRegionProgress existing = subMissions.get(bit);
+                if (existing != null && existing.isCompleted()) {
+                    continue;
+                }
                 SubRegionMission gen = generatedMissions[i];
-                subMissions.put(bit, new ActiveSubRegionProgress(regionX, regionZ, subX, subZ, targetFaction, gen.targetRoleName(), gen.killTarget()));
+                subMissions.put(bit, new ActiveSubRegionProgress(
+                        regionX, regionZ,
+                        subX, subZ,
+                        targetFaction,
+                        gen.targetRoleName(),
+                        gen.displayName(),
+                        gen.type(),
+                        gen.killTarget()
+                ));
             }
         }
 
@@ -96,19 +183,44 @@ public final class ActiveCampaignMissionManager {
      */
     public static void clearCampaign(ServerLevel level, int regionX, int regionZ) {
         long regionKey = ChunkPos.asLong(regionX, regionZ);
-        ACTIVE_CAMPAIGN_MISSIONS.remove(regionKey);
+        Map<Integer, ActiveSubRegionProgress> removed = ACTIVE_CAMPAIGN_MISSIONS.remove(regionKey);
+        if (removed != null && level != null) {
+            for (ActiveSubRegionProgress progress : removed.values()) {
+                KillCountMissionHandler.getInstance().onCleanup(level, regionX, regionZ, progress.subX(), progress.subZ(), progress);
+            }
+        }
+    }
+
+    /**
+     * Returns a 4-bit mask of subregions that currently have active, uncompleted missions in the campaign.
+     */
+    public static int getActiveSubRegionsMask(int regionX, int regionZ) {
+        long regionKey = ChunkPos.asLong(regionX, regionZ);
+        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
+        if (subMissions == null || subMissions.isEmpty()) {
+            return 0;
+        }
+        int mask = 0;
+        for (Map.Entry<Integer, ActiveSubRegionProgress> entry : subMissions.entrySet()) {
+            if (!entry.getValue().isCompleted()) {
+                mask |= (1 << entry.getKey());
+            }
+        }
+        return mask;
+    }
+
+    /**
+     * Triggered when a player is present in an active mission subregion to manage reinforcement spawning.
+     */
+    public static void onPlayerInSubregion(ServerLevel level, int regionX, int regionZ, int subX, int subZ, ServerPlayer player) {
+        ActiveSubRegionProgress progress = getActiveProgress(regionX, regionZ, subX, subZ);
+        if (progress != null && !progress.isCompleted()) {
+            KillCountMissionHandler.getInstance().onPlayerInSubregion(level, regionX, regionZ, subX, subZ, progress, player);
+        }
     }
 
     /**
      * Processes a Warfront enemy entity kill and advances mission progress if applicable.
-     *
-     * @param level         the server level
-     * @param originRegionX the mob's origin region X
-     * @param originRegionZ the mob's origin region Z
-     * @param originSubX    the mob's origin subregion X
-     * @param originSubZ    the mob's origin subregion Z
-     * @param mobFaction    the mob's faction
-     * @param mobRoleName   the mob's role name
      */
     public static void onEntityKilled(
             ServerLevel level,
@@ -117,62 +229,16 @@ public final class ActiveCampaignMissionManager {
             Faction mobFaction,
             String mobRoleName) {
 
-        long regionKey = ChunkPos.asLong(originRegionX, originRegionZ);
-        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
-
-        if (subMissions == null || subMissions.isEmpty()) {
-            return;
-        }
-
-        int bit = originSubZ * 2 + originSubX;
-        ActiveSubRegionProgress progress = subMissions.get(bit);
-
-        if (progress == null || progress.isCompleted()) {
-            return;
-        }
-
-        // Verify entity faction matches mission target faction
-        if (mobFaction != progress.targetFaction()) {
-            return;
-        }
-
-        progress.currentKills++;
-        Warfront.LOGGER.debug("Mission kill progress for Region ({}, {}) Sub ({}, {}): {}/{}",
-                originRegionX, originRegionZ, originSubX, originSubZ, progress.currentKills, progress.requiredKills);
-
-        if (progress.currentKills >= progress.requiredKills) {
-            progress.completed = true;
-            RegionData regions = RegionData.get(level);
-
-            // Subregion Objective Completed -> Capture ONLY this subregion to HUMANITY
-            regions.claimSubRegion(level, originRegionX, originRegionZ, originSubX, originSubZ, Faction.HUMANITY, 100.0F);
-
-            String logMsg = String.format("§aMission Completed! Sub-region (%d, %d) in Region (%d, %d) captured.",
-                    originSubX, originSubZ, originRegionX, originRegionZ);
-            regions.addLog(level, logMsg);
-            Warfront.LOGGER.info("Subregion mission completed: Region ({}, {}) Sub ({}, {}). Subregion captured to HUMANITY.",
-                    originRegionX, originRegionZ, originSubX, originSubZ);
-
-            // Check if ALL selected subregion missions in this campaign are completed
-            boolean allCompleted = true;
-            for (ActiveSubRegionProgress p : subMissions.values()) {
-                if (!p.isCompleted()) {
-                    allCompleted = false;
-                    break;
-                }
-            }
-
-            if (allCompleted) {
-                // Campaign Success! Clear campaign state
-                regions.setRegionSiege(originRegionX, originRegionZ, false);
-                regions.getActiveSieges().remove(regionKey);
-                clearCampaign(level, originRegionX, originRegionZ);
-
-                regions.addLog(level, String.format("§aCampaign Victory! All objectives completed for Region (%d, %d).", originRegionX, originRegionZ));
-                regions.broadcastTitle(level, Component.literal("§a§lCAMPAIGN VICTORY!"), Component.literal(String.format("§7Region (%d, %d) Campaign Completed", originRegionX, originRegionZ)));
-            }
-
-            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+        ActiveSubRegionProgress progress = getActiveProgress(originRegionX, originRegionZ, originSubX, originSubZ);
+        if (progress != null && !progress.isCompleted()) {
+            KillCountMissionHandler.getInstance().onEntityKilled(
+                    level,
+                    originRegionX, originRegionZ,
+                    originSubX, originSubZ,
+                    progress,
+                    mobFaction,
+                    mobRoleName
+            );
         }
     }
 }

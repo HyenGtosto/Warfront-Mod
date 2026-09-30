@@ -19,9 +19,17 @@ public record SelectedRegion(
         int reachableMask,
         boolean regionReachable,
         int existingSiegeMask,
-        int conqueredMask
+        int conqueredMask,
+        Faction attacker,
+        boolean isAwaitingReinforcements,
+        long reinforcementRemainingTicks,
+        boolean isEncircled
 ) {
     public SelectedRegion withRemainingSiegeTicks(long newTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled);
+    }
+
+    public SelectedRegion withReinforcementRemainingTicks(long newReinfTicks) {
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled);
     }
 }

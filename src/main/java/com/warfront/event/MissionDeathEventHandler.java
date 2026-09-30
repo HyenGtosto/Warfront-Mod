@@ -30,6 +30,18 @@ public final class MissionDeathEventHandler {
         int originRegionZ = data.getInt("originRegionZ");
         int originSubX = data.getInt("originSubX");
         int originSubZ = data.getInt("originSubZ");
+
+        if (data.getBoolean("isAttackRoamer")) {
+            int blockX = (int) mob.getX();
+            int blockZ = (int) mob.getZ();
+            int currentRegionX = Math.floorDiv(blockX, com.warfront.region.RegionData.REGION_SIZE_BLOCKS);
+            int currentRegionZ = Math.floorDiv(blockZ, com.warfront.region.RegionData.REGION_SIZE_BLOCKS);
+            if (currentRegionX == originRegionX && currentRegionZ == originRegionZ) {
+                originSubX = Math.floorMod(Math.floorDiv(blockX, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+                originSubZ = Math.floorMod(Math.floorDiv(blockZ, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+            }
+        }
+
         int factionId = data.getInt("faction");
         String roleName = data.getString("targetRoleName");
 

@@ -1,6 +1,7 @@
 package com.warfront.mission;
 
 import com.warfront.region.BaseType;
+import com.warfront.region.BiomeCategory;
 import com.warfront.region.Faction;
 
 /**
@@ -8,7 +9,7 @@ import com.warfront.region.Faction;
  *
  * Each faction (e.g. Zombie Horde, Pillager Conquerors) provides its own
  * generator implementation with distinct rules for objective difficulty,
- * enemy role composition, and subregion variations.
+ * enemy role composition, base type eligibility, and biome affinities.
  */
 public interface FactionMissionGenerator {
 
@@ -30,4 +31,18 @@ public interface FactionMissionGenerator {
             float resistance,
             float stability
     );
+
+    /**
+     * Generates 4 deterministic subregion missions including biome categorization.
+     */
+    default SubRegionMission[] generateMissionsWithBiome(
+            int regionX, int regionZ,
+            Faction faction,
+            BaseType baseType,
+            float resistance,
+            float stability,
+            BiomeCategory biomeCategory
+    ) {
+        return generateMissions(regionX, regionZ, faction, baseType, resistance, stability);
+    }
 }

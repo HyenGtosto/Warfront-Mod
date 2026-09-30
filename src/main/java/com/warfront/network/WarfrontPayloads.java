@@ -22,5 +22,6 @@ public final class WarfrontPayloads {
                 CloseMapSessionPayload::handle);
         registrar.playToClient(RegionMapPayload.TYPE, RegionMapPayload.STREAM_CODEC, RegionMapPayload::handle);
         registrar.playToClient(RegionDetailsPayload.TYPE, RegionDetailsPayload.STREAM_CODEC, RegionDetailsPayload::handle);
+        registrar.playToClient(ActiveMissionHudPayload.TYPE, ActiveMissionHudPayload.STREAM_CODEC, ActiveMissionHudPayload::handle);
     }
 }

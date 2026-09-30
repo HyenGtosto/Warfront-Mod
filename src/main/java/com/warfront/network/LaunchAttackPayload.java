@@ -39,21 +39,26 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         RegionData.Region targetRegion = regions.regionAt(payload.regionX(), payload.regionZ());
         RegionData.SiegeCampaign existingSiege = regions.getSiege(payload.regionX(), payload.regionZ());
 
-        if (targetRegion.owner() == com.warfront.region.Faction.HUMANITY && existingSiege != null) {
-            // Defense Campaign Confirmation: player is activating defense missions for an ongoing siege
+        if (existingSiege != null && existingSiege.attacker() != com.warfront.region.Faction.HUMANITY) {
+            // Defense Campaign Confirmation: player is activating defense missions for an ongoing AI siege
             int requestedMask = payload.activeSubRegionsMask();
-            int securedMask = regions.computeSecuredMask(payload.regionX(), payload.regionZ());
-            int validDefenseMask = requestedMask & ~securedMask; // filter out already safe sub-regions
-
-            if (validDefenseMask == 0) {
+            if (requestedMask == 0) {
                 return;
             }
+            int validDefenseMask = requestedMask;
 
             int finalMask = existingSiege.activeSubRegionsMask() | validDefenseMask;
             regions.setRegionSiegeWithCampaign(payload.regionX(), payload.regionZ(),
                     new RegionData.SiegeCampaign(existingSiege.attacker(), payload.regionX(), payload.regionZ(),
                             existingSiege.sources(), existingSiege.attackValue(), existingSiege.encircled(),
                             existingSiege.startTick(), existingSiege.durationTicks(), finalMask));
+
+            float effectiveResistance = regions.calculateEffectiveResistance(payload.regionX(), payload.regionZ());
+            float effectiveStability = regions.calculateEffectiveStability(payload.regionX(), payload.regionZ());
+            com.warfront.mission.ActiveCampaignMissionManager.startCampaign(
+                    level, payload.regionX(), payload.regionZ(),
+                    existingSiege.attacker(), targetRegion.baseType(),
+                    effectiveResistance, effectiveStability, validDefenseMask);
 
             Warfront.LOGGER.info("Defense missions confirmed: {} → Region ({}, {}), active mask {}.",
                     player.getName().getString(), payload.regionX(), payload.regionZ(), finalMask);
@@ -82,7 +87,7 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
 
         int finalMask = validRequestedMask;
         long startTick = level.getGameTime();
-        long durationTicks = com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
+        long durationTicks = regions.calculateAttackDurationTicks(payload.regionX(), payload.regionZ());
 
         if (existingSiege != null && existingSiege.attacker() == com.warfront.region.Faction.HUMANITY) {
             int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
@@ -90,6 +95,11 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             finalMask = cleanExistingMask | validRequestedMask;
             startTick = existingSiege.startTick();
             durationTicks = existingSiege.durationTicks(); // preserve remaining campaign timer
+        }
+
+        // Cancel awaiting reinforcement state if present so attack proceeds with degraded stats
+        if (regions.hasActiveReinforcement(payload.regionX(), payload.regionZ())) {
+            regions.cancelReinforcement(payload.regionX(), payload.regionZ());
         }
 
         java.util.List<RegionData.SourcePos> sources = java.util.List.of(new RegionData.SourcePos(payload.regionX() - 1, payload.regionZ()));

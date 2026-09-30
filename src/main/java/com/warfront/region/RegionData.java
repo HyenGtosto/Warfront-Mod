@@ -42,6 +42,7 @@ public final class RegionData extends SavedData {
     private final Map<Long, RegionState> regions = new HashMap<>();
     private final Map<Long, SubRegionState> subRegions = new HashMap<>();
     private final Map<Long, SiegeCampaign> activeSieges = new HashMap<>();
+    private final Map<Long, ReinforcementState> activeReinforcements = new HashMap<>();
     private final Map<Long, Integer> zombieRetaliationWeights = new HashMap<>();
     private final List<String> warfrontLogs = new ArrayList<>();
     private final java.util.Set<Long> visitedRegions = new java.util.HashSet<>();
@@ -50,6 +51,9 @@ public final class RegionData extends SavedData {
 
     public static RegionData get(ServerLevel level) {
         RegionData data = level.getDataStorage().computeIfAbsent(FACTORY, DATA_FILE_ID);
+        if (data.level != level || data.worldSeed != level.getSeed()) {
+            com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
+        }
         data.worldSeed = level.getSeed();
         data.level = level;
 
@@ -131,8 +135,6 @@ public final class RegionData extends SavedData {
             long durationTicks;
             if (sTag.contains("duration_ticks", Tag.TAG_LONG)) {
                 durationTicks = sTag.getLong("duration_ticks");
-            } else if (attacker == Faction.HUMANITY) {
-                durationTicks = 4000L;
             } else {
                 durationTicks = com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
             }
@@ -155,6 +157,21 @@ public final class RegionData extends SavedData {
                     durationTicks,
                     activeSubRegionsMask,
                     attackerClusterId
+            ));
+        }
+
+        ListTag reinfTag = tag.getList("reinforcements", Tag.TAG_COMPOUND);
+        for (int index = 0; index < reinfTag.size(); index++) {
+            CompoundTag rTag = reinfTag.getCompound(index);
+            long regId = rTag.getLong("region_id");
+            data.activeReinforcements.put(regId, new ReinforcementState(
+                    rTag.getInt("rx"),
+                    rTag.getInt("rz"),
+                    Faction.byId(rTag.getInt("owner_id")),
+                    rTag.getFloat("orig_stab"),
+                    rTag.getFloat("orig_res"),
+                    rTag.getLong("start_tick"),
+                    rTag.getLong("duration_ticks")
             ));
         }
 
@@ -242,6 +259,22 @@ public final class RegionData extends SavedData {
             siegesTag.add(sTag);
         }
         tag.put(SIEGES_TAG, siegesTag);
+
+        ListTag reinfTag = new ListTag();
+        for (Map.Entry<Long, ReinforcementState> entry : activeReinforcements.entrySet()) {
+            CompoundTag rTag = new CompoundTag();
+            ReinforcementState rs = entry.getValue();
+            rTag.putLong("region_id", entry.getKey());
+            rTag.putInt("rx", rs.regionX());
+            rTag.putInt("rz", rs.regionZ());
+            rTag.putInt("owner_id", rs.owner().id());
+            rTag.putFloat("orig_stab", rs.originalStability());
+            rTag.putFloat("orig_res", rs.originalResistance());
+            rTag.putLong("start_tick", rs.startTick());
+            rTag.putLong("duration_ticks", rs.durationTicks());
+            reinfTag.add(rTag);
+        }
+        tag.put("reinforcements", reinfTag);
 
         ListTag logsTag = new ListTag();
         for (String logMsg : warfrontLogs) {
@@ -425,12 +458,15 @@ public final class RegionData extends SavedData {
     public int computeSecuredMask(int regionX, int regionZ) {
         int mask = 0;
         Region region = regionAt(regionX, regionZ);
+        SiegeCampaign siege = getActiveSieges().get(ChunkPos.asLong(regionX, regionZ));
+        boolean isDefenseSiege = (siege != null && siege.attacker() != Faction.HUMANITY);
+
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 int bit = sz * 2 + sx;
                 SubRegionState subState = subRegionAt(regionX, regionZ, sx, sz);
                 if (region.owner() == Faction.HUMANITY) {
-                    if (!subState.underSiege()) {
+                    if (!isDefenseSiege) {
                         mask |= (1 << bit);
                     }
                 } else {
@@ -629,23 +665,78 @@ public final class RegionData extends SavedData {
     }
 
     /**
-     * Calculates the domino collapse threshold for a region based on its effective stability.
+     * Calculates the domino collapse threshold for a region.
      *
-     * Defense (HUMANITY owner): High stability = fortified defenses = easier to hold (1 sector needed).
-     * Attack (Enemy owner): High stability = strong enemy defenses = harder to conquer (4 sectors needed).
+     * Attack (Enemy owner): Based on enemy region effective stability (1–4 sectors needed to conquer).
+     * Defense (Humanity owner / defending region): Based on AI attack strength and source vectors (1–4 sectors needed to repel).
      */
     public int calculateDominoThreshold(int regionX, int regionZ) {
-        float effectiveStability = calculateEffectiveStability(regionX, regionZ);
         Region region = regionAt(regionX, regionZ);
-        if (region.owner() == Faction.HUMANITY) {
-            return (effectiveStability >= 70.0F) ? 1 :
-                   (effectiveStability >= 35.0F) ? 2 :
-                   (effectiveStability >= 15.0F) ? 3 : 4;
+        SiegeCampaign siege = getSiege(regionX, regionZ);
+
+        if (region.owner() == Faction.HUMANITY || (siege != null && siege.attacker() != Faction.HUMANITY)) {
+            // Defense calculation: based on AI attack strength
+            if (siege == null) {
+                return 2;
+            }
+            if (siege.encircled() || siege.attackValue() >= 20 || (siege.sources() != null && siege.sources().size() >= 3)) {
+                return 4; // Overwhelming multi-axis offensive or full encirclement
+            } else if (siege.sources() != null && siege.sources().size() == 2) {
+                return 3; // 2-source flank attack
+            } else {
+                // 1-source frontal assault: evaluate attacker resistance
+                float attackerRes = 50.0F;
+                if (siege.sources() != null && !siege.sources().isEmpty()) {
+                    SourcePos src = siege.sources().get(0);
+                    attackerRes = calculateEffectiveResistance(src.x(), src.z());
+                }
+                return (attackerRes >= 65.0F) ? 3 :
+                       (attackerRes >= 40.0F) ? 2 : 1;
+            }
         } else {
+            // Attack calculation: based on enemy stability
+            float effectiveStability = calculateEffectiveStability(regionX, regionZ);
             return (effectiveStability <= 35.0F) ? 1 :
-                   (effectiveStability <= 70.0F) ? 2 :
-                   (effectiveStability < 100.0F) ? 3 : 4;
+                   (effectiveStability <= 55.0F) ? 2 :
+                   (effectiveStability <= 78.0F) ? 3 : 4;
         }
+    }
+
+    /**
+     * Calculates the attack campaign duration for Humanity attacking an enemy region.
+     * Set to flat 10 minutes (12,000 ticks) for player attacks.
+     */
+    public long calculateAttackDurationTicks(int targetRX, int targetRZ) {
+        return 10L * 60L * 20L; // 10 minutes (12,000 ticks) flat
+    }
+
+    /**
+     * Calculates the defense campaign duration when an AI faction attacks Humanity territory.
+     * Base duration is 20 minutes (24,000 ticks) with a strict 10-minute floor (12,000 ticks).
+     * High enemy resistance and flank attacks (multi-source / encircled) reduce the defense timer.
+     */
+    public long calculateDefenseDurationTicks(int targetRX, int targetRZ, int attackValue, boolean encircled, List<SourcePos> sources) {
+        long baseDefenseTicks = 20L * 60L * 20L; // 20 minutes = 24,000 ticks
+
+        // Calculate average resistance of attacking source regions
+        float totalRes = 0.0F;
+        int count = 0;
+        if (sources != null) {
+            for (SourcePos src : sources) {
+                totalRes += calculateEffectiveResistance(src.x(), src.z());
+                count++;
+            }
+        }
+        float avgAttackerRes = (count > 0) ? (totalRes / count) : 50.0F;
+
+        double resFactor = 1.0D - (0.25D * (avgAttackerRes / 100.0D));
+        boolean isFlank = (sources != null && sources.size() > 1) || encircled;
+        double flankFactor = isFlank ? 0.75D : 1.0D;
+
+        long computedTicks = Math.round(baseDefenseTicks * resFactor * flankFactor);
+
+        // Enforce strict 10-minute floor (12,000 ticks / 600 seconds)
+        return Math.max(12000L, computedTicks);
     }
 
     public void claimSubRegion(int regionX, int regionZ, int subX, int subZ, Faction faction, float stability) {
@@ -668,7 +759,7 @@ public final class RegionData extends SavedData {
         if (faction == Faction.HUMANITY && prevSubState.owner() == Faction.ZOMBIE_HORDE) {
             addZombieRetaliation(regionX, regionZ, 2);
         }
-        long subClusterId = prevSubState.clusterId();
+        long subClusterId = (faction == Faction.HUMANITY) ? 0L : prevSubState.clusterId();
         if (subClusterId == 0L && faction.isAI()) {
             if (activeCampaign != null && activeCampaign.attackerClusterId() != 0L) {
                 subClusterId = activeCampaign.attackerClusterId();
@@ -735,6 +826,7 @@ public final class RegionData extends SavedData {
                 com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                         com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
                 setRegion(level, regionX, regionZ, faction, strength.stability(), strength.resistance(), baseType, clusterId);
+                com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, regionX, regionZ);
                 if (faction == Faction.HUMANITY) {
                     addLog(level, String.format("§aRegion conquered: Region (%d, %d).", regionX, regionZ));
                     broadcastTitle(level, Component.literal("§a§lATTACK SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) Conquered", regionX, regionZ)));
@@ -801,15 +893,16 @@ public final class RegionData extends SavedData {
     public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId) {
         long regionId = ChunkPos.asLong(regionX, regionZ);
         activeSieges.remove(regionId);
+        long finalClusterId = (faction == Faction.HUMANITY) ? 0L : clusterId;
         regions.put(regionId, new RegionState(
                 faction,
                 Math.clamp(stability, 0.0F, 100.0F),
                 Math.clamp(resistance, 0.0F, 100.0F),
                 baseType,
-                clusterId));
+                finalClusterId));
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
-                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, stability, false, clusterId));
+                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, stability, false, finalClusterId));
             }
         }
 
@@ -819,6 +912,82 @@ public final class RegionData extends SavedData {
         }
 
         setDirty();
+    }
+
+    /**
+     * Reverts all 4 subregions of a region back to its current regional owner and stats.
+     */
+    public void revertRegionSubRegionsToOwner(ServerLevel level, int regionX, int regionZ) {
+        Region region = regionAt(regionX, regionZ);
+        long clusterId = (region.owner() == Faction.HUMANITY) ? 0L : region.clusterId();
+        for (int sx = 0; sx <= 1; sx++) {
+            for (int sz = 0; sz <= 1; sz++) {
+                subRegions.put(subRegionKey(regionX, regionZ, sx, sz),
+                        new SubRegionState(region.owner(), region.stability(), false, clusterId));
+            }
+        }
+        setDirty();
+    }
+
+    public Map<Long, ReinforcementState> getActiveReinforcements() {
+        return activeReinforcements;
+    }
+
+    public boolean hasActiveReinforcement(int regionX, int regionZ) {
+        return activeReinforcements.containsKey(ChunkPos.asLong(regionX, regionZ));
+    }
+
+    public ReinforcementState getReinforcement(int regionX, int regionZ) {
+        return activeReinforcements.get(ChunkPos.asLong(regionX, regionZ));
+    }
+
+    public void startReinforcement(int regionX, int regionZ, Faction owner, float origStab, float origRes, long durationTicks, long startTick) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        activeReinforcements.put(key, new ReinforcementState(regionX, regionZ, owner, origStab, origRes, startTick, durationTicks));
+        setDirty();
+    }
+
+    public void cancelReinforcement(int regionX, int regionZ) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        if (activeReinforcements.remove(key) != null) {
+            setDirty();
+        }
+    }
+
+    public int countBorderingAllies(int regionX, int regionZ, Faction faction) {
+        if (faction == Faction.UNCLAIMED) {
+            return 0;
+        }
+        int allies = 0;
+        int[][] cardinalOffsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+        for (int[] offset : cardinalOffsets) {
+            int nx = regionX + offset[0];
+            int nz = regionZ + offset[1];
+            Region neighbor = regionAt(nx, nz);
+            if (neighbor.owner() == faction) {
+                allies++;
+            }
+        }
+        return allies;
+    }
+
+    public boolean isEncircled(int regionX, int regionZ, Faction faction) {
+        return countBorderingAllies(regionX, regionZ, faction) == 0;
+    }
+
+    public long calculateReinforcementDurationTicks(int regionX, int regionZ, Faction faction, BaseType baseType) {
+        long baseTicks = 6L * 60L * 20L; // 6 minutes = 7,200 ticks
+        int borderingAllies = countBorderingAllies(regionX, regionZ, faction);
+        long allyReduction = borderingAllies * (60L * 20L); // -1 minute per ally
+
+        long baseTypeReduction = switch (baseType) {
+            case MEGA_BASE -> 60L * 20L; // -1 minute for Mega Base
+            case HEADQUARTERS -> 30L * 20L; // -30 seconds for Headquarters
+            default -> 0L;
+        };
+
+        long finalTicks = baseTicks - allyReduction - baseTypeReduction;
+        return Math.max(20L * 30L, finalTicks); // Minimum floor: 30 seconds
     }
 
     public float calculateEffectiveResistance(int regionX, int regionZ) {
@@ -1007,7 +1176,7 @@ public final class RegionData extends SavedData {
             long attackerClusterId
     ) {
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, 4000L, 0xF, 0L);
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L, 0xF, 0L);
         }
 
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks) {
@@ -1026,5 +1195,15 @@ public final class RegionData extends SavedData {
     }
 
     public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
+    }
+
+    public record ReinforcementState(
+            int regionX, int regionZ,
+            Faction owner,
+            float originalStability,
+            float originalResistance,
+            long startTick,
+            long durationTicks
+    ) {
     }
 }

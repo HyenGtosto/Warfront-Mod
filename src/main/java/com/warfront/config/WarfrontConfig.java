@@ -57,14 +57,14 @@ public final class WarfrontConfig {
                                 .defineInRange("chunk_trigger_cooldown_seconds", 60, 5, 3600);
 
                 SIEGE_RESOLUTION_DURATION_SECONDS = builder
-                                .comment("Duration (in seconds) of active siege resolution timers before campaigns expire")
-                                .defineInRange("siege_resolution_duration_seconds", 5, 1, 3600);
+                                .comment("Duration (in seconds) of active siege resolution timers before campaigns expire (base duration: 600s / 10 minutes)")
+                                .defineInRange("siege_resolution_duration_seconds", 600, 1, 3600);
                 builder.pop();
 
                 builder.comment("AI Warfare & Attack Algorithm Settings").push("ai_warfare");
                 AI_ATTACK_INTERVAL_TICKS = builder
-                                .comment("Interval in game ticks (20 ticks = 1 second) between AI faction attack evaluation cycles")
-                                .defineInRange("ai_attack_interval_ticks", 200, 20, 72000);
+                                .comment("Interval in game ticks (20 ticks = 1 second) between AI faction attack evaluation cycles (default: 6000 ticks / 5 minutes)")
+                                .defineInRange("ai_attack_interval_ticks", 6000, 20, 72000);
 
                 AI_EXPANSION_CHANCE = builder
                                 .comment("Probability during an evaluation cycle for an AI faction to launch an attack on a neighboring sub-region")

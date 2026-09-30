@@ -92,20 +92,99 @@ public final class AIAttackManager {
                             Warfront.LOGGER.info("Siege expired: Region ({}, {}) conquered by {}.", trx, trz, attacker.commandName());
                         }
                     } else {
-                        // Player campaign expired - conquered sub-regions are KEPT, siege window closes
+                        // Player campaign expired
                         regions.setRegionSiege(trx, trz, false);
                         regions.getActiveSieges().remove(net.minecraft.world.level.ChunkPos.asLong(trx, trz));
                         com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, trx, trz);
+
                         int heldSectors = Integer.bitCount(regions.computeConqueredMask(trx, trz));
-                        String outcome = String.format("§eCampaign expired: Region (%d, %d), %d sectors held.", trx, trz, heldSectors);
-                        regions.addLog(level, outcome);
-                        Warfront.LOGGER.info("Campaign expired: Region ({}, {}), {} sectors held.", trx, trz, heldSectors);
+                        int dominoThreshold = regions.calculateDominoThreshold(trx, trz);
+                        RegionData.Region targetRegion = regions.regionAt(trx, trz);
+                        Faction enemyFaction = targetRegion.owner();
+
+                        if (heldSectors >= dominoThreshold) {
+                            // Full domino collapse threshold reached -> Complete capture for Humanity!
+                            regions.claim(level, trx, trz, Faction.HUMANITY, 0.5F, 0.5F, BaseType.NONE);
+                            String outcome = String.format("§aCampaign victory: Region (%d, %d) captured for Humanity!", trx, trz);
+                            regions.addLog(level, outcome);
+                            Warfront.LOGGER.info("Campaign expired with victory: Region ({}, {}) captured.", trx, trz);
+                        } else if (heldSectors > 0) {
+                            // Partial victory: Enemy regains the subregions, but suffers scaled stat loss and enters awaiting-reinforcements state
+                            float lossPerSector = switch (targetRegion.baseType()) {
+                                case MEGA_BASE -> 5.0F;
+                                case HEADQUARTERS -> 10.0F;
+                                default -> 15.0F;
+                            };
+
+                            float stabLoss = heldSectors * lossPerSector;
+                            float resLoss = heldSectors * lossPerSector;
+
+                            float currentStab = regions.calculateEffectiveStability(trx, trz);
+                            float currentRes = regions.calculateEffectiveResistance(trx, trz);
+
+                            // Preserve original baseline if already awaiting reinforcements, otherwise record current as original
+                            RegionData.ReinforcementState existingReinf = regions.getReinforcement(trx, trz);
+                            float origStab = (existingReinf != null) ? existingReinf.originalStability() : currentStab;
+                            float origRes = (existingReinf != null) ? existingReinf.originalResistance() : currentRes;
+
+                            float newStab = Math.max(5.0F, currentStab - stabLoss);
+                            float newRes = Math.max(5.0F, currentRes - resLoss);
+
+                            // Reset subregions and set degraded region stats
+                            regions.setRegion(level, trx, trz, enemyFaction, newStab, newRes, targetRegion.baseType(), targetRegion.clusterId());
+
+                            // Start / reset reinforcement timer
+                            long durationTicks = regions.calculateReinforcementDurationTicks(trx, trz, enemyFaction, targetRegion.baseType());
+                            regions.startReinforcement(trx, trz, enemyFaction, origStab, origRes, durationTicks, gameTime);
+
+                            boolean encircled = regions.isEncircled(trx, trz, enemyFaction);
+                            String statusStr = encircled ? "Encircled (reinforcements blocked)" : String.format("Reinforcements arriving in %d mins", durationTicks / (20 * 60));
+
+                            String outcome = String.format("§eCampaign expired: Region (%d, %d). Partial victory (%d/4 sectors): Enemy regained control with degraded stats (lost %.0f%% Stability, %.0f%% Resistance). [%s]",
+                                    trx, trz, heldSectors, stabLoss, resLoss, statusStr);
+                            regions.addLog(level, outcome);
+                            Warfront.LOGGER.info("Campaign partial victory: Region ({}, {}), {} sectors. New stats: stab={}, res={}. {}",
+                                    trx, trz, heldSectors, newStab, newRes, statusStr);
+                        } else {
+                            // Complete failure: Enemy retains full control without stat penalties
+                            regions.revertRegionSubRegionsToOwner(level, trx, trz);
+                            String outcome = String.format("§cCampaign expired: Region (%d, %d). Attack failed.", trx, trz);
+                            regions.addLog(level, outcome);
+                            Warfront.LOGGER.info("Campaign expired with defeat: Region ({}, {}).", trx, trz);
+                        }
                     }
 
                     mapStateChanged = true;
                 }
             } catch (Exception e) {
                 Warfront.LOGGER.error("Siege timeout error: Region ({}, {}): {}", campaign.targetRegionX(), campaign.targetRegionZ(), e.getMessage(), e);
+            }
+        }
+
+        // Check Awaiting-Reinforcement timeouts
+        List<Long> expiredReinforcements = new ArrayList<>();
+        for (Map.Entry<Long, RegionData.ReinforcementState> entry : regions.getActiveReinforcements().entrySet()) {
+            RegionData.ReinforcementState rs = entry.getValue();
+            boolean encircled = regions.isEncircled(rs.regionX(), rs.regionZ(), rs.owner());
+            if (encircled) {
+                // Reinforcement timer paused while encircled
+                continue;
+            }
+            if (gameTime - rs.startTick() >= rs.durationTicks()) {
+                expiredReinforcements.add(entry.getKey());
+            }
+        }
+        for (Long regKey : expiredReinforcements) {
+            RegionData.ReinforcementState rs = regions.getActiveReinforcements().remove(regKey);
+            if (rs != null) {
+                RegionData.Region reg = regions.regionAt(rs.regionX(), rs.regionZ());
+                if (reg.owner() == rs.owner()) {
+                    regions.setRegion(level, rs.regionX(), rs.regionZ(), rs.owner(), rs.originalStability(), rs.originalResistance(), reg.baseType(), reg.clusterId());
+                    regions.addLog(level, String.format("§cReinforcements arrived: Region (%d, %d) defenses fully restored.", rs.regionX(), rs.regionZ()));
+                    Warfront.LOGGER.info("Reinforcements arrived for Region ({}, {}). Defenses restored to stab={}, res={}.",
+                            rs.regionX(), rs.regionZ(), rs.originalStability(), rs.originalResistance());
+                    mapStateChanged = true;
+                }
             }
         }
 
@@ -213,7 +292,7 @@ public final class AIAttackManager {
             SiegeDetails details = calculateSiegeDetails(level, regions, chosen.targetRegionX(), chosen.targetRegionZ(),
                     chosen.sourceRegionX(), chosen.sourceRegionZ(), faction);
 
-            long durationTicks = WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
+            long durationTicks = regions.calculateDefenseDurationTicks(chosen.targetRegionX(), chosen.targetRegionZ(), details.attackValue(), details.encircled(), details.sources());
 
             long attackerClusterId = chosen.attackerClusterId();
             if (attackerClusterId == 0L && faction.isAI()) {

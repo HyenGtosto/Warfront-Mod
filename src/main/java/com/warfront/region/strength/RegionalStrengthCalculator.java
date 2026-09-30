@@ -78,8 +78,8 @@ public final class RegionalStrengthCalculator {
                         totalBiomeResistance += 0.0F;
                         totalBiomeStability += 10.0F;
                     } else if (isSnowOrIceBiome(biomePath)) {
-                        totalBiomeResistance += 5.0F;
-                        totalBiomeStability -= 5.0F;
+                        totalBiomeResistance -= 5.0F;
+                        totalBiomeStability += 10.0F;
                     }
                     // Unknown / unclassified biomes contribute +0.0F / +0.0F
                 }
@@ -113,11 +113,11 @@ public final class RegionalStrengthCalculator {
             }
 
             if (neighborOwner == faction && faction != Faction.UNCLAIMED) {
-                neighborResistanceMod += 5.0F;
-                neighborStabilityMod += 7.5F;
+                neighborResistanceMod += 2.5F;
+                neighborStabilityMod += 3.0F;
 
                 if (clusterId != 0L && neighborClusterId == clusterId) {
-                    neighborStabilityMod += 2.5F;
+                    neighborStabilityMod += 1.0F;
                 }
             }
         }
@@ -139,18 +139,18 @@ public final class RegionalStrengthCalculator {
     private static float getBaseTypeResistance(BaseType baseType) {
         return switch (baseType) {
             case MEGA_BASE -> 85.0F;
-            case HEADQUARTERS -> 70.0F;
-            case OUTPOST -> 50.0F;
-            case NONE -> 30.0F;
+            case HEADQUARTERS -> 65.0F;
+            case OUTPOST -> 45.0F;
+            case NONE -> 22.0F;
         };
     }
 
     private static float getBaseTypeStability(BaseType baseType) {
         return switch (baseType) {
-            case MEGA_BASE -> 95.0F;
-            case HEADQUARTERS -> 80.0F;
+            case MEGA_BASE -> 85.0F;
+            case HEADQUARTERS -> 65.0F;
             case OUTPOST -> 45.0F;
-            case NONE -> 25.0F;
+            case NONE -> 22.0F;
         };
     }
 

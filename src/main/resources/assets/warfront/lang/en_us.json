@@ -38,5 +38,15 @@
   "chat.warfront.gambit.success": "§a[GAMBIT SUCCESS] Captured enemy staging region (%s, %s)! Defense of Region (%s, %s) is AUTO-WON!",
   "chat.warfront.sub_region.secured": "§a[Warfront] Sub-Region (%s, %s) in Region (%s, %s) SECURED for Humanity!",
   "screen.warfront.undiscovered": "§7Undiscovered",
-  "screen.warfront.unknown": "§7???"
+  "screen.warfront.unknown": "§7???",
+  "entity.warfront.pillager_armored_elite": "Pillager Armored Elite",
+  "item.warfront.pillager_armored_elite_spawn_egg": "Pillager Armored Elite Spawn Egg",
+  "entity.warfront.pillager_warrior": "Pillager Warrior",
+  "item.warfront.pillager_warrior_spawn_egg": "Pillager Warrior Spawn Egg",
+  "entity.warfront.pillager_scout": "Pillager Scout",
+  "item.warfront.pillager_scout_spawn_egg": "Pillager Scout Spawn Egg",
+  "entity.warfront.pillager_marksman": "Pillager Marksman",
+  "item.warfront.pillager_marksman_spawn_egg": "Pillager Marksman Spawn Egg",
+  "entity.warfront.pillager_commander": "Pillager Commander",
+  "item.warfront.pillager_commander_spawn_egg": "Pillager Commander Spawn Egg"
 }

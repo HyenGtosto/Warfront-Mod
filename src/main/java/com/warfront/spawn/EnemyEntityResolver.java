@@ -1,30 +1,12 @@
 package com.warfront.spawn;
 
+import com.warfront.entity.ModEntities;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.server.level.ServerLevel;
 
 /**
- * Centralized resolver that maps enemy roles to their current entity implementation.
- *
- * This is the single place that translates an abstract role (e.g. ZombieEnemyRole.TANK)
- * into a concrete Minecraft entity. When custom entities are implemented, only this
- * class needs updating — encounter generation code remains unchanged.
- *
- * Zombie role → entity mapping (phase 1, all placeholder):
- *   FODDER              → vanilla Zombie
- *   FAST_CHASER         → vanilla Zombie
- *   RANGED              → vanilla Zombie
- *   TANK                → vanilla Zombie
- *   HIVEMIND_CONTROLLER → vanilla Zombie
- *
- * Pillager role → entity mapping (phase 1):
- *   RANGED        → vanilla Pillager
- *   FIGHTER       → vanilla Vindicator
- *   SCOUT         → vanilla Pillager   (placeholder)
- *   ARMORED_ELITE → vanilla Pillager   (placeholder)
- *   COMMANDER     → vanilla Pillager   (placeholder)
- *   CATAPULT      → never resolved here (excluded from roaming)
+ * Centralized resolver that maps enemy roles to their concrete entity implementation.
  */
 public final class EnemyEntityResolver {
 
@@ -56,12 +38,18 @@ public final class EnemyEntityResolver {
      */
     public static Entity resolvePillagerRole(PillagerEnemyRole role, ServerLevel level) {
         return switch (role) {
-            case RANGED, SCOUT, ARMORED_ELITE, COMMANDER ->
-                    EntityType.PILLAGER.create(level);
-            case FIGHTER ->
-                    EntityType.VINDICATOR.create(level);
             case CATAPULT ->
                     null; // Catapult is a base-defense role — never spawned as a roaming encounter
+            case ARMORED_ELITE ->
+                    ModEntities.PILLAGER_ARMORED_ELITE.get().create(level);
+            case FIGHTER ->
+                    ModEntities.PILLAGER_WARRIOR.get().create(level);
+            case SCOUT ->
+                    ModEntities.PILLAGER_SCOUT.get().create(level);
+            case RANGED ->
+                    ModEntities.PILLAGER_MARKSMAN.get().create(level);
+            case COMMANDER ->
+                    ModEntities.PILLAGER_COMMANDER.get().create(level);
         };
     }
 }

@@ -15,22 +15,20 @@ package com.warfront.spawn;
  */
 public enum EnemyResistanceTier {
 
-    /** Resistance 0–19: fewest enemies, only basic roles. */
-    MINIMAL(0.0f, 19.9f, 2, 4),
+    /** Resistance 0–24.9: fewest enemies, degraded / pacified fringe. */
+    MINIMAL(0.0f, 24.9f, 4, 6),
 
-    /** Resistance 20–39: slightly more enemies, first specialist unlocks. */
-    LOW(20.0f, 39.9f, 4, 6),
+    /** Resistance 25–44.9: standard non-base occupied territory. */
+    LOW(25.0f, 44.9f, 6, 9),
 
-    /** Resistance 40–59: moderate encounter size, ranged units available. */
-    MODERATE(40.0f, 59.9f, 6, 8),
+    /** Resistance 45–64.9: outpost territory / fortified clusters. */
+    MODERATE(45.0f, 64.9f, 8, 12),
 
-    /**
-     * Resistance 60–79: larger encounters, tank/hivemind/elite/commander available.
-     */
-    HIGH(60.0f, 79.9f, 8, 10),
+    /** Resistance 65–84.9: headquarters / major military base. */
+    HIGH(65.0f, 84.9f, 12, 16),
 
-    /** Resistance 80–100: all mobile roles available, largest encounters. */
-    EXTREME(80.0f, 100.0f, 10, 12);
+    /** Resistance 85–100: mega base stronghold, largest encounters. */
+    EXTREME(85.0f, 100.0f, 16, 22);
 
     private final float minResistance;
     private final float maxResistance;

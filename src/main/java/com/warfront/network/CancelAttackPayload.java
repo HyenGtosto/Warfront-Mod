@@ -40,21 +40,30 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         RegionData.SiegeCampaign existingSiege = regions.getSiege(payload.regionX(), payload.regionZ());
         long regionKey = net.minecraft.world.level.ChunkPos.asLong(payload.regionX(), payload.regionZ());
 
-        if (existingSiege != null && existingSiege.attacker() == Faction.HUMANITY) {
-            // Cancel player campaign on server
-            regions.setRegionSiege(payload.regionX(), payload.regionZ(), false);
-            regions.getActiveSieges().remove(regionKey);
-            ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
+        if (existingSiege != null) {
+            boolean isDefense = existingSiege.attacker() != Faction.HUMANITY;
+            if (!isDefense) {
+                // Cancel player attack campaign on server
+                regions.setRegionSiege(payload.regionX(), payload.regionZ(), false);
+                regions.getActiveSieges().remove(regionKey);
+                ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
+                regions.revertRegionSubRegionsToOwner(level, payload.regionX(), payload.regionZ());
 
-            regions.addLog(level, String.format("§eCampaign cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
-            Warfront.LOGGER.info("Campaign cancelled by player {} for Region ({}, {}).",
-                    player.getName().getString(), payload.regionX(), payload.regionZ());
+                regions.addLog(level, String.format("§eCampaign cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
+                Warfront.LOGGER.info("Campaign cancelled by player {} for Region ({}, {}).",
+                        player.getName().getString(), payload.regionX(), payload.regionZ());
+            } else {
+                // Cancel player defense missions on server (AI siege remains active at region level)
+                ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
+                regions.addLog(level, String.format("§eDefense missions cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
+                Warfront.LOGGER.info("Defense missions cancelled by player {} for Region ({}, {}).",
+                        player.getName().getString(), payload.regionX(), payload.regionZ());
+            }
 
             RequestRegionMapPayload.notifyActiveMapTerminals(level);
 
             // Send updated details payload back to player
             RegionData.Region region = regions.regionAt(payload.regionX(), payload.regionZ());
-            RegionData.SubRegionState subState = regions.subRegionAt(payload.regionX(), payload.regionZ(), payload.subX(), payload.subZ());
             float effectiveResistance = regions.calculateEffectiveResistance(payload.regionX(), payload.regionZ());
             float effectiveStability = regions.calculateEffectiveStability(payload.regionX(), payload.regionZ());
 
@@ -63,11 +72,30 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
             boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ());
 
+            long remainingTicks = 0L;
+            if (isDefense) {
+                long elapsed = level.getGameTime() - existingSiege.startTick();
+                remainingTicks = Math.max(0L, existingSiege.durationTicks() - elapsed);
+            }
+
+            boolean isAwaitingReinf = regions.hasActiveReinforcement(payload.regionX(), payload.regionZ());
+            long reinfRemainingTicks = 0L;
+            boolean isEncircled = regions.isEncircled(payload.regionX(), payload.regionZ(), region.owner());
+            if (isAwaitingReinf) {
+                RegionData.ReinforcementState rs = regions.getReinforcement(payload.regionX(), payload.regionZ());
+                if (rs != null) {
+                    long elapsed = level.getGameTime() - rs.startTick();
+                    reinfRemainingTicks = Math.max(0L, rs.durationTicks() - elapsed);
+                }
+            }
+
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
-                    subState.owner().id(), effectiveStability, effectiveResistance,
-                    region.baseType().id(), false, true,
-                    0L, dominoThreshold, reachableMask, regionReachable, 0, conqueredMask));
+                    region.owner().id(), effectiveStability, effectiveResistance,
+                    region.baseType().id(), isDefense, true,
+                    remainingTicks, dominoThreshold, reachableMask, regionReachable, 0, conqueredMask,
+                    isDefense ? existingSiege.attacker().id() : Faction.UNCLAIMED.id(),
+                    isAwaitingReinf, reinfRemainingTicks, isEncircled));
         }
     }
 
