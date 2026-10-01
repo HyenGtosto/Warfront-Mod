@@ -175,14 +175,30 @@ Originally, every individual AI attack in `AIAttackManager` sent an immediate ma
 
 ---
 
-# 8. Out-of-War Exploration Roaming System
+# 8. Subregion Patrolling Squad System
 
-When players explore hostile territory outside of active wars, the world feels populated and dangerous:
+Non-war roaming has been revamped from legacy random chunk-entry spawns into a dedicated **Subregion Patrolling Squad System** (`SubregionPatrolManager` & `SubregionPatrolGoal`):
 
-* **Trigger:** Driven by player proximity via `ExplorationSpawnManager`.
-* **Subregion Spawning:** Hostile subregions within range of an active player trigger localized squad spawns.
-* **Cooldowns:** Each subregion maintains an independent cooldown timer (8 seconds), allowing varied distribution without locking entire $128 \times 128$ territories.
-* **Safety Rules:** Unclaimed sectors, Humanity lands, and active siege zones are excluded to prevent interfering with campaign objectives.
+* **Spatial Granularity:** Each squad strictly belongs to a specific $64 \times 64$ block ($4 \times 4$ chunk) subregion (`rx, rz, sx, sz`).
+* **Concurrency Cap & Spawning:**
+  * Maximum **3 squads per subregion**.
+  * Flat **40-second (800 ticks)** spawn cooldown per subregion.
+  * Operates purely on a timer — **no percentage-loss respawn mechanic**.
+  * Persists in active missions as well as peaceful exploration.
+* **Tiering & Composition:**
+  * Enemy resistance tiers, mob pool weights, and squad sizes ($4$ to $14$ units) match Attack Roamers.
+  * In High and Extreme resistance tiers, squad leaders have a $65\%$ chance to spawn as a **Pillager Commander**.
+  * **Scout Exclusion Constraint:** `SCOUT` units are excluded from patrol squads (reserved for an upcoming dedicated player-seeking scout overhaul).
+* **Autonomous Border-to-Border Patrol Loop:**
+  1. **Border Spawn:** Squad spawns on one of the 4 outer perimeter borders of the $64 \times 64$ subregion.
+  2. **Waypoint Selection:** Chooses a random waypoint on another border at least **48 blocks away** to ensure diagonal/cross-regional pathing rather than localized circling.
+  3. **Formation March:** The squad advances in formation offsets (`SQUAD_SPREAD_OFFSETS`) toward the waypoint using incremental navigation steps.
+  4. **Hold Ground Phase:** Upon arriving within 5 blocks of the waypoint, the squad transitions to holding ground for **15 seconds (300 ticks)**, scanning the perimeter with ambient head-turning surveillance.
+  5. **Repeat:** Once the 15-second hold concludes, a new border waypoint at least 48 blocks away is chosen and the cycle repeats.
+* **Squad Alerting & Coordinated Engagement:**
+  * If **any** member of the squad spots a player (`NearestAttackableTargetGoal`) or takes damage (`HurtByTargetGoal`), the detecting unit immediately alerts all living members of the squad via `alertSquadToTarget`.
+  * The entire squad engages the player simultaneously.
+  * While fighting, `SubregionPatrolGoal` yields to combat AI. Once combat concludes and all targets are eliminated, surviving squad members automatically resume their patrol route.
 
 ---
 
@@ -435,10 +451,16 @@ AbstractIllager (Minecraft Entity)
 
 * **Java Class:** [`PillagerWarriorEntity.java`](file:///c:/Users/Administrator/Desktop/Codes/Java/Warfront%20Mod/src/main/java/com/warfront/entity/PillagerWarriorEntity.java)
 * **Model & Renderer:** [`PillagerWarriorModel.java`](file:///c:/Users/Administrator/Desktop/Codes/Java/Warfront%20Mod/src/main/java/com/warfront/client/model/PillagerWarriorModel.java), [`PillagerWarriorRenderer.java`](file:///c:/Users/Administrator/Desktop/Codes/Java/Warfront%20Mod/src/main/java/com/warfront/client/renderer/PillagerWarriorRenderer.java)
-* **Geometry:** `pillager_warrior.geo.json` (12 bones)
+* **Geometry:** `pillager_warrior.geo.json` (includes dedicated shield bone)
 * **Texture:** `pillager_warrior.png`
-* **Combat Role:** Standard frontline combatant wielding a two-handed heavy war axe.
-* **Delayed Contact Frame:** When swinging, the attack animation lasts 20 ticks (1.0s). Damage is applied on tick 9. Reach is validated at impact, allowing players to back away to dodge.
+* **Combat Role:** Standard frontline combatant wielding a heavy war axe and tactical tower shield.
+* **Delayed Contact Frame & Attack Sync:** When swinging, the attack animation plays with impact damage applied on tick 9. Attack goal cooldown matches animation duration to ensure every swing triggers the animation cleanly.
+* **Shield Sub-Hitbox & Defense AI:**
+  * Uses dedicated sub-hitbox positioning relative to the warrior's facing direction.
+  * Blocks incoming projectile and melee attacks covering the torso/shield zone while allowing head/leg shots.
+  * AI automatically raises shield (`shield_raise` -> `shield_hold`) when ranged projectiles are detected in trajectory or shot nearby.
+  * Lowers shield (`shield_lower`) when threats clear.
+  * **Axe Disabling:** Direct axe hits disable the shield for a full 10 seconds (200 ticks), playing a stagger/lower animation and preventing blocking until the cooldown expires.
 
 ---
 
@@ -600,7 +622,8 @@ src/main/java/com/warfront/
 │   ├── AIAttackManager.java                 // AI faction strategic expansion engine
 │   ├── goal/
 │   │   ├── AdvanceToLocationGoal.java       // Phase 1: Marching to frontline waypoint
-│   │   └── HoldGroundGoal.java              // Phase 3: Defensive 8x8 spread formation
+│   │   ├── HoldGroundGoal.java              // Phase 3: Defensive 8x8 spread formation
+│   │   └── SubregionPatrolGoal.java         // Border-to-border patrol loop & squad alerting
 │   └── strategy/
 │       ├── AttackCandidate.java             // AI target scoring
 │       ├── FactionAttackStrategy.java       // Faction behavioral strategies
@@ -639,6 +662,7 @@ src/main/java/com/warfront/
 │       └── RegionalStrengthCalculator.java  // Biome-derived resistance & stability
 └── spawn/
     ├── AttackRoamerManager.java             // Siege squad manager & border evaluation
+    ├── SubregionPatrolManager.java          // Subregion patrolling squad manager (max 3/subregion, 40s CD)
     ├── EnemyEncounterSpawner.java           // Wave spawner & 16-point hold-ground grid
     ├── EnemyEntityResolver.java             // Role-to-entity factory mapping
     ├── EnemyResistanceTier.java             // Minimal to Extreme resistance thresholds

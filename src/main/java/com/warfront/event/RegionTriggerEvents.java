@@ -43,11 +43,10 @@ public final class RegionTriggerEvents {
         int sx = subPos.subX();
         int sz = subPos.subZ();
 
-        // 1. Chunk entry trigger for unlocking map regions and out-of-war exploration spawning
+        // 1. Chunk entry trigger for unlocking map regions
         if (previousChunkLong == null || !previousChunkLong.equals(currentChunkLong)) {
             RegionData regions = RegionData.get(level);
             regions.unlock3x3Around(rx, rz);
-            ExplorationSpawnManager.evaluateNearbyRegions(player, level);
         }
 
         // 2. Periodic in-war mission sync & spawning (every 20 ticks / 1 second)
@@ -89,6 +88,26 @@ public final class RegionTriggerEvents {
                             "",
                             0, 0, 0L, 0, false
                     ));
+                }
+            }
+        }
+    }
+
+    public static void onEntityJoin(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide()) return;
+        if (event.getEntity() instanceof net.minecraft.world.entity.projectile.Projectile projectile) {
+            if (projectile.getOwner() instanceof net.minecraft.world.entity.player.Player player) {
+                java.util.List<com.warfront.entity.PillagerWarriorEntity> warriors = event.getLevel().getEntitiesOfClass(
+                        com.warfront.entity.PillagerWarriorEntity.class,
+                        projectile.getBoundingBox().inflate(24.0D),
+                        w -> w.isAlive()
+                );
+                for (com.warfront.entity.PillagerWarriorEntity warrior : warriors) {
+                    warrior.raiseShield(80);
+                    if (warrior.getTarget() == null) {
+                        warrior.setTarget(player);
+                    }
+                    warrior.getLookControl().setLookAt(player, 60.0F, 60.0F);
                 }
             }
         }

@@ -59,21 +59,23 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     private static final EntityDataAccessor<Boolean> SWORD_DRAWN =
             SynchedEntityData.defineId(PillagerCommanderEntity.class, EntityDataSerializers.BOOLEAN);
 
-    private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("animation.pillager_commander.idle");
-    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("animation.pillager_commander.walk");
-    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("animation.pillager_commander.run");
-    private static final RawAnimation UNSHEATHE = RawAnimation.begin().thenPlay("animation.pillager_commander.unsheathe");
-    private static final RawAnimation SHEATHE = RawAnimation.begin().thenPlay("animation.pillager_commander.sheathe");
-    private static final RawAnimation ATTACK1 = RawAnimation.begin().thenPlay("animation.pillager_commander.attack1");
-    private static final RawAnimation ATTACK2 = RawAnimation.begin().thenPlay("animation.pillager_commander.attack2");
-    private static final RawAnimation SWORD_RAISE = RawAnimation.begin().thenPlay("animation.pillager_commander.sword_raise");
-    private static final RawAnimation BANNER_SWING = RawAnimation.begin().thenPlay("animation.pillager_commander.banner_swing");
+    private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("idle");
+    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("walk");
+    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("run");
+    private static final RawAnimation UNSHEATHE = RawAnimation.begin().thenPlay("unsheathe");
+    private static final RawAnimation SHEATHE = RawAnimation.begin().thenPlay("sheathe");
+    private static final RawAnimation ATTACK1 = RawAnimation.begin().thenPlay("attack1");
+    private static final RawAnimation ATTACK2 = RawAnimation.begin().thenPlay("attack2");
+    private static final RawAnimation SWORD_RAISE = RawAnimation.begin().thenPlay("sword_raise");
+    private static final RawAnimation BANNER_SWING = RawAnimation.begin().thenPlay("banner_swing");
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private int actionDurationTicks = 0;
+    private int attackCooldownTicks = 0;
     private boolean alternateAttack = false;
     private LivingEntity pendingAttackTarget = null;
     private int attackImpactTicks = -1;
+    private byte lastActionState = ACTION_NONE;
 
     public PillagerCommanderEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -146,6 +148,10 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
                 }
             }
 
+            if (this.attackCooldownTicks > 0) {
+                this.attackCooldownTicks--;
+            }
+
             // Damage impact frame calculation (contact frame at 8 ticks)
             if (this.attackImpactTicks > 0) {
                 this.attackImpactTicks--;
@@ -200,11 +206,12 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     @Override
     public boolean doHurtTarget(Entity target) {
         if (!(target instanceof LivingEntity livingTarget)) return false;
-        if (this.attackImpactTicks > 0) return false;
+        if (this.attackImpactTicks > 0 || this.actionDurationTicks > 0 || this.attackCooldownTicks > 0) return false;
 
         if (!this.level().isClientSide) {
             this.pendingAttackTarget = livingTarget;
             this.attackImpactTicks = 8; // Contact frame at 8 ticks (~0.4s)
+            this.attackCooldownTicks = 24; // 18 ticks animation + 6 ticks recovery
             byte attackType = alternateAttack ? ACTION_ATTACK2 : ACTION_ATTACK1;
             alternateAttack = !alternateAttack;
             setActionState(attackType, 18);
@@ -231,6 +238,11 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
 
     private PlayState actionPredicate(AnimationState<PillagerCommanderEntity> state) {
         byte action = getActionState();
+        if (action != this.lastActionState) {
+            state.getController().forceAnimationReset();
+            this.lastActionState = action;
+        }
+
         return switch (action) {
             case ACTION_BANNER_SWING -> state.setAndContinue(BANNER_SWING);
             case ACTION_SWORD_RAISE -> state.setAndContinue(SWORD_RAISE);
@@ -239,11 +251,8 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
             case ACTION_ATTACK1 -> state.setAndContinue(ATTACK1);
             case ACTION_ATTACK2 -> state.setAndContinue(ATTACK2);
             default -> {
-                if (this.swinging && state.getController().getAnimationState() == AnimationController.State.STOPPED) {
-                    state.getController().forceAnimationReset();
-                    yield state.setAndContinue(alternateAttack ? ATTACK2 : ATTACK1);
-                }
-                yield PlayState.CONTINUE;
+                state.getController().forceAnimationReset();
+                yield PlayState.STOP;
             }
         };
     }

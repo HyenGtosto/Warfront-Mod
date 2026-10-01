@@ -54,14 +54,15 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     private static final EntityDataAccessor<Byte> COMBAT_STATE =
             SynchedEntityData.defineId(PillagerMarksmanEntity.class, EntityDataSerializers.BYTE);
 
-    private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("animation.pillager_marksman.idle");
-    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("animation.pillager_marksman.walk");
-    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("animation.pillager_marksman.run");
-    private static final RawAnimation AIMING = RawAnimation.begin().thenLoop("animation.pillager_marksman.aiming");
-    private static final RawAnimation SHOOTING = RawAnimation.begin().thenPlay("animation.pillager_marksman.shooting");
-    private static final RawAnimation RELOADING = RawAnimation.begin().thenPlay("animation.pillager_marksman.reloading");
+    private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("idle");
+    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("walking");
+    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("running");
+    private static final RawAnimation AIMING = RawAnimation.begin().thenLoop("aiming");
+    private static final RawAnimation SHOOTING = RawAnimation.begin().thenPlay("shooting");
+    private static final RawAnimation RELOADING = RawAnimation.begin().thenPlay("reloading");
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
+    private byte lastCombatState = STATE_IDLE;
 
     public PillagerMarksmanEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -149,11 +150,19 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
 
     private PlayState attackPredicate(AnimationState<PillagerMarksmanEntity> state) {
         byte s = getCombatState();
+        if (s != this.lastCombatState) {
+            state.getController().forceAnimationReset();
+            this.lastCombatState = s;
+        }
+
         return switch (s) {
             case STATE_AIMING -> state.setAndContinue(AIMING);
             case STATE_SHOOTING -> state.setAndContinue(SHOOTING);
             case STATE_RELOADING -> state.setAndContinue(RELOADING);
-            default -> PlayState.CONTINUE;
+            default -> {
+                state.getController().forceAnimationReset();
+                yield PlayState.STOP;
+            }
         };
     }
 
@@ -274,22 +283,35 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                         this.currentPhase = STATE_SHOOTING;
                         this.attackPhaseTicks = 0;
                         this.mob.setCombatState(STATE_SHOOTING);
-                        float distFactor = (float) Math.sqrt(distSq) / this.attackRadius;
-                        this.mob.performRangedAttack(target, Math.clamp(distFactor, 0.1F, 1.0F));
                     }
                 }
                 case STATE_SHOOTING -> {
                     this.mob.setCombatState(STATE_SHOOTING);
-                    if (this.attackPhaseTicks >= 6) {
+                    // Firing arrow on tick 1 synchronized with crossbow release and recoil jerk
+                    if (this.attackPhaseTicks == 1) {
+                        float distFactor = (float) Math.sqrt(distSq) / this.attackRadius;
+                        this.mob.performRangedAttack(target, Math.clamp(distFactor, 0.1F, 1.0F));
+                    }
+                    // Full shooting animation length (0.5s = 10 ticks)
+                    if (this.attackPhaseTicks >= 10) {
                         this.currentPhase = STATE_RELOADING;
                         this.attackPhaseTicks = 0;
                         this.mob.setCombatState(STATE_RELOADING);
-                        this.mob.playSound(SoundEvents.CROSSBOW_LOADING_MIDDLE.value(), 1.0F, 1.0F);
                     }
                 }
                 case STATE_RELOADING -> {
                     this.mob.setCombatState(STATE_RELOADING);
-                    if (this.attackPhaseTicks >= 18) {
+                    // Audio cues synchronized with 1.6s reloading stages
+                    if (this.attackPhaseTicks == 1) {
+                        this.mob.playSound(SoundEvents.CROSSBOW_LOADING_START.value(), 1.0F, 1.0F);
+                    } else if (this.attackPhaseTicks == 16) {
+                        this.mob.playSound(SoundEvents.CROSSBOW_LOADING_MIDDLE.value(), 1.0F, 1.0F);
+                    } else if (this.attackPhaseTicks == 28) {
+                        this.mob.playSound(SoundEvents.CROSSBOW_LOADING_END.value(), 1.0F, 1.0F);
+                    }
+
+                    // Full reloading animation length (1.6s = 32 ticks)
+                    if (this.attackPhaseTicks >= 32) {
                         this.currentPhase = STATE_AIMING;
                         this.attackPhaseTicks = 0;
                         this.mob.setCombatState(STATE_AIMING);
