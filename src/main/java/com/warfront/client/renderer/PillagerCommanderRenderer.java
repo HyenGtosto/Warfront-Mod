@@ -11,4 +11,9 @@ public class PillagerCommanderRenderer extends GeoEntityRenderer<PillagerCommand
         super(renderManager, new PillagerCommanderModel());
         this.shadowRadius = 0.5F;
     }
+
+    @Override
+    public float getMotionAnimThreshold(PillagerCommanderEntity animatable) {
+        return 0.0001f;
+    }
 }

@@ -51,7 +51,7 @@ public class HoldGroundGoal extends Goal {
         double distSq = getHorizontalDistanceSq();
         if (distSq > 16.0D) { // If drifted more than 4 blocks from assigned post, return to post
             int targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, targetX, targetZ);
-            mob.getNavigation().moveTo(targetX + 0.5D, targetY, targetZ + 0.5D, 0.6D);
+            mob.getNavigation().moveTo(targetX + 0.5D, targetY, targetZ + 0.5D, 1.0D);
         } else {
             mob.getNavigation().stop();
             if (--lookCooldownTicks <= 0) {

@@ -11,4 +11,9 @@ public class PillagerArmoredEliteRenderer extends GeoEntityRenderer<PillagerArmo
         super(renderManager, new PillagerArmoredEliteModel());
         this.shadowRadius = 0.5F;
     }
+
+    @Override
+    public float getMotionAnimThreshold(PillagerArmoredEliteEntity animatable) {
+        return 0.0001f;
+    }
 }

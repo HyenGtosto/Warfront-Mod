@@ -110,7 +110,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 32.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.27D)
+                .add(Attributes.MOVEMENT_SPEED, 0.30D)
                 .add(Attributes.ATTACK_DAMAGE, 8.0D)
                 .add(Attributes.ARMOR, 6.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.20D)
@@ -373,14 +373,9 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
             serverLevel.sendParticles(ParticleTypes.ELECTRIC_SPARK, partPos.x, partPos.y, partPos.z, 5, 0.08D, 0.08D, 0.08D, 0.05D);
         }
 
-        // 3. Deflect projectile
+        // 3. Delete projectile on impact instead of deflecting
         if (source.getDirectEntity() instanceof Projectile projectile) {
-            Vec3 vel = projectile.getDeltaMovement();
-            projectile.setDeltaMovement(-vel.x * 0.4D, 0.15D, -vel.z * 0.4D);
-            projectile.hasImpulse = true;
-            if (projectile instanceof AbstractArrow arrow) {
-                arrow.setBaseDamage(0.0D);
-            }
+            projectile.discard();
         }
 
         // 4. Axe attack disables shield for 10.0 seconds (200 ticks)
@@ -394,7 +389,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         // 5. If shield was down when struck (left forearm block), react and raise shield
         if (!isShieldRaised()) {
             raiseShield(80);
-            if (source.getEntity() instanceof LivingEntity attacker) {
+            if (source.getEntity() instanceof LivingEntity attacker && !AlliedFactionHelper.isAllied(this, attacker)) {
                 this.setTarget(attacker);
                 this.getLookControl().setLookAt(attacker, 45.0F, 45.0F);
             }
@@ -411,10 +406,26 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         boolean hurt = super.hurt(source, amount);
         if (hurt && !this.level().isClientSide) {
             if (source.getEntity() instanceof LivingEntity attacker && this.getTarget() == null) {
-                this.setTarget(attacker);
+                if (!AlliedFactionHelper.isAllied(this, attacker)) {
+                    this.setTarget(attacker);
+                }
             }
         }
         return hurt;
+    }
+
+    @Override
+    public boolean canAttack(LivingEntity target) {
+        if (AlliedFactionHelper.isAllied(this, target)) return false;
+        return super.canAttack(target);
+    }
+
+    @Override
+    public void setTarget(LivingEntity target) {
+        if (target != null && AlliedFactionHelper.isAllied(this, target)) {
+            return;
+        }
+        super.setTarget(target);
     }
 
     @Override
@@ -461,8 +472,14 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
     }
 
     private PlayState movementPredicate(AnimationState<PillagerWarriorEntity> state) {
-        if (state.isMoving()) {
-            if (this.isSprinting() || this.isAggressive() || this.getTarget() != null) {
+        boolean isMoving = state.isMoving()
+                || this.walkAnimation.isMoving()
+                || this.walkAnimation.speed() > 0.001F
+                || state.getLimbSwingAmount() > 0.001F
+                || (this.getDeltaMovement().horizontalDistanceSqr() > 0.00005D)
+                || (this.getX() != this.xo || this.getZ() != this.zo);
+        if (isMoving) {
+            if (this.isSprinting() || this.isAggressive() || (this.getTarget() != null && this.getTarget().isAlive())) {
                 return state.setAndContinue(RUN);
             }
             return state.setAndContinue(WALK);

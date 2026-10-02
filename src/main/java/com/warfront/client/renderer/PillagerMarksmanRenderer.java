@@ -11,4 +11,9 @@ public class PillagerMarksmanRenderer extends GeoEntityRenderer<PillagerMarksman
         super(renderManager, new PillagerMarksmanModel());
         this.shadowRadius = 0.5F;
     }
+
+    @Override
+    public float getMotionAnimThreshold(PillagerMarksmanEntity animatable) {
+        return 0.0001f;
+    }
 }

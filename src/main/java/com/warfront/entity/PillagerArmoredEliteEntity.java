@@ -53,7 +53,7 @@ public class PillagerArmoredEliteEntity extends AbstractIllager implements GeoEn
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 40.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.28D)
+                .add(Attributes.MOVEMENT_SPEED, 0.29D)
                 .add(Attributes.ATTACK_DAMAGE, 9.0D)
                 .add(Attributes.ARMOR, 8.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.35D)
@@ -94,8 +94,14 @@ public class PillagerArmoredEliteEntity extends AbstractIllager implements GeoEn
     }
 
     private PlayState movementPredicate(AnimationState<PillagerArmoredEliteEntity> state) {
-        if (state.isMoving()) {
-            if (this.isSprinting() || this.isAggressive() || this.getTarget() != null) {
+        boolean isMoving = state.isMoving()
+                || this.walkAnimation.isMoving()
+                || this.walkAnimation.speed() > 0.001F
+                || state.getLimbSwingAmount() > 0.001F
+                || (this.getDeltaMovement().horizontalDistanceSqr() > 0.00005D)
+                || (this.getX() != this.xo || this.getZ() != this.zo);
+        if (isMoving) {
+            if (this.isSprinting() || this.isAggressive() || (this.getTarget() != null && this.getTarget().isAlive())) {
                 return state.setAndContinue(RUN);
             }
             return state.setAndContinue(WALK);
@@ -114,6 +120,20 @@ public class PillagerArmoredEliteEntity extends AbstractIllager implements GeoEn
     @Override
     public AnimatableInstanceCache getAnimatableInstanceCache() {
         return this.cache;
+    }
+
+    @Override
+    public boolean canAttack(LivingEntity target) {
+        if (AlliedFactionHelper.isAllied(this, target)) return false;
+        return super.canAttack(target);
+    }
+
+    @Override
+    public void setTarget(LivingEntity target) {
+        if (target != null && AlliedFactionHelper.isAllied(this, target)) {
+            return;
+        }
+        super.setTarget(target);
     }
 
     @Override

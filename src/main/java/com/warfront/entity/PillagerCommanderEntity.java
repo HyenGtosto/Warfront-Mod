@@ -85,7 +85,7 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 36.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.28D)
+                .add(Attributes.MOVEMENT_SPEED, 0.30D)
                 .add(Attributes.ATTACK_DAMAGE, 8.5D)
                 .add(Attributes.ARMOR, 7.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.25D)
@@ -204,6 +204,20 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     }
 
     @Override
+    public boolean canAttack(LivingEntity target) {
+        if (AlliedFactionHelper.isAllied(this, target)) return false;
+        return super.canAttack(target);
+    }
+
+    @Override
+    public void setTarget(LivingEntity target) {
+        if (target != null && AlliedFactionHelper.isAllied(this, target)) {
+            return;
+        }
+        super.setTarget(target);
+    }
+
+    @Override
     public boolean doHurtTarget(Entity target) {
         if (!(target instanceof LivingEntity livingTarget)) return false;
         if (this.attackImpactTicks > 0 || this.actionDurationTicks > 0 || this.attackCooldownTicks > 0) return false;
@@ -227,7 +241,13 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     }
 
     private PlayState movementPredicate(AnimationState<PillagerCommanderEntity> state) {
-        if (state.isMoving()) {
+        boolean isMoving = state.isMoving()
+                || this.walkAnimation.isMoving()
+                || this.walkAnimation.speed() > 0.001F
+                || state.getLimbSwingAmount() > 0.001F
+                || (this.getDeltaMovement().horizontalDistanceSqr() > 0.00005D)
+                || (this.getX() != this.xo || this.getZ() != this.zo);
+        if (isMoving) {
             if (this.isSprinting() || this.isAggressive() || (this.getTarget() != null && isDirectlyThreatened())) {
                 return state.setAndContinue(RUN);
             }

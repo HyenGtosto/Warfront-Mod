@@ -143,11 +143,14 @@ public final class SubregionPatrolManager {
          */
         public synchronized void tickHoldTimer(ServerLevel level) {
             if (holdingGround) {
-                if (--holdTicksRemaining <= 0) {
+                holdTicksRemaining -= EVAL_INTERVAL_TICKS;
+                if (holdTicksRemaining <= 0) {
                     holdingGround = false;
+                    holdTicksRemaining = 0;
                     BlockPos nextWaypoint = pickNextBorderWaypoint(level, regionX, regionZ, subX, subZ, currentWaypoint);
-                    if (nextWaypoint != null) {
+                    if (nextWaypoint != null && !nextWaypoint.equals(currentWaypoint)) {
                         currentWaypoint = nextWaypoint;
+                        Warfront.LOGGER.info("[PATROL] Squad {} hold complete. Reselected next waypoint: {}", squadId, currentWaypoint);
                     }
                 }
             }
@@ -159,7 +162,7 @@ public final class SubregionPatrolManager {
         public LivingEntity getSquadTarget(Level level) {
             for (Mob mob : getLivingMembers(level)) {
                 LivingEntity target = mob.getTarget();
-                if (target != null && target.isAlive()) {
+                if (target != null && target.isAlive() && !com.warfront.entity.AlliedFactionHelper.isAllied(mob, target)) {
                     return target;
                 }
             }
@@ -172,6 +175,7 @@ public final class SubregionPatrolManager {
         public void alertSquadToTarget(Level level, LivingEntity target) {
             if (target == null || !target.isAlive()) return;
             for (Mob mob : getLivingMembers(level)) {
+                if (com.warfront.entity.AlliedFactionHelper.isAllied(mob, target)) continue;
                 if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
                     mob.setTarget(target);
                 }
@@ -371,9 +375,9 @@ public final class SubregionPatrolManager {
             // Add SubregionPatrolGoal
             mob.goalSelector.addGoal(2, new SubregionPatrolGoal(mob, squad, offset[0], offset[1]));
 
-            // Add Player targeting goals (both retaliation when hurt and sighting players)
+            // Add Player targeting goals (retaliation when hurt and sighting players, ignoring allied raiders)
             if (mob instanceof net.minecraft.world.entity.PathfinderMob pfm) {
-                mob.targetSelector.addGoal(1, new HurtByTargetGoal(pfm));
+                mob.targetSelector.addGoal(1, new HurtByTargetGoal(pfm, net.minecraft.world.entity.raid.Raider.class));
             }
             mob.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(mob, Player.class, true));
 
@@ -482,24 +486,25 @@ public final class SubregionPatrolManager {
         BlockPos bestFallback = null;
         double bestDist = 0.0D;
 
-        for (int attempt = 0; attempt < 25; attempt++) {
+        for (int attempt = 0; attempt < 50; attempt++) {
             int edge = level.getRandom().nextInt(4);
+            int inset = level.getRandom().nextInt(3); // 0 to 2 blocks inset from border to avoid single-block water edges
             int x, z;
             switch (edge) {
                 case 0 -> { // North
                     x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                    z = subMinZ;
+                    z = subMinZ + inset;
                 }
                 case 1 -> { // South
                     x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                    z = subMaxZ;
+                    z = subMaxZ - inset;
                 }
                 case 2 -> { // West
-                    x = subMinX;
+                    x = subMinX + inset;
                     z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
                 }
                 default -> { // East
-                    x = subMaxX;
+                    x = subMaxX - inset;
                     z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
                 }
             }
@@ -518,6 +523,20 @@ public final class SubregionPatrolManager {
             if (dist > bestDist) {
                 bestDist = dist;
                 bestFallback = candidate;
+            }
+        }
+
+        if (bestFallback != null && bestDist >= 24.0D) {
+            return bestFallback;
+        }
+
+        // Guaranteed fallback: pick opposite side of subregion from fromPos
+        if (fromPos != null) {
+            int oppX = (fromPos.getX() - subMinX < SUBREGION_SIZE_BLOCKS / 2) ? subMaxX - 3 : subMinX + 3;
+            int oppZ = (fromPos.getZ() - subMinZ < SUBREGION_SIZE_BLOCKS / 2) ? subMaxZ - 3 : subMinZ + 3;
+            int oppY = EnemyEncounterSpawner.findDryLandSurfaceY(level, oppX, oppZ);
+            if (oppY != Integer.MIN_VALUE) {
+                return new BlockPos(oppX, oppY, oppZ);
             }
         }
 

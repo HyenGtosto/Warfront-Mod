@@ -11,4 +11,9 @@ public class PillagerScoutRenderer extends GeoEntityRenderer<PillagerScoutEntity
         super(renderManager, new PillagerScoutModel());
         this.shadowRadius = 0.5F;
     }
+
+    @Override
+    public float getMotionAnimThreshold(PillagerScoutEntity animatable) {
+        return 0.0001f;
+    }
 }

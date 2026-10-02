@@ -411,7 +411,7 @@ public final class EnemyEncounterSpawner {
             }
 
             // 2. Add Phase 1 (March to destination) and Phase 3 (Hold ground in 8x8 spread formation)
-            mob.goalSelector.addGoal(2, new com.warfront.ai.goal.AdvanceToLocationGoal(mob, mobDestX, mobDestZ, 0.42D));
+            mob.goalSelector.addGoal(2, new com.warfront.ai.goal.AdvanceToLocationGoal(mob, mobDestX, mobDestZ, 0.7D));
             mob.goalSelector.addGoal(3, new com.warfront.ai.goal.HoldGroundGoal(mob, mobDestX, mobDestZ));
 
             // 3. Add Phase 2 (Target & attack players)

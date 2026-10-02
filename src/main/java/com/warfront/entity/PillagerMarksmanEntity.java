@@ -72,7 +72,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 26.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.26D)
+                .add(Attributes.MOVEMENT_SPEED, 0.28D)
                 .add(Attributes.ATTACK_DAMAGE, 4.0D)
                 .add(Attributes.ARMOR, 4.0D)
                 .add(Attributes.FOLLOW_RANGE, 40.0D);
@@ -139,8 +139,14 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     }
 
     private PlayState movementPredicate(AnimationState<PillagerMarksmanEntity> state) {
-        if (state.isMoving()) {
-            if (this.isSprinting() || (this.isAggressive() && getCombatState() == STATE_IDLE) || (this.getTarget() != null && getCombatState() == STATE_IDLE)) {
+        boolean isMoving = state.isMoving()
+                || this.walkAnimation.isMoving()
+                || this.walkAnimation.speed() > 0.001F
+                || state.getLimbSwingAmount() > 0.001F
+                || (this.getDeltaMovement().horizontalDistanceSqr() > 0.00005D)
+                || (this.getX() != this.xo || this.getZ() != this.zo);
+        if (isMoving) {
+            if (this.isSprinting() || (this.isAggressive() && getCombatState() == STATE_IDLE) || (this.getTarget() != null && this.getTarget().isAlive() && getCombatState() == STATE_IDLE)) {
                 return state.setAndContinue(RUN);
             }
             return state.setAndContinue(WALK);
@@ -169,6 +175,20 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     @Override
     public AnimatableInstanceCache getAnimatableInstanceCache() {
         return this.cache;
+    }
+
+    @Override
+    public boolean canAttack(LivingEntity target) {
+        if (AlliedFactionHelper.isAllied(this, target)) return false;
+        return super.canAttack(target);
+    }
+
+    @Override
+    public void setTarget(LivingEntity target) {
+        if (target != null && AlliedFactionHelper.isAllied(this, target)) {
+            return;
+        }
+        super.setTarget(target);
     }
 
     @Override

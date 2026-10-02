@@ -29,6 +29,7 @@ public class SubregionPatrolGoal extends Goal {
     private final int offsetZ;
     private int repathCooldownTicks = 0;
     private int lookCooldownTicks = 0;
+    private BlockPos lastKnownWaypoint = null;
 
     public SubregionPatrolGoal(Mob mob, SubregionPatrolManager.PatrolSquad squad, int offsetX, int offsetZ) {
         this.mob = mob;
@@ -62,6 +63,7 @@ public class SubregionPatrolGoal extends Goal {
     public void start() {
         repathCooldownTicks = 0;
         lookCooldownTicks = 0;
+        lastKnownWaypoint = squad.getCurrentWaypoint();
     }
 
     @Override
@@ -83,6 +85,13 @@ public class SubregionPatrolGoal extends Goal {
         BlockPos waypoint = squad.getCurrentWaypoint();
         if (waypoint == null) return;
 
+        // If squad waypoint changed, reset pathfinding immediately to begin march
+        if (lastKnownWaypoint == null || !lastKnownWaypoint.equals(waypoint)) {
+            lastKnownWaypoint = waypoint;
+            repathCooldownTicks = 0;
+            mob.getNavigation().stop();
+        }
+
         int targetX = waypoint.getX() + offsetX;
         int targetZ = waypoint.getZ() + offsetZ;
 
@@ -95,7 +104,7 @@ public class SubregionPatrolGoal extends Goal {
             if (distSq > 25.0D) {
                 // Return to formation post if drifted
                 int targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, targetX, targetZ);
-                mob.getNavigation().moveTo(targetX + 0.5D, targetY, targetZ + 0.5D, 0.55D);
+                mob.getNavigation().moveTo(targetX + 0.5D, targetY, targetZ + 0.5D, 1.0D);
             } else {
                 mob.getNavigation().stop();
                 if (--lookCooldownTicks <= 0) {
@@ -131,7 +140,7 @@ public class SubregionPatrolGoal extends Goal {
 
         if (dist <= 24.0D) {
             int targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, destX, destZ);
-            mob.getNavigation().moveTo(destX + 0.5D, targetY, destZ + 0.5D, 0.45D);
+            mob.getNavigation().moveTo(destX + 0.5D, targetY, destZ + 0.5D, 1.05D);
         } else {
             // Incremental step toward long-distance destination
             double ux = dx / dist;
@@ -139,7 +148,7 @@ public class SubregionPatrolGoal extends Goal {
             int stepX = (int) Math.round(mob.getX() + ux * 20.0D);
             int stepZ = (int) Math.round(mob.getZ() + uz * 20.0D);
             int stepY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, stepX, stepZ);
-            mob.getNavigation().moveTo(stepX + 0.5D, stepY, stepZ + 0.5D, 0.45D);
+            mob.getNavigation().moveTo(stepX + 0.5D, stepY, stepZ + 0.5D, 1.05D);
         }
     }
 }
