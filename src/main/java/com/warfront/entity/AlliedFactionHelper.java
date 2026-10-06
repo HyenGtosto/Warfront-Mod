@@ -15,17 +15,31 @@ public final class AlliedFactionHelper {
     private AlliedFactionHelper() {}
 
     /**
+     * Checks if an entity belongs to the Pillager faction.
+     */
+    public static boolean isPillager(Entity entity) {
+        if (entity == null) return false;
+        if (entity instanceof Raider || entity instanceof AbstractIllager) return true;
+        if (entity.getType().is(net.minecraft.tags.EntityTypeTags.RAIDERS) ||
+            entity.getType().is(net.minecraft.tags.EntityTypeTags.ILLAGER) ||
+            entity.getType().is(net.minecraft.tags.EntityTypeTags.ILLAGER_FRIENDS)) {
+            return true;
+        }
+        if (entity.getPersistentData().contains("faction")) {
+            return entity.getPersistentData().getInt("faction") == com.warfront.region.Faction.PILLAGER_CONQUERORS.id();
+        }
+        return false;
+    }
+
+    /**
      * Determines whether two entities are allies and should never fight each other.
      */
     public static boolean isAllied(Entity a, Entity b) {
         if (a == null || b == null || a == b) return true;
 
         if (a instanceof LivingEntity livingA && b instanceof LivingEntity livingB) {
-            // 1. Both are Raiders / Illagers (Pillager Conquerors faction)
-            if (livingA instanceof Raider && livingB instanceof Raider) {
-                return true;
-            }
-            if (livingA instanceof AbstractIllager && livingB instanceof AbstractIllager) {
+            // 1. Both are Pillagers / Raiders / Illagers (Pillager Conquerors faction)
+            if (isPillager(livingA) && isPillager(livingB)) {
                 return true;
             }
 
@@ -34,8 +48,8 @@ public final class AlliedFactionHelper {
                 return true;
             }
 
-            // 3. Vanilla teams / alliance
-            if (livingA.isAlliedTo(livingB) || livingB.isAlliedTo(livingA)) {
+            // 3. Vanilla scoreboard teams
+            if (livingA.getTeam() != null && livingB.getTeam() != null && livingA.getTeam().isAlliedTo(livingB.getTeam())) {
                 return true;
             }
 

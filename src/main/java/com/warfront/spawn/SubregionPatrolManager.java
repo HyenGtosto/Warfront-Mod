@@ -387,6 +387,7 @@ public final class SubregionPatrolManager {
                 mob.getPersistentData().putBoolean("warfront_roaming", true);
                 mob.getPersistentData().putBoolean("isMissionMob", false);
                 mob.getPersistentData().putUUID("squadId", squadId);
+                mob.getPersistentData().putInt("faction", faction.id());
 
                 squad.addMember(mob.getUUID());
                 RoamingEntityTracker.registerWandering(mob, rx, rz, sx, sz, faction);

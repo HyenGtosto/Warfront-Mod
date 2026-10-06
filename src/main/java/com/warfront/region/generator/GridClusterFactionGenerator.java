@@ -3,6 +3,7 @@ package com.warfront.region.generator;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.Optional;
@@ -179,95 +180,123 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         int relX = regionX - bestCenterX;
         int relZ = regionZ - bestCenterZ;
 
+        ProceduralRegionGenerator regionGen = ProceduralRegionGenerator.getInstance();
+
         if (bestClusterSize == 3) {
             if (bestDistance <= 2) {
                 BaseType baseType = BaseType.NONE;
+                BlockPos baseAnchor = null;
                 if (bestDistance == 0) {
-                    baseType = BaseType.MEGA_BASE;
+                    ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.MEGA_BASE);
+                    baseType = res.baseType();
+                    baseAnchor = res.anchor();
                 } else if (bestDistance == 1 && (relX == 0 || relZ == 0)) {
-                    baseType = BaseType.HEADQUARTERS;
+                    ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.HEADQUARTERS);
+                    baseType = res.baseType();
+                    baseAnchor = res.anchor();
                 }
                 if (!calculateStrength) {
-                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId));
+                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId, baseAnchor));
                 }
                 com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                         com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, bestClusterId, worldSeed);
-                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId));
+                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId, baseAnchor));
             } else if (bestDistance == 3) {
                 boolean isCardinalTip = (relX == 0 || relZ == 0);
                 if (isCardinalTip) {
+                    ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.OUTPOST);
+                    BaseType baseType = res.baseType();
+                    BlockPos baseAnchor = res.anchor();
                     if (!calculateStrength) {
-                        return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.OUTPOST, bestClusterId));
+                        return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId, baseAnchor));
                     }
                     com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
-                            com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.OUTPOST, bestClusterId, worldSeed);
-                    return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.OUTPOST, bestClusterId));
+                            com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, bestClusterId, worldSeed);
+                    return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId, baseAnchor));
                 } else {
                     long fringeHash = hashCell(worldSeed, regionX, regionZ, 8888L);
                     if ((Math.abs(fringeHash) % 100) < 35) {
                         if (!calculateStrength) {
-                            return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, bestClusterId));
+                            return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, bestClusterId, null));
                         }
                         com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                                 com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, bestClusterId, worldSeed);
-                        return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, bestClusterId));
+                        return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, bestClusterId, null));
                     }
                 }
             }
         } else if (bestClusterSize == 2) {
             if (bestDistance == 0) {
+                ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.HEADQUARTERS);
+                BaseType baseType = res.baseType();
+                BlockPos baseAnchor = res.anchor();
                 if (!calculateStrength) {
-                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.HEADQUARTERS, bestClusterId));
-                }
-                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
-                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.HEADQUARTERS, bestClusterId, worldSeed);
-                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.HEADQUARTERS, bestClusterId));
-            } else if (bestDistance == 1) {
-                if (!calculateStrength) {
-                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, bestClusterId));
-                }
-                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
-                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, bestClusterId, worldSeed);
-                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, bestClusterId));
-            } else if (bestDistance == 2) {
-                boolean isCardinalTip = (relX == 0 || relZ == 0);
-                BaseType baseType = isCardinalTip ? BaseType.OUTPOST : BaseType.NONE;
-                if (!calculateStrength) {
-                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId));
+                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId, baseAnchor));
                 }
                 com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                         com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, bestClusterId, worldSeed);
-                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId));
+                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId, baseAnchor));
+            } else if (bestDistance == 1) {
+                if (!calculateStrength) {
+                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, bestClusterId, null));
+                }
+                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, bestClusterId, worldSeed);
+                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, bestClusterId, null));
+            } else if (bestDistance == 2) {
+                boolean isCardinalTip = (relX == 0 || relZ == 0);
+                BaseType baseType = BaseType.NONE;
+                BlockPos baseAnchor = null;
+                if (isCardinalTip) {
+                    ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.OUTPOST);
+                    baseType = res.baseType();
+                    baseAnchor = res.anchor();
+                }
+                if (!calculateStrength) {
+                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId, baseAnchor));
+                }
+                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, bestClusterId, worldSeed);
+                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId, baseAnchor));
             } else if (bestDistance == 3 && relX != 0 && relZ != 0) {
                 long fringeHash = hashCell(worldSeed, regionX, regionZ, 8888L);
                 if ((Math.abs(fringeHash) % 100) < 35) {
                     if (!calculateStrength) {
-                        return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, bestClusterId));
+                        return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.NONE, bestClusterId, null));
                     }
                     com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                             com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.NONE, bestClusterId, worldSeed);
-                    return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, bestClusterId));
+                    return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.NONE, bestClusterId, null));
                 }
             }
         } else if (bestClusterSize == 1) {
             // Small Base (Size 1): Core 5-region plus-shape (MD <= 1) + 60% corner outposts at (|relX| == 1 && |relZ| == 1)
             if (bestDistance <= 1) {
-                BaseType baseType = (bestDistance == 0) ? BaseType.HEADQUARTERS : BaseType.NONE;
+                BaseType baseType = BaseType.NONE;
+                BlockPos baseAnchor = null;
+                if (bestDistance == 0) {
+                    ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.HEADQUARTERS);
+                    baseType = res.baseType();
+                    baseAnchor = res.anchor();
+                }
                 if (!calculateStrength) {
-                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId));
+                    return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId, baseAnchor));
                 }
                 com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                         com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, bestClusterId, worldSeed);
-                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId));
+                return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId, baseAnchor));
             } else if (Math.abs(relX) == 1 && Math.abs(relZ) == 1) {
                 long cornerHash = hashCell(worldSeed, regionX, regionZ, 7777L);
                 if ((Math.abs(cornerHash) % 100) < 60) {
+                    ProceduralRegionGenerator.BasePlacementResult res = regionGen.resolveBasePlacement(level, worldSeed, regionX, regionZ, BaseType.OUTPOST);
+                    BaseType baseType = res.baseType();
+                    BlockPos baseAnchor = res.anchor();
                     if (!calculateStrength) {
-                        return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, BaseType.OUTPOST, bestClusterId));
+                        return Optional.of(new RegionData.RegionState(faction, 0.0F, 0.0F, baseType, bestClusterId, baseAnchor));
                     }
                     com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
-                            com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, BaseType.OUTPOST, bestClusterId, worldSeed);
-                    return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), BaseType.OUTPOST, bestClusterId));
+                            com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, bestClusterId, worldSeed);
+                    return Optional.of(new RegionData.RegionState(faction, strength.stability(), strength.resistance(), baseType, bestClusterId, baseAnchor));
                 }
             }
         }
@@ -295,9 +324,14 @@ public class GridClusterFactionGenerator implements FactionGenerator {
             return cached;
 
         ProceduralRegionGenerator gen = ProceduralRegionGenerator.getInstance();
-        boolean result = gen.biomeAvailableForBase(level, centerX, centerZ);
-        smallBaseValidityCache.put(key, result);
-        return result;
+        // 1. Center must be valid land
+        if (!gen.biomeAvailableForBase(level, centerX, centerZ)) {
+            smallBaseValidityCache.put(key, false);
+            return false;
+        }
+
+        smallBaseValidityCache.put(key, true);
+        return true;
     }
 
     private boolean isValidMegaBaseLocation(ServerLevel level, int centerX, int centerZ) {

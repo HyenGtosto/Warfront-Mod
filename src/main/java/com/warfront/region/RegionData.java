@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
@@ -84,6 +85,16 @@ public final class RegionData extends SavedData {
             Faction faction = Faction.byId(regionTag.getInt(FACTION_TAG));
             BaseType baseType = BaseType.byId(regionTag.getInt(BASE_TYPE_TAG));
             long clusterId = regionTag.contains("cluster_id", Tag.TAG_LONG) ? regionTag.getLong("cluster_id") : 0L;
+            BlockPos baseAnchor = null;
+            if (regionTag.contains("base_anchor_x", Tag.TAG_INT) &&
+                regionTag.contains("base_anchor_y", Tag.TAG_INT) &&
+                regionTag.contains("base_anchor_z", Tag.TAG_INT)) {
+                baseAnchor = new BlockPos(
+                        regionTag.getInt("base_anchor_x"),
+                        regionTag.getInt("base_anchor_y"),
+                        regionTag.getInt("base_anchor_z"));
+            }
+
             if (faction != Faction.UNCLAIMED) {
                 float rawStab = regionTag.getFloat(STABILITY_TAG);
                 float rawRes = regionTag.getFloat(RESISTANCE_TAG);
@@ -92,12 +103,15 @@ public final class RegionData extends SavedData {
                 if (rawStab > 0.0F && rawStab <= 1.0F) rawStab *= 100.0F;
                 if (rawRes > 0.0F && rawRes <= 1.0F) rawRes *= 100.0F;
 
+                boolean basePlaced = regionTag.getBoolean("base_placed");
                 data.regions.put(regionTag.getLong(REGION_TAG), new RegionState(
                         faction,
                         Math.clamp(rawStab, 0.0F, 100.0F),
                         Math.clamp(rawRes, 0.0F, 100.0F),
                         baseType,
-                        clusterId));
+                        clusterId,
+                        baseAnchor,
+                        basePlaced));
             }
         }
 
@@ -209,6 +223,14 @@ public final class RegionData extends SavedData {
             regionTag.putFloat(RESISTANCE_TAG, entry.getValue().resistance());
             regionTag.putInt(BASE_TYPE_TAG, entry.getValue().baseType().id());
             regionTag.putLong("cluster_id", entry.getValue().clusterId());
+            if (entry.getValue().baseAnchor() != null) {
+                regionTag.putInt("base_anchor_x", entry.getValue().baseAnchor().getX());
+                regionTag.putInt("base_anchor_y", entry.getValue().baseAnchor().getY());
+                regionTag.putInt("base_anchor_z", entry.getValue().baseAnchor().getZ());
+            }
+            if (entry.getValue().basePlaced()) {
+                regionTag.putBoolean("base_placed", true);
+            }
             regionsTag.add(regionTag);
         }
         tag.put(REGIONS_TAG, regionsTag);
@@ -420,11 +442,44 @@ public final class RegionData extends SavedData {
     }
 
     public Region regionAt(int regionX, int regionZ) {
-        RegionState state = regions.get(ChunkPos.asLong(regionX, regionZ));
+        long key = ChunkPos.asLong(regionX, regionZ);
+        RegionState state = regions.get(key);
         if (state == null) {
             state = ProceduralRegionGenerator.getInstance().generateRegion(this.level, worldSeed, regionX, regionZ);
+        } else if (state.baseType() != BaseType.NONE && state.baseAnchor() == null) {
+            // Lazy migration for legacy saved regions lacking stored base anchor
+            BlockPos resolved = ProceduralRegionGenerator.getInstance()
+                    .findPhysicalBaseAnchor(this.level, worldSeed, regionX, regionZ, state.baseType()).orElse(null);
+            if (resolved != null) {
+                state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), resolved, state.basePlaced());
+                regions.put(key, state);
+                setDirty();
+            }
         }
-        return new Region(regionX, regionZ, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId());
+        return new Region(regionX, regionZ, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), state.basePlaced());
+    }
+
+    public boolean isBasePlaced(int regionX, int regionZ) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        RegionState state = regions.get(key);
+        return state != null && state.basePlaced();
+    }
+
+    public void markBasePlaced(int regionX, int regionZ) {
+        setBasePlaced(regionX, regionZ, true);
+    }
+
+    public void setBasePlaced(int regionX, int regionZ, boolean placed) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        RegionState state = regions.get(key);
+        if (state == null) {
+            Region reg = regionAt(regionX, regionZ);
+            state = new RegionState(reg.owner(), reg.stability(), reg.resistance(), reg.baseType(), reg.clusterId(), reg.baseAnchor(), placed);
+        } else {
+            state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), placed);
+        }
+        regions.put(key, state);
+        setDirty();
     }
 
     public SubRegionState subRegionAt(BlockPos position) {
@@ -648,12 +703,56 @@ public final class RegionData extends SavedData {
         com.warfront.Warfront.LOGGER.info("[PERF AI] Conquered base determination for Region ({}, {}) completed in {} ms (13 neighbor raw states evaluated, 0 strength calculations)",
                 regionX, regionZ, elapsedMs);
 
-        // Qualifies for an OUTPOST if cluster has established territory (>= 3 regions) and no adjacent base in range
+        // Qualifies for an OUTPOST if cluster has established territory (>= 3 regions), no adjacent base in range,
+        // and a suitable outpost anchor can be placed on dry land.
         if (sameClusterRegionCount >= 3 && !hasNearbyBaseInCluster) {
-            return BaseType.OUTPOST;
+            long seed = (targetLevel != null) ? targetLevel.getSeed() : 0L;
+            if (targetLevel == null || ProceduralRegionGenerator.getInstance()
+                    .resolveBasePlacement(targetLevel, seed, regionX, regionZ, BaseType.OUTPOST).baseType() == BaseType.OUTPOST) {
+                return BaseType.OUTPOST;
+            }
         }
 
         return BaseType.NONE;
+    }
+
+    /**
+     * Retrieves the authoritative physical base anchor (exact surface block position) for a region.
+     * Returns Optional.empty() if the region has BaseType.NONE.
+     * If the region has a physical base (BaseType != NONE), the stored anchor in RegionState is the invariant source of truth.
+     * If unexpectedly missing, logs a critical error and returns Optional.empty() (never guesses or falls back to center).
+     */
+    public Optional<BlockPos> getPhysicalBaseAnchor(int regionX, int regionZ) {
+        Region region = regionAt(regionX, regionZ);
+        if (region == null || region.baseType() == BaseType.NONE) {
+            return Optional.empty();
+        }
+        BlockPos anchor = region.baseAnchor();
+        if (anchor != null) {
+            return Optional.of(anchor);
+        }
+
+        // If the anchor is missing for a region with an active base tier, log an explicit invariant failure!
+        com.warfront.Warfront.LOGGER.error("[BASE ANCHOR INVARIANT FAILURE] Region ({}, {}) has base type {} but no valid physical base anchor is stored in RegionState!",
+                regionX, regionZ, region.baseType());
+        return Optional.empty();
+    }
+
+    /**
+     * Determines which subregion (0..3) contains the base anchor, or -1 if no base anchor exists.
+     * Subregion index formula: (subZ << 1) | subX.
+     */
+    public int getBaseAnchorSubRegionIndex(int regionX, int regionZ) {
+        Optional<BlockPos> anchorOpt = getPhysicalBaseAnchor(regionX, regionZ);
+        if (anchorOpt.isEmpty()) {
+            return -1;
+        }
+        BlockPos anchor = anchorOpt.get();
+        int minX = regionX * REGION_SIZE_BLOCKS;
+        int minZ = regionZ * REGION_SIZE_BLOCKS;
+        int sx = (anchor.getX() - minX >= 64) ? 1 : 0;
+        int sz = (anchor.getZ() - minZ >= 64) ? 1 : 0;
+        return (sz << 1) | sx;
     }
 
     private RegionState getRawOrSavedRegionStateForBaseDet(ServerLevel level, int rx, int rz) {
@@ -890,16 +989,20 @@ public final class RegionData extends SavedData {
         setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId);
     }
 
-    public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId) {
+    public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor) {
         long regionId = ChunkPos.asLong(regionX, regionZ);
         activeSieges.remove(regionId);
         long finalClusterId = (faction == Faction.HUMANITY) ? 0L : clusterId;
+        RegionState existing = regions.get(regionId);
+        boolean basePlaced = (existing != null && existing.baseType() == baseType) && existing.basePlaced();
         regions.put(regionId, new RegionState(
                 faction,
                 Math.clamp(stability, 0.0F, 100.0F),
                 Math.clamp(resistance, 0.0F, 100.0F),
                 baseType,
-                finalClusterId));
+                finalClusterId,
+                baseAnchor,
+                basePlaced));
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, stability, false, finalClusterId));
@@ -912,6 +1015,21 @@ public final class RegionData extends SavedData {
         }
 
         setDirty();
+    }
+
+    public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId) {
+        BlockPos anchor = null;
+        if (baseType != BaseType.NONE) {
+            Region existing = regionAt(regionX, regionZ);
+            if (existing != null && existing.baseAnchor() != null && existing.baseType() == baseType) {
+                anchor = existing.baseAnchor();
+            } else {
+                long seed = (level != null) ? level.getSeed() : (this.level != null ? this.level.getSeed() : this.worldSeed);
+                ServerLevel targetLevel = (level != null) ? level : this.level;
+                anchor = ProceduralRegionGenerator.getInstance().findPhysicalBaseAnchor(targetLevel, seed, regionX, regionZ, baseType).orElse(null);
+            }
+        }
+        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId, anchor);
     }
 
     /**
@@ -1081,7 +1199,7 @@ public final class RegionData extends SavedData {
                     RegionState currState = regions.get(currKey);
 
                     if (currState != null && currState.owner() == Faction.PILLAGER_CONQUERORS) {
-                        regions.put(currKey, new RegionState(currState.owner(), currState.stability(), currState.resistance(), currState.baseType(), newClusterId));
+                        regions.put(currKey, new RegionState(currState.owner(), currState.stability(), currState.resistance(), currState.baseType(), newClusterId, currState.baseAnchor(), currState.basePlaced()));
                         for (int sx = 0; sx <= 1; sx++) {
                             for (int sz = 0; sz <= 1; sz++) {
                                 long subKey = subRegionKeyFromRegionId(currKey, sx, sz);
@@ -1188,13 +1306,27 @@ public final class RegionData extends SavedData {
         }
     }
 
-    public record RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
+    public record RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced) {
+        public RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
+            this(owner, stability, resistance, baseType, clusterId, null, false);
+        }
+
+        public RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor) {
+            this(owner, stability, resistance, baseType, clusterId, baseAnchor, false);
+        }
     }
 
     public record SubRegionState(Faction owner, float stability, boolean underSiege, long clusterId) {
     }
 
-    public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
+    public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced) {
+        public Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
+            this(x, z, owner, stability, resistance, baseType, clusterId, null, false);
+        }
+
+        public Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor) {
+            this(x, z, owner, stability, resistance, baseType, clusterId, baseAnchor, false);
+        }
     }
 
     public record ReinforcementState(
