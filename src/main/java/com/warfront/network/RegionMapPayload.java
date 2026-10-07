@@ -16,10 +16,23 @@ public record RegionMapPayload(
         java.util.List<ChunkData> chunks,
         java.util.List<RegionMarkerData> markers,
         java.util.List<SiegeArrowData> siegeArrows,
+        java.util.List<ActiveWarData> activeWars,
         java.util.List<String> logMessages,
         boolean isExplicitRequest,
         MapViewType viewType
 ) implements CustomPacketPayload {
+
+    public RegionMapPayload(
+            int centerChunkX, int centerChunkZ,
+            java.util.List<ChunkData> chunks,
+            java.util.List<RegionMarkerData> markers,
+            java.util.List<SiegeArrowData> siegeArrows,
+            java.util.List<String> logMessages,
+            boolean isExplicitRequest,
+            MapViewType viewType
+    ) {
+        this(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, java.util.Collections.emptyList(), logMessages, isExplicitRequest, viewType);
+    }
 
     public boolean isCommandTerminalMap() {
         return viewType == MapViewType.COMMAND;
@@ -85,6 +98,17 @@ public record RegionMapPayload(
             .<RegistryFriendlyByteBuf, SiegeArrowData>list()
             .apply(ARROW_CODEC);
 
+    private static final StreamCodec<RegistryFriendlyByteBuf, ActiveWarData> WAR_CODEC = StreamCodec.composite(
+            ByteBufCodecs.VAR_INT, ActiveWarData::regionX,
+            ByteBufCodecs.VAR_INT, ActiveWarData::regionZ,
+            ByteBufCodecs.VAR_INT, ActiveWarData::attackerFactionId,
+            ByteBufCodecs.BOOL, ActiveWarData::isDefense,
+            ActiveWarData::new);
+
+    private static final StreamCodec<RegistryFriendlyByteBuf, java.util.List<ActiveWarData>> WARS_CODEC = ByteBufCodecs
+            .<RegistryFriendlyByteBuf, ActiveWarData>list()
+            .apply(WAR_CODEC);
+
     private static final StreamCodec<RegistryFriendlyByteBuf, java.util.List<String>> LOGS_CODEC = ByteBufCodecs
             .<RegistryFriendlyByteBuf, String>list()
             .apply(ByteBufCodecs.STRING_UTF8.cast());
@@ -98,6 +122,7 @@ public record RegionMapPayload(
                     CHUNKS_CODEC.decode(buf),
                     MARKERS_CODEC.decode(buf),
                     ARROWS_CODEC.decode(buf),
+                    WARS_CODEC.decode(buf),
                     LOGS_CODEC.decode(buf),
                     ByteBufCodecs.BOOL.decode(buf),
                     MapViewType.byId(ByteBufCodecs.VAR_INT.decode(buf))
@@ -111,6 +136,7 @@ public record RegionMapPayload(
             CHUNKS_CODEC.encode(buf, payload.chunks());
             MARKERS_CODEC.encode(buf, payload.markers());
             ARROWS_CODEC.encode(buf, payload.siegeArrows());
+            WARS_CODEC.encode(buf, payload.activeWars());
             LOGS_CODEC.encode(buf, payload.logMessages());
             ByteBufCodecs.BOOL.encode(buf, payload.isExplicitRequest());
             ByteBufCodecs.VAR_INT.encode(buf, payload.viewType().id());
@@ -144,5 +170,8 @@ public record RegionMapPayload(
     }
 
     public record SiegeArrowData(int sourceRegionX, int sourceRegionZ, int targetRegionX, int targetRegionZ, int attackValue, boolean encircled) {
+    }
+
+    public record ActiveWarData(int regionX, int regionZ, int attackerFactionId, boolean isDefense) {
     }
 }

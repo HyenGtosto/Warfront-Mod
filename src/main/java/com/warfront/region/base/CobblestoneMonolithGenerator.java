@@ -76,6 +76,9 @@ public class CobblestoneMonolithGenerator implements BaseBuildingGenerator {
                     if (isWall || isRoof || isFloor) {
                         pos.set(x, y, z);
                         level.setBlock(pos, cobble, SET_BLOCK_FLAGS);
+                    } else {
+                        pos.set(x, y, z);
+                        level.setBlock(pos, air, SET_BLOCK_FLAGS);
                     }
                 }
 

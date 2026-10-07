@@ -30,6 +30,14 @@ Warfront transforms Minecraft's static, localized mob spawning into a persistent
    * Macro map rendering, fog-of-war calculations, and regional state queries must **never trigger chunk generation or 3D noise density router evaluations** (`getBaseHeight`).
    * Procedural terrain safety relies on $O(1)$ Voronoi multi-noise climate lookups (`level.getBiome`) rather than heavy 384-block density column iterations.
 
+5. **Native NBT Structure Templates Over Procedural Scripts (Strict Mandate):**
+   * **Core Rule:** All full buildings, fortresses, castles, outposts, headquarters, and megabases MUST be created and loaded as native Minecraft Structure Templates (`.nbt` files) located under `src/main/resources/data/warfront/structure/...`.
+   * **Hard Restriction on Procedural Scripts:** Hardcoded Java code that generates buildings block-by-block is **strictly forbidden** for architecture.
+   * Procedural script block placement is strictly limited to:
+     * Very small decorative or ambient elements (e.g. ambient rubble, small fire pits, banner flags).
+     * Dynamic stepped foundation columns anchoring structures into uneven hillsides and slopes.
+     * Dynamic air clearing passes that carve away clipping terrain and tree foliage within the build volume.
+
 ---
 
 ## 2. World Partitioning: Strategic Regions & Subregions
@@ -92,6 +100,19 @@ Minecraft 1.18+ river biomes form intricate continental webs. To prevent bad bas
    * Saved into region NBT as `base_anchor_x`, `base_anchor_y`, `base_anchor_z`.
    * Loaded deterministically and preserved across server restarts. Future mission systems target this exact coordinate.
 
+### 3.3. Structure Data Pipeline: Native NBT Templates (.nbt)
+All structures are built and saved as native Minecraft Structure Templates (`.nbt` files) rather than procedural code scripts:
+1. **Resource Location:** Bundled inside `src/main/resources/data/warfront/structure/<path>.nbt` (e.g. `base/outpost/pillager_outpost.nbt`).
+2. **Template Placement Engine (`TemplatePremadeStructure`):**
+   * Loads via vanilla `StructureTemplateManager.get(ResourceLocation)`.
+   * Performs a 3D air-clearing pass within the bounding box ($sizeX \times sizeY \times sizeZ$) up to $Y+4$ above the roof to carve away clipping terrain, hills, and tree foliage.
+   * Dynamically constructs stepped cobblestone foundation columns downwards beneath the perimeter down to solid ground so buildings never float on slopes.
+   * Invokes `StructureTemplate.placeInWorld()` with full block palette fidelity.
+3. **Workflow for Creating Structures:**
+   * **In-Game Export Command:** `/warfront base export [name]` automatically captures the current base into `<world>/generated/warfront/structures/<name>.nbt`.
+   * **Structure Block Helper:** `/warfront base structure-block` places a pre-configured vanilla Structure Block in `SAVE` mode with exact dimensions and bounding box ready for editing.
+   * **Rule:** Never write full building generators in Java script. Hardcoded script placement is strictly restricted to tiny ambient/decorative dressing.
+
 ---
 
 ## 4. Entity AI, Roster & Friendly Fire Rules
@@ -152,9 +173,80 @@ Hostile mobs within the same faction must **never** attack each other or retalia
 * `isSurfaceWaterAt(...)` detects unloaded chunks via fast Voronoi climate lookups (`isOceanBiome || isRiverBiome`) without invoking the Minecraft 3D noise router (`getBaseHeight`).
 * Eliminates the 2–3× server TPS freeze when opening terminals or crossing region thresholds.
 
+### 5.4. Tactical War Visualization Architecture
+* **Subregion-Scoped Active Mission Mask:** Red combat mask and red sector borders only apply to $64 \times 64$ subregions with active, uncompleted missions (`ActiveCampaignMissionManager.hasActiveMission`). Won subregions dynamically render in Humanity blue, and unoccupied enemy sectors remain in normal faction/biome colors.
+* **Pulsating Frontline Borders:** Continuous sine-wave breathing crimson perimeter with outer glow rendered around all $8 \times 8$ regions currently under war/siege.
+* **Central War Status Badges:** Floating transparent PNG emblems (`war_attack.png` crossed swords for attacks, `war_defense.png` fortified shield for defenses) rendered in the center of active war regions.
+* **Smart Mission Inspection Visibility:** Central war status badges automatically vanish when inspecting or selecting missions (upon clicking `LAUNCH ATTACK` or during defense) to avoid obscuring subregion buttons or mission icons, reappearing when the region is deselected or when browsing the map.
+* **Synchronized War Network Payloads:** `ActiveWarData(regionX, regionZ, attackerFactionId, isDefense)` serialized in `RegionMapPayload` with `WARS_CODEC` ensuring cross-client awareness of active war theaters even between sorties.
+
+### 5.5. Map Rendering Performance Architecture & High-Zoom Optimization
+* **Hardware-Accelerated Arrowheads & Shafts (`RenderType.gui()`):**
+  - Eliminated legacy CPU software rasterization (`fillTriangle`, `drawThickLine`, `drawSingleLine`) that performed pixel-by-pixel bounding-box loops and pushed up to 25,000 vertices per arrowhead per frame.
+  - Replaced with hardware-accelerated vertex quads: arrow shaft rendered as 1 single quad (4 vertices), arrowhead fill as non-degenerate solid quads spanning both halves of the triangle via the base midpoint (dual-winding to ensure visibility across all GPU culling modes), and perimeter outline as 3 thin quads (12 vertices). Total: **24 vertices per arrow**, achieving a **>1,000× speedup** with a crisp solid crimson fill.
+* **Tactical Arrowhead Scaling Cap:**
+  - Clamped arrowhead dimensions (`Math.clamp(1.8 * tileSize, 8.0, 22.0)` length, `Math.clamp(1.0 * tileSize, 5.0, 13.0)` width) to prevent arrowheads from ballooning to 100+ pixels when zoomed in, preserving crisp military UI aesthetics and zero screen clutter.
+* **Strict Viewport Frustum Culling:**
+  - Early-out axis-aligned bounding box intersection tests applied to siege arrows, frontline borders, and war status badges before calculating vertex transformations or checking visibility.
+* **Visible-Frustum Region Marker Iteration:**
+  - Replaced the full $128 \times 128$ chunk loop (16,384 iterations per frame) in `renderRegionMarkers` with viewport-bounded region iteration (`minRX..maxRX`, `minRZ..maxRZ`).
+  - When zoomed in to 2–3 regions, only **4–16 regions** are inspected per frame rather than 16,384 chunks.
+* **$O(1)$ Region Visited & Base Lookup Precomputations:**
+  - `RegionMapState` precomputes `visitedRegions` (`Set<Long>`) and `regionBases` (`Map<Long, BaseType>`) once when `RegionMapPayload` arrives, replacing per-frame 64-chunk nested hash lookups in `isRegionVisible`.
+
 ---
 
-## 6. Current Implementation Ledger (What Is Complete)
+## 6. Mission Semi-Randomness & Mandatory Base Missions Architecture
+
+### 6.1. Design Overview
+The tactical layer bridges macro strategic regions with localized combat encounters across the four 64×64 subregions: `(0,0)`, `(1,0)`, `(0,1)`, and `(1,1)`.
+Missions are generated semi-randomly, strictly deterministic per region based on world seed and coordinate hashing, preventing players from rerolling objectives simply by disconnecting, walking away, or re-engaging.
+
+### 6.2. Resistance Difficulty Tiering (50% Threshold)
+Every regular subregion rolls a mission matching the region's current resistance level:
+* **Low Resistance ($< 50\%$): Easy Missions**
+  1. `PATROL_SWEEP` — Patrol Sweep (Eliminate light perimeter patrols)
+  2. `SCOUT_INTERCEPTION` — Scout Interception (Hunt mobile recon squads)
+  3. `BORDER_SKIRMISH` — Border Skirmish (Neutralize forward vanguard skirmishers)
+  4. `SUPPLY_RAID` — Supply Raid (Ambush logistical escorts and supply lines)
+* **High Resistance ($\ge 50\%$): Hard Missions**
+  1. `HEAVY_SIEGE` — Heavy Siege (Assault fortified pillager defensive lines)
+  2. `CHAMPION_HUNT` — Champion Hunt (Assassinate high-tier elite armored champions)
+  3. `STRONGPOINT_ASSAULT` — Strongpoint Assault (Breach entrenched redoubts)
+  4. `ATTRITION_STAND` — Attrition Stand (Withstand heavy reinforcement waves)
+
+### 6.3. Seed Determinism & Post-War Reinforcement Salt
+* **Deterministic Calculation:**
+  $$\text{missionSeed} = \text{worldSeed} \oplus (\text{regionX} \times 73856093) \oplus (\text{regionZ} \times 19349663) \oplus \text{salt}$$
+* **Anti-Exploit Invariant:** Under normal conditions, $\text{salt} = 0$. Re-opening the terminal or re-engaging the subregion always yields identical missions.
+* **Reinforcement State Reroll:** When a partial attack fails or expires, the region enters a `ReinforcementState` with a newly generated random non-zero salt, deterministically refreshing all subregion missions for the next counter-offensive.
+
+### 6.4. Mandatory Base Missions & Tier Footprints
+When a region houses a physical base, the subregions containing the base footprint generate mandatory base missions marked with `★` and `isBaseMission = true`:
+1. **Outpost (`BaseType.OUTPOST`):**
+   * Occupies **1 subregion** (the anchor subregion).
+   * Variant: `OUTPOST_DESTROY_BUILDING` (Demolish Outpost).
+2. **Medium Base / Headquarters (`BaseType.HEADQUARTERS`):**
+   * Occupies **2 subregions** (anchor subregion + adjacent subregion based on 48×48 footprint bounds).
+   * Anchor Subregion: Always `BASE_KILL_COMMANDER` (Eliminate Commander).
+   * Shifted Subregion: 50/50 deterministic roll between `BASE_DESTROY_INTEL` (Destroy Intel Network) and `BASE_DESTROY_SUPPLIES` (Destroy Supply Cache).
+3. **Mega Base (`BaseType.MEGA_BASE`):**
+   * Occupies **all 4 subregions** ($96 \times 96$ footprint).
+   * Anchor Subregion: Always `MEGA_ELIMINATE_COMMAND` (Eliminate High Command).
+   * Remaining 3 Subregions: Deterministic shuffle of the remaining 5 variants:
+     - `MEGA_POWER_GRID` (Sabotage Power Grid)
+     - `MEGA_MUNITIONS_DEPOT` (Destroy Munitions Depot)
+     - `MEGA_BREACH_GATE` (Breach Citadel Gate)
+     - `MEGA_NEUTRALIZE_AIR` (Neutralize Anti-Air)
+     - `MEGA_SEVER_COMMS` (Sever Communications)
+
+### 6.5. Domino Capture Invariant
+* In normal regions, securing 2 adjacent subregions can trigger a domino collapse to claim the entire region.
+* **Mandatory Base Rule:** Domino collapse is **strictly blocked** until **all** mandatory base missions in the region are completed (`areAllMandatoryBaseMissionsSecured(...) == true`). A base fortress must always be personally defeated.
+
+---
+
+## 7. Current Implementation Ledger (What Is Complete)
 
 - [x] **Strategic Grid Core:** $128 \times 128$ macro regions, $64 \times 64$ tactical subregions, persistent world data storage.
 - [x] **Faction Expansion & AI Strategic Engine:** Deterministic cellular cluster generation, BFS territorial connectivity, siege campaigns, target scoring.
@@ -170,29 +262,46 @@ Hostile mobs within the same faction must **never** attack each other or retalia
 - [x] **Allied Anti-Friendly-Fire System:** Centralized `AlliedFactionHelper`, non-recursive team/tag verification, target-change interception.
 - [x] **Interactive Strategic Map GUI:** Zoom/pan viewport, faction color blending, siege arrow rendering, Fog of War pipeline.
 - [x] **Frontline Siege & Roamer Spawners:** Dynamic frontline marching lines (Types 1–4), $8 \times 8$ defensive hold-ground formations, squad leader assignment.
+- [x] **Mission Semi-Randomness & Mandatory Base Missions System:**
+  - 8 new named tactical missions (4 easy for resistance $< 50\%$, 4 hard for resistance $\ge 50\%$) tied to kill count logic for testing.
+  - Seed-deterministic mission rolling stopping re-engagement exploit, with salt rerolls during post-war reinforcement.
+  - Base anchor signature missions for Outpost (1 subregion), HQ (2 subregions), and Mega Base (4 subregions).
+  - Strict domino collapse blocking until all mandatory base missions are cleared.
+- [x] **Native NBT Base Structure Pipeline:**
+  - Full native Minecraft `.nbt` structure template pipeline using `TemplatePremadeStructure` and `StructureTemplateManager`.
+  - First official fortress: Pillager Outpost (`warfront:base/outpost/pillager_outpost.nbt`, $27 \times 23 \times 27$ footprint).
+  - Legacy block-by-block Java generation scripts deleted; strict project mandate established to only use native `.nbt` templates.
+  - Automatic 3D air-clearing pass within bounding box plus dynamic stepped cobblestone foundation beneath perimeter columns.
+  - Added in-game export utilities: `/warfront base export [name]` and `/warfront base structure-block`.
+- [x] **Tactical War Visualization Overhaul:**
+  - Split region-wide red mask into subregion-specific active mission masks.
+  - Pulsating red frontline combat borders around $8 \times 8$ regions at war.
+  - Transparent central war status badges (`war_attack.png`, `war_defense.png`) with contextual auto-hiding during mission selection and auto-display when unselected.
+  - Network synchronization of active war campaigns via `ActiveWarData` in `RegionMapPayload`.
 
 ---
 
-## 7. In Progress (Active Focus)
+## 8. In Progress (Active Focus)
 
-- [ ] **Base Structure Placement & Spawner Pipeline:**
-  - Generating actual physical NBT structure templates at the stored `baseAnchor` coordinates.
-  - Ensuring physical buildings align properly with terrain height without floating or suffocating in hills.
-- [ ] **Mandatory Base Missions:**
-  - Creating a specialized mission type linked directly to `baseAnchor`.
-  - Capturing a region that possesses a physical base must require destroying/capturing that specific fortress regardless of domino or frontier thresholds.
+- [ ] **Headquarters & Mega Base NBT Blueprints:**
+  - Designing, building, and exporting native `.nbt` templates for Big Base (HQ) and Mega Base tiers.
+- [ ] **Dedicated Mission Gameplay Logic:**
+  - Replacing the temporary kill-count testing logic with specialized mission objectives:
+    - Block destruction (Intel Network, Supply Cache, Power Grid coils, Munitions barrels).
+    - Specific entity assassinations (High Commander boss fight, Anti-Air gunners).
+    - Gate breaching with siege charges.
 
 ---
 
-## 8. Forward Roadmap & Planned Milestones
+## 9. Forward Roadmap & Planned Milestones
 
-### 8.1. Regenerating / Indestructible Base Buildings (Grief Prevention)
+### 9.1. Regenerating / Indestructible Base Buildings (Grief Prevention)
 * **Problem:** Players could use explosives, flint and steel, or mining to obliterate enemy fortresses before starting a mission.
 * **Planned Solution:** 
   - Dynamic structure protection or snapshot-based state regeneration.
   - When a base mission initiates, structures reset to their pristine blueprint state, or fortress blocks gain temporary blast/break immunity outside active capture windows.
 
-### 8.2. Zombie Horde Custom GeckoLib Roster
+### 9.2. Zombie Horde Custom GeckoLib Roster
 * Replacing vanilla placeholder zombies with complete custom GeckoLib 4.7.4 models and animations:
   1. **Fodder:** Fast, low-health shambler.
   2. **Chaser:** Quadrupedal sprinting stalker.
@@ -200,16 +309,96 @@ Hostile mobs within the same faction must **never** attack each other or retalia
   4. **Tank:** Massive brute capable of smashing through player defenses.
   5. **Hivemind Controller:** Backline summoner that buffs surrounding undead.
 
-### 8.3. Catapult / Stationary Artillery Units
+### 9.3. Catapult / Stationary Artillery Units
 * Heavy siege engines spawned during Mega Base defense sieges to shell attacking enemies from distance.
 
 ---
 
-## 9. Developer Rules for Future Iterations
+## 10. Walkthrough of Latest Changes (Mission System Milestone)
+
+### 10.1. Mission Data & Registry
+* **`MissionType.java`:** Added 18 total mission types: 4 easy (`PATROL_SWEEP`, `SCOUT_INTERCEPTION`, `BORDER_SKIRMISH`, `SUPPLY_RAID`), 4 hard (`HEAVY_SIEGE`, `CHAMPION_HUNT`, `STRONGPOINT_ASSAULT`, `ATTRITION_STAND`), 1 outpost (`OUTPOST_DESTROY_BUILDING`), 3 headquarters (`BASE_KILL_COMMANDER`, `BASE_DESTROY_INTEL`, `BASE_DESTROY_SUPPLIES`), and 6 mega base (`MEGA_ELIMINATE_COMMAND`, `MEGA_POWER_GRID`, `MEGA_MUNITIONS_DEPOT`, `MEGA_BREACH_GATE`, `MEGA_NEUTRALIZE_AIR`, `MEGA_SEVER_COMMS`). Added classification helpers `isBaseMission()`, `isEasy()`, and `isHard()`.
+* **`SubRegionMission.java`:** Added `boolean isBaseMission`, constructor overloads, and `★` prefix to display labels for base missions.
+* **`WeightedMissionSelector.java`:** Propagates `isBaseMission` flag to instantiated `SubRegionMission`.
+
+### 10.2. Procedural Mission Generation
+* **`FactionMissionGenerator.java`:** Added `generateMissionsWithSeedAndBase(...)` with fallback default implementation.
+* **`MissionProfile.java`:** Added `getOccupiedBaseSubRegionsMask(rx, rz, baseType, anchor)` and `getAnchorSubRegionBit(rx, rz, anchor)` calculating exact subregion occupation masks based on physical base footprints.
+* **`PillagerMissionGenerator.java` & `ZombieMissionGenerator.java`:**
+  - Registered all 8 regular missions partitioned strictly by resistance ($< 50\%$ vs $\ge 50\%$).
+  - Implemented deterministic mission rolling derived from `seed` and subregion coordinate offsets.
+  - Hardcoded base anchor subregion to signature variant (`OUTPOST_DESTROY_BUILDING`, `BASE_KILL_COMMANDER`, `MEGA_ELIMINATE_COMMAND`).
+  - Implemented deterministic secondary rolls for HQ (1 of 2 variants) and Mega Base (3 of 5 variants).
+* **`DefaultMissionGenerator.java`:** Updated with resistance partition and modern generator interface support.
+
+### 10.3. Server State & Domino Gating
+* **`RegionData.java`:**
+  - Added `long salt` to `ReinforcementState` with NBT serialization.
+  - Implemented `calculateMissionSeed(rx, rz)` incorporating world seed, coordinates, and reinforcement salt.
+  - Added `getMandatoryBaseSubRegionsMask(...)` and `areAllMandatoryBaseMissionsSecured(...)`.
+  - Updated `claimSubRegion(...)`: Domino collapse is strictly blocked if any mandatory base missions in the region remain unsecured.
+* **`ActiveCampaignMissionManager.java`:** Updated `startCampaign(...)` to pass authoritative `calculateMissionSeed` and `baseAnchor` into the generator.
+
+### 10.4. Networking & Client Map HUD
+* **`RegionDetailsPayload.java`:** Included `BlockPos baseAnchor` (nullable) and `long missionSeed` in payload and StreamCodec.
+* **`RequestRegionDetailsPayload.java` & `CancelAttackPayload.java`:** Synchronized server-to-client transmission of `baseAnchor` and `missionSeed`.
+* **`SelectedRegion.java` & `RegionMapState.java`:** Stored mission seed and base anchor on client; updated mission cache to invalidate automatically when mission seed changes.
+* **`RegionMapScreen.java`:** Passed mission seed and base anchor to mission generators when updating action buttons and launching attacks.
+* **`RegionMapRenderer.java`:** Added `MISSION_TYPE_TEXTURES` map loading all 18 PNG icons; rendered icons dynamically in the subregion mission panel; added `(Base Req)` requirement text for mandatory base subregions.
+* **Icon Assets:** 18 PNG icons saved in `src/main/resources/assets/warfront/textures/gui/map/`.
+
+### 10.5. Mission Spawn Caps, Cooldown Pacing & War Overlay Fixes
+* **Living Mission Enemy Cap & Spawn Pacing:**
+  - `MissionEntityTracker.java`: Added `getLivingMissionMobCount(missionInstanceId, level)`.
+  - `KillCountMissionHandler.java`: Added `MAX_LIVING_MISSION_ENEMIES = 8`. Reinforcement wave spawns are strictly blocked while the player has $> 2$ active living mission enemies. Increased `REINFORCEMENT_COOLDOWN_TICKS` from 6s (120 ticks) to 35s (700 ticks). Clamped wave size to $\min(6, \max(2, \text{remainingKills} - \text{livingCount}))$.
+  - `EnemyEncounterSpawner.java`: Added `spawnMissionEncounter(..., maxEncounterSize)` overload clamping encounter size against remaining quota.
+  - `SubregionPatrolManager.java`: Disallowed ambient patrol squad spawning in subregions with active campaign missions (`ActiveCampaignMissionManager.hasActiveMission`). Reduced max concurrent squads per subregion from 3 to 1 and increased patrol spawn cooldown from 40s to 90s (1800 ticks).
+* **War State & Under Attack Red Overlay Persistence:**
+  - `RegionData.java`: Prevented premature domino collapse / campaign erasure while `activeRemainingMask != 0` (player is actively engaged in launched campaign missions). Handled clean sortie conclusions for partial attacks.
+  - `RequestRegionMapPayload.java`: Ensured all unconquered subregions in an actively besieged region retain `underSiege = true` so the red overlay persists throughout the siege.
+  - `RegionMapState.java`: Fixed bug in `processMapPayload` where the loop broke on chunk (0,0), incorrectly clearing `regionStillSieged` as soon as subregion (0,0) was secured.
+
+### 10.6. Mission Randomization Variety & Regional Frequency Quota Overhaul
+* **Problem Addressed:** Previous subregion mission generation evaluated each subregion in isolation. With a 4-definition candidate pool, uniform random rolls caused over 26% of regions to be dominated by 3 or 4 identical missions, or produce repetitive pairs biased by biome multipliers.
+* **Algorithmic Solution:**
+  - **`WeightedMissionSelector.java`:**
+    - High-Entropy Mixing: Integrated SplitMix64 (`mix64`) to eliminate coordinate-shift bit correlation and modulo bias.
+    - Regional Quota Cap: Enforced `MAX_MISSION_TYPE_INSTANCES_PER_REGION = 2`. Any `MissionType` that has already appeared 2 times in the region is strictly excluded from the eligible candidate pool for subsequent subregions.
+    - Repeat Weight Dampening: Applied `REPEAT_DAMPENING_FACTOR = 0.45` to candidates that have already been selected once in the region. This creates natural diversity without rigid templates or hardcoded slot allocations.
+    - Dynamic Selection API: Updated `selectAndGenerate(...)` to accept a mutable `Map<MissionType, Integer> regionTypeCounts` and increment counts upon selection, with backward-compatible overloads.
+  - **`PillagerMissionGenerator.java` & `ZombieMissionGenerator.java`:**
+    - Two-Pass Generation: Pass 1 resolves and assigns mandatory base missions for occupied subregions and records their types in `regionTypeCounts`; Pass 2 resolves regular missions for unoccupied subregions under the regional quota and dampening rules.
+    - SplitMix64 Seed Mixing: Applied `mix64` to HQ secondary rolls and Mega Base variant shuffle RNGs.
+    - Unique Type Pools: Replaced duplicate `STRONGPOINT_ASSAULT` in Zombie hard pool with `sporeBattery` (`ARTILLERY_BATTERY`), guaranteeing all 4 hard missions have distinct types.
+  - **`DefaultMissionGenerator.java`:**
+    - Upgraded fallback generator from assigning 4 identical missions to cataloging 4 easy and 4 hard generic definitions evaluated through `WeightedMissionSelector` with regional frequency tracking.
+  - **Simulation & Verification:**
+    - Tested across 80,000 generated regions: 0 violations of the max 2 limit. In 4-slot wilderness, ~66.6% exhibit 1 double and 2 singles (focused frontline with variety), ~25.9% exhibit all 4 distinct missions, and ~7.5% exhibit two pairs, with balanced $\approx 25\%$ overall slot coverage across every mission type.
+
+### 10.7. Tactical War Visualization Overhaul: Subregion Mask Splitting, Pulsating Borders & Central War Badges
+* **Problem Addressed:** Previously, any region undergoing an active campaign applied a solid red tint mask across the entire $8 \times 8$ region regardless of subregion status. If a player finished all selected sortie missions, or during the pause between defensive waves before timer expiration, the region would either remain entirely red (hiding progress and secured subregions) or lose all indication of being at war.
+* **Architectural Solutions:**
+  - **Subregion-Scoped Mission Masking:**
+    - `RequestRegionMapPayload.java`: Scoped `isSieged` per chunk strictly to `ActiveCampaignMissionManager.hasActiveMission(rx, rz, subX, subZ)`.
+    - `RegionMapRenderer.java`: `isChunkSieged(...)` applies the dynamic texture red mask and red subregion border strictly to subregions with active, uncompleted missions. Secured sectors render Humanity blue (`Faction.HUMANITY`), and unengaged enemy sectors render normal faction/biome colors.
+  - **Pulsating Strategic Borders (Idea 1):**
+    - `RegionMapRenderer.renderFrontlineBorders(...)`: Renders a 2px-wide pulsating crimson perimeter with soft glow around the entire $8 \times 8$ region boundary using a time-based sine wave pulse (`120..255` alpha).
+  - **Central War Status Badges (Idea 3):**
+    - Transparent PNG assets: `war_attack.png` (crossed steel/gold blades with battle gleam) and `war_defense.png` (fortified heater shield with golden bastion tower and defense glow) with zero-alpha transparent backgrounds and proportional padding.
+    - `RegionMapRenderer.renderWarStatusIcons(...)`: Renders the badge centered in the $8 \times 8$ region ($3.5 \times 3.5$ chunk footprint).
+    - Smart auto-hide rule: When the player selects the region and is in inspection/mission-selection mode (`isActivated == true`), the badge hides automatically so subregions, base icons, and mission logos remain unobstructed. When deselected or browsing, the badge re-appears.
+  - **Cross-Client War Network Synchronization:**
+    - `RegionMapPayload.java`: Added `record ActiveWarData(int regionX, int regionZ, int attackerFactionId, boolean isDefense)`, `WARS_CODEC`, and integrated into `STREAM_CODEC`.
+    - `RegionMapState.java`: Tracks active wars, provides `isRegionAtWar(...)` and `getActiveWar(...)`, and checks regional war state directly in `updateMapData(...)` instead of relying on chunk sampling.
+    - `RegionMapScreen.java`: Explicitly calls `renderer.markTextureDirty()` on `onLaunchAttack`, `onCancelAttack`, and `onConfirmCampaign` for snappy UI updates.
+
+---
+
+## 11. Developer Rules for Future Iterations
 
 1. **Always Check Stored State First:** Never re-derive or guess a base location or region owner if `RegionData` already has it stored.
 2. **Never Re-Introduce Region-Wide Bans on Rivers:** Keep river checks localized to footprint viability and base-center aquatic ratio ($\le 50\%$).
 3. **Keep `AlliedFactionHelper` Free of Recursion:** Never call `livingA.isAlliedTo(livingB)` inside `AlliedFactionHelper.isAllied`. Check tags, teams, squads, and IDs directly.
 4. **Preserve GeckoLib Performance:** Do not run client-side animation state logic on the server thread.
-5-1. **Document Every Milestone:** Update this file at the conclusion of every major feature or refactor.
-5-2. **Document Latest Changes:** Create a walkthrough of what code and logic was changed in a file.
+5. **Document Every Milestone:** Update this file at the conclusion of every major feature or refactor.
+6. **Document Latest Changes:** Maintain a walkthrough of what code and logic was changed in each file.

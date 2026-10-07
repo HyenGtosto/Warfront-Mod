@@ -8,7 +8,7 @@ import net.minecraft.client.gui.GuiGraphics;
 
 /**
  * Client-side mini transparent HUD window rendering active mission info,
- * kill quota progress, and remaining attack timer when within an active war sector.
+ * flexible objective description, dynamic progress string, and remaining timer.
  */
 public final class ActiveMissionHudOverlay {
 
@@ -34,8 +34,8 @@ public final class ActiveMissionHudOverlay {
         Font font = mc.font;
         int screenWidth = guiGraphics.guiWidth();
 
-        int width = 165;
-        int height = 54;
+        int width = 185;
+        int height = 62;
         int x = screenWidth - width - 10;
         int y = 10;
 
@@ -57,25 +57,34 @@ public final class ActiveMissionHudOverlay {
         if (name == null || name.isEmpty()) {
             name = "Active Operation";
         }
-        guiGraphics.drawString(font, "§e§l" + name, x + 8, y + 5, 0xFFFFDD33, false);
+        guiGraphics.drawString(font, "§e§l" + name, x + 8, y + 4, 0xFFFFDD33, false);
 
         // 5. Sector and Region Coordinate Line
         String sectorText = String.format("§7Sector [%d,%d] — Reg (%d,%d)",
                 currentPayload.subX(), currentPayload.subZ(), currentPayload.regionX(), currentPayload.regionZ());
-        guiGraphics.drawString(font, sectorText, x + 8, y + 17, 0xFFAAAAAA, false);
+        guiGraphics.drawString(font, sectorText, x + 8, y + 16, 0xFFAAAAAA, false);
 
-        // 6. Kill Quota Progress Line
-        String quotaText = String.format("§fQuota: §a%d §7/ §e%d",
-                currentPayload.currentKills(), currentPayload.requiredKills());
-        guiGraphics.drawString(font, quotaText, x + 8, y + 29, 0xFFFFFFFF, false);
+        // 6. Objective Description Line
+        String objDesc = currentPayload.objectiveDescription();
+        if (objDesc == null || objDesc.isEmpty()) {
+            objDesc = "Engage Targets";
+        }
+        guiGraphics.drawString(font, "§f" + objDesc, x + 8, y + 27, 0xFFFFFFFF, false);
 
-        // 7. Mini Progress Bar
-        int barX = x + 85;
-        int barY = y + 31;
+        // 7. Progress Line & Bar
+        String progressDisp = currentPayload.progressDisplayString();
+        if (progressDisp == null || progressDisp.isEmpty()) {
+            progressDisp = currentPayload.currentProgress() + "/" + currentPayload.targetProgress();
+        }
+        String progressText = "§7Status: §a" + progressDisp;
+        guiGraphics.drawString(font, progressText, x + 8, y + 38, 0xFFFFFFFF, false);
+
+        int barX = x + 105;
+        int barY = y + 40;
         int barW = 70;
         int barH = 5;
         guiGraphics.fill(barX, barY, barX + barW, barY + barH, 0xFF222830);
-        float fraction = Math.clamp((float) currentPayload.currentKills() / Math.max(1, currentPayload.requiredKills()), 0.0f, 1.0f);
+        float fraction = Math.clamp((float) currentPayload.currentProgress() / Math.max(1, currentPayload.targetProgress()), 0.0f, 1.0f);
         int fillW = (int) (barW * fraction);
         if (fillW > 0) {
             guiGraphics.fill(barX, barY, barX + fillW, barY + barH, accentColor);
@@ -86,6 +95,6 @@ public final class ActiveMissionHudOverlay {
         long mins = totalSec / 60;
         long secs = totalSec % 60;
         String timeText = String.format("§6Time Left: §f%02d:%02d", mins, secs);
-        guiGraphics.drawString(font, timeText, x + 8, y + 41, 0xFFFFCC66, false);
+        guiGraphics.drawString(font, timeText, x + 8, y + 50, 0xFFFFCC66, false);
     }
 }

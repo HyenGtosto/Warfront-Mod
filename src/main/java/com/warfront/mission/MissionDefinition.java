@@ -16,6 +16,7 @@ import java.util.Set;
 public record MissionDefinition(
         String id,
         MissionType type,
+        ObjectiveType objectiveType,
         Faction faction,
         Set<BaseType> allowedBaseTypes,
         float minResistance,
@@ -33,6 +34,41 @@ public record MissionDefinition(
         allowedBaseTypes = Set.copyOf(allowedBaseTypes);
         biomeWeightMultipliers = biomeWeightMultipliers != null ? Map.copyOf(biomeWeightMultipliers) : Collections.emptyMap();
         targetRoles = List.copyOf(targetRoles);
+    }
+
+    public MissionDefinition(
+            String id,
+            MissionType type,
+            Faction faction,
+            Set<BaseType> allowedBaseTypes,
+            float minResistance,
+            float maxResistance,
+            int baseWeight,
+            Map<BiomeCategory, Double> biomeWeightMultipliers,
+            int baseCountMin,
+            int baseCountMax,
+            float resistanceCountMultiplier,
+            List<String> targetRoles,
+            String displayName,
+            String description
+    ) {
+        this(
+                id,
+                type,
+                type != null ? type.defaultObjectiveType() : ObjectiveType.ELIMINATE_TARGETS,
+                faction,
+                allowedBaseTypes,
+                minResistance,
+                maxResistance,
+                baseWeight,
+                biomeWeightMultipliers,
+                baseCountMin,
+                baseCountMax,
+                resistanceCountMultiplier,
+                targetRoles,
+                displayName,
+                description
+        );
     }
 
     /**

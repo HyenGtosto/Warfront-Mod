@@ -79,6 +79,25 @@ public final class MissionEntityTracker {
     }
 
     /**
+     * Counts how many mobs belonging to a specific mission instance are currently alive in the level.
+     */
+    public static int getLivingMissionMobCount(UUID missionInstanceId, ServerLevel level) {
+        if (missionInstanceId == null || level == null || TRACKED_MISSION_MOBS.isEmpty()) {
+            return 0;
+        }
+        int living = 0;
+        for (TrackedMissionMob item : TRACKED_MISSION_MOBS.values()) {
+            if (missionInstanceId.equals(item.missionInstanceId())) {
+                Entity entity = level.getEntity(item.entityUuid());
+                if (entity instanceof Mob mob && mob.isAlive()) {
+                    living++;
+                }
+            }
+        }
+        return living;
+    }
+
+    /**
      * Server tick evaluation hook for mission-specific mob lifecycle.
      */
     public static void onServerTick(ServerTickEvent.Post event) {

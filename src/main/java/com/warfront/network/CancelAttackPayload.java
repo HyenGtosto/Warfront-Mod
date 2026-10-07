@@ -89,13 +89,17 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                 }
             }
 
+            long missionSeed = regions.calculateMissionSeed(region.x(), region.z());
+            net.minecraft.core.BlockPos baseAnchor = region.baseAnchor();
+
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
                     region.owner().id(), effectiveStability, effectiveResistance,
                     region.baseType().id(), isDefense, true,
                     remainingTicks, dominoThreshold, reachableMask, regionReachable, 0, conqueredMask,
                     isDefense ? existingSiege.attacker().id() : Faction.UNCLAIMED.id(),
-                    isAwaitingReinf, reinfRemainingTicks, isEncircled));
+                    isAwaitingReinf, reinfRemainingTicks, isEncircled,
+                    baseAnchor, missionSeed));
         }
     }
 

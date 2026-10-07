@@ -159,9 +159,9 @@ public final class BasePlacementManager {
             surfaceY--;
             scanPos.setY(surfaceY);
         }
-        // Prevent building on top of an existing monolith or cobblestone structure
+        // Prevent building on top of an existing monolith or cobblestone structure (unless forced)
         BlockPos checkGround = new BlockPos(anchor.getX(), surfaceY, anchor.getZ());
-        if (level.getBlockState(checkGround).is(net.minecraft.world.level.block.Blocks.COBBLESTONE)) {
+        if (!force && level.getBlockState(checkGround).is(net.minecraft.world.level.block.Blocks.COBBLESTONE)) {
             Warfront.LOGGER.warn("[Warfront] Structure already exists at {} in region ({}, {}). Aborting placement to prevent double height stacking.",
                     checkGround, regionX, regionZ);
             regions.markBasePlaced(regionX, regionZ);

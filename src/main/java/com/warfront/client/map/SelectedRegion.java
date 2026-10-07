@@ -2,6 +2,7 @@ package com.warfront.client.map;
 
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
+import net.minecraft.core.BlockPos;
 
 public record SelectedRegion(
         int regionX,
@@ -23,13 +24,15 @@ public record SelectedRegion(
         Faction attacker,
         boolean isAwaitingReinforcements,
         long reinforcementRemainingTicks,
-        boolean isEncircled
+        boolean isEncircled,
+        BlockPos baseAnchor,
+        long missionSeed
 ) {
     public SelectedRegion withRemainingSiegeTicks(long newTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed);
     }
 
     public SelectedRegion withReinforcementRemainingTicks(long newReinfTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled, baseAnchor, missionSeed);
     }
 }

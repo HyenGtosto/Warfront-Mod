@@ -25,8 +25,11 @@ public final class KillCountMissionHandler implements WarMissionHandler {
 
     private static final KillCountMissionHandler INSTANCE = new KillCountMissionHandler();
 
-    /** Cooldown (in ticks) between enemy reinforcement waves inside the active subregion (6 seconds). */
-    private static final long REINFORCEMENT_COOLDOWN_TICKS = 120L;
+    /** Cooldown (in ticks) between enemy reinforcement waves inside the active subregion (35 seconds = 700 ticks). */
+    private static final long REINFORCEMENT_COOLDOWN_TICKS = 700L;
+
+    /** Maximum concurrent living mission enemies allowed before reinforcement waves are blocked. */
+    public static final int MAX_LIVING_MISSION_ENEMIES = 8;
 
     /** Tracks last spawn game time per subregion key: (regionPos << 2) | bit */
     private static final Map<Long, Long> SUBREGION_MISSION_SPAWN_TIMERS = new ConcurrentHashMap<>();
@@ -53,6 +56,15 @@ public final class KillCountMissionHandler implements WarMissionHandler {
         int remainingKills = progress.requiredKills() - progress.currentKills();
         if (remainingKills <= 0) {
             return;
+        }
+
+        // Enforce active living mob cap & squad pacing
+        int livingCount = com.warfront.spawn.MissionEntityTracker.getLivingMissionMobCount(progress.missionInstanceId(), level);
+        if (livingCount > 2) {
+            return; // Player is still actively fighting current wave; wait until <= 2 enemies remain
+        }
+        if (livingCount >= MAX_LIVING_MISSION_ENEMIES) {
+            return; // Hard cap reached
         }
 
         long gameTime = level.getGameTime();
@@ -110,6 +122,7 @@ public final class KillCountMissionHandler implements WarMissionHandler {
         RegionData regions = RegionData.get(level);
         float resistance = regions.calculateEffectiveResistance(regionX, regionZ);
 
+        int maxToSpawn = Math.min(6, Math.max(2, remainingKills - livingCount));
         int spawned = EnemyEncounterSpawner.spawnMissionEncounter(
                 level,
                 regionX, regionZ,
@@ -118,7 +131,8 @@ public final class KillCountMissionHandler implements WarMissionHandler {
                 resistance,
                 originX, originZ,
                 progress.missionInstanceId(),
-                progress.targetRoleName()
+                progress.targetRoleName(),
+                maxToSpawn
         );
 
         if (spawned > 0) {
@@ -146,6 +160,10 @@ public final class KillCountMissionHandler implements WarMissionHandler {
         }
 
         progress.incrementKills();
+        RegionData regions = RegionData.get(level);
+        if (regions != null) {
+            regions.setDirty();
+        }
         Warfront.LOGGER.debug("Kill count progress for Region ({}, {}) Sub ({}, {}): {}/{}",
                 regionX, regionZ, subX, subZ, progress.currentKills(), progress.requiredKills());
 
@@ -153,14 +171,15 @@ public final class KillCountMissionHandler implements WarMissionHandler {
             progress.setCompleted(true);
             onCleanup(level, regionX, regionZ, subX, subZ, progress);
 
-            RegionData regions = RegionData.get(level);
-
             // Subregion Objective Completed -> Capture ONLY this subregion to HUMANITY
-            regions.claimSubRegion(level, regionX, regionZ, subX, subZ, Faction.HUMANITY, 100.0F);
+            if (regions != null) {
+                regions.claimSubRegion(level, regionX, regionZ, subX, subZ, Faction.HUMANITY, 100.0F);
 
-            String logMsg = String.format("§aMission Completed! Sub-region (%d, %d) in Region (%d, %d) secured.",
-                    subX, subZ, regionX, regionZ);
-            regions.addLog(level, logMsg);
+                String logMsg = String.format("§aMission Completed! Sub-region (%d, %d) in Region (%d, %d) secured.",
+                        subX, subZ, regionX, regionZ);
+                regions.addLog(level, logMsg);
+                regions.setDirty();
+            }
             Warfront.LOGGER.info("Subregion mission completed: Region ({}, {}) Sub ({}, {}). Captured to HUMANITY.",
                     regionX, regionZ, subX, subZ);
 
@@ -168,8 +187,7 @@ public final class KillCountMissionHandler implements WarMissionHandler {
         }
 
         // Broadcast instant HUD progress update to all players
-        RegionData regions = RegionData.get(level);
-        RegionData.SiegeCampaign siege = regions.getSiege(regionX, regionZ);
+        RegionData.SiegeCampaign siege = regions != null ? regions.getSiege(regionX, regionZ) : null;
         long remainingTicks = 0L;
         if (siege != null) {
             long elapsed = level.getGameTime() - siege.startTick();
@@ -181,8 +199,10 @@ public final class KillCountMissionHandler implements WarMissionHandler {
                 !progress.isCompleted(),
                 regionX, regionZ, subX, subZ,
                 progress.displayName(),
-                progress.currentKills(),
-                progress.requiredKills(),
+                progress.objectiveDescription(),
+                progress.currentProgress(),
+                progress.targetProgress(),
+                progress.formatProgressDisplay(),
                 remainingTicks,
                 progress.targetFaction().id(),
                 isDefense

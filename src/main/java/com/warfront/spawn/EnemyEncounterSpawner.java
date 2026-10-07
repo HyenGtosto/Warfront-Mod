@@ -189,13 +189,34 @@ public final class EnemyEncounterSpawner {
             int originBlockZ,
             UUID missionInstanceId,
             String targetRoleName) {
+        return spawnMissionEncounter(level, regionX, regionZ, subX, subZ, faction, resistance, originBlockX, originBlockZ, missionInstanceId, targetRoleName, -1);
+    }
+
+    /**
+     * Spawns a mission wave encounter tied to a specific active mission instance, clamped by maxEncounterSize.
+     * Managed exclusively by KillCountMissionHandler and MissionEntityTracker.
+     */
+    public static int spawnMissionEncounter(
+            ServerLevel level,
+            int regionX,
+            int regionZ,
+            int subX,
+            int subZ,
+            Faction faction,
+            float resistance,
+            int originBlockX,
+            int originBlockZ,
+            UUID missionInstanceId,
+            String targetRoleName,
+            int maxEncounterSize) {
 
         if (missionInstanceId == null) {
             return 0;
         }
 
         EnemyResistanceTier tier = EnemyResistanceTier.fromResistance(resistance);
-        int encounterSize = determineEncounterSize(tier, level.getRandom());
+        int rawSize = determineEncounterSize(tier, level.getRandom());
+        int encounterSize = maxEncounterSize > 0 ? Math.min(rawSize, maxEncounterSize) : rawSize;
 
         List<Object> rolePool = buildRolePool(faction, tier);
         if (rolePool.isEmpty()) {

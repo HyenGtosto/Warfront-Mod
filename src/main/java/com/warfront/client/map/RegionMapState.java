@@ -40,8 +40,11 @@ public final class RegionMapState {
     private final MapViewType viewType;
 
     private final Map<Long, RegionMapPayload.ChunkData> chunks = new HashMap<>();
+    private final Set<Long> visitedRegions = new HashSet<>();
+    private final Map<Long, BaseType> regionBases = new HashMap<>();
     private final List<RegionMapPayload.RegionMarkerData> markers = new ArrayList<>();
     private final List<RegionMapPayload.SiegeArrowData> siegeArrows = new ArrayList<>();
+    private final List<RegionMapPayload.ActiveWarData> activeWars = new ArrayList<>();
 
     private SelectedRegion selectedRegion;
     private final boolean[] subRegionMissionToggled = new boolean[4];
@@ -90,16 +93,36 @@ public final class RegionMapState {
 
     public boolean updateMapData(RegionMapPayload payload) {
         this.chunks.clear();
+        this.visitedRegions.clear();
+        this.regionBases.clear();
+
         for (RegionMapPayload.ChunkData chunk : payload.chunks()) {
             chunks.put(ChunkPos.asLong(chunk.chunkX(), chunk.chunkZ()), chunk);
+            int rx = Math.floorDiv(chunk.chunkX(), 8);
+            int rz = Math.floorDiv(chunk.chunkZ(), 8);
+            long regKey = ChunkPos.asLong(rx, rz);
+            if (chunk.isVisited()) {
+                visitedRegions.add(regKey);
+            }
+            if (chunk.factionId() != Faction.UNCLAIMED.id() && chunk.isVisited()) {
+                regionBases.putIfAbsent(regKey, BaseType.NONE);
+            }
         }
         if (payload.markers() != null) {
             markers.clear();
             markers.addAll(payload.markers());
+            for (RegionMapPayload.RegionMarkerData marker : payload.markers()) {
+                long regKey = ChunkPos.asLong(marker.regionX(), marker.regionZ());
+                regionBases.put(regKey, BaseType.byId(marker.baseTypeId()));
+            }
         }
         if (payload.siegeArrows() != null) {
             siegeArrows.clear();
             siegeArrows.addAll(payload.siegeArrows());
+        }
+        if (payload.activeWars() != null) {
+            activeWars.clear();
+            activeWars.addAll(payload.activeWars());
         }
         if (payload.logMessages() != null) {
             logMessages.clear();
@@ -108,22 +131,8 @@ public final class RegionMapState {
 
         boolean shouldRefreshDetails = false;
         if (selectedRegion != null && selectedRegion.underSiege()) {
-            int rcx = selectedRegion.regionX() * 8;
-            int rcz = selectedRegion.regionZ() * 8;
-            boolean foundAny = false;
-            boolean regionStillSieged = false;
-            outer:
-            for (int cx = 0; cx < 8; cx++) {
-                for (int cz = 0; cz < 8; cz++) {
-                    RegionMapPayload.ChunkData c = chunks.get(ChunkPos.asLong(rcx + cx, rcz + cz));
-                    if (c != null) {
-                        foundAny = true;
-                        regionStillSieged = c.underSiege();
-                        break outer;
-                    }
-                }
-            }
-            if (foundAny && !regionStillSieged) {
+            boolean regionStillSieged = isRegionAtWar(selectedRegion.regionX(), selectedRegion.regionZ());
+            if (!regionStillSieged) {
                 shouldRefreshDetails = true;
             }
         }
@@ -166,7 +175,9 @@ public final class RegionMapState {
                 Faction.byId(payload.attackerFactionId()),
                 payload.isAwaitingReinforcements(),
                 payload.reinforcementRemainingTicks(),
-                payload.isEncircled());
+                payload.isEncircled(),
+                payload.baseAnchor(),
+                payload.missionSeed());
 
         if (payload.underSiege()) {
             activatedRegions.add(regKey);
@@ -267,6 +278,50 @@ public final class RegionMapState {
         return siegeArrows;
     }
 
+    public List<RegionMapPayload.ActiveWarData> getActiveWars() {
+        return Collections.unmodifiableList(activeWars);
+    }
+
+    public boolean isRegionVisible(int regionX, int regionZ) {
+        if (isDebugMap() || !viewType.hasFogOfWar()) {
+            return true;
+        }
+        return visitedRegions.contains(ChunkPos.asLong(regionX, regionZ));
+    }
+
+    public BaseType getRegionBase(int regionX, int regionZ) {
+        return regionBases.get(ChunkPos.asLong(regionX, regionZ));
+    }
+
+    public BaseType getRegionBase(long regionKey) {
+        return regionBases.get(regionKey);
+    }
+
+    public boolean isRegionAtWar(int regionX, int regionZ) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        if (activatedRegions.contains(key)) {
+            return true;
+        }
+        for (RegionMapPayload.ActiveWarData war : activeWars) {
+            if (war.regionX() == regionX && war.regionZ() == regionZ) {
+                return true;
+            }
+        }
+        if (selectedRegion != null && selectedRegion.regionX() == regionX && selectedRegion.regionZ() == regionZ) {
+            return selectedRegion.underSiege();
+        }
+        return false;
+    }
+
+    public RegionMapPayload.ActiveWarData getActiveWar(int regionX, int regionZ) {
+        for (RegionMapPayload.ActiveWarData war : activeWars) {
+            if (war.regionX() == regionX && war.regionZ() == regionZ) {
+                return war;
+            }
+        }
+        return null;
+    }
+
     public SelectedRegion getSelectedRegion() {
         return selectedRegion;
     }
@@ -309,9 +364,33 @@ public final class RegionMapState {
             com.warfront.region.Faction faction,
             com.warfront.region.BaseType baseType,
             float resistance, float stability) {
+        return getOrGenerateMissions(regionX, regionZ, faction, baseType, resistance, stability, 0L, null);
+    }
+
+    /**
+     * Returns the cached missions for the region, generating and caching them
+     * on first call. Automatically invalidates the cache if the region's authoritative
+     * seed has changed (e.g. following a post-war reinforcement state salt roll).
+     */
+    public SubRegionMission[] getOrGenerateMissions(
+            int regionX, int regionZ,
+            com.warfront.region.Faction faction,
+            com.warfront.region.BaseType baseType,
+            float resistance, float stability,
+            long seed, net.minecraft.core.BlockPos baseAnchor) {
         long key = ChunkPos.asLong(regionX, regionZ);
-        return missionCache.computeIfAbsent(key, k ->
-                MissionProfile.generateForRegion(regionX, regionZ, faction, baseType, resistance, stability));
+        SubRegionMission[] cached = missionCache.get(key);
+        if (cached != null && cached.length > 0 && seed != 0L && cached[0].seed() != seed) {
+            missionCache.remove(key);
+            cached = null;
+        }
+        if (cached != null) {
+            return cached;
+        }
+        SubRegionMission[] missions = MissionProfile.generateForRegion(
+                regionX, regionZ, faction, baseType, resistance, stability, seed, baseAnchor);
+        missionCache.put(key, missions);
+        return missions;
     }
 
     /**

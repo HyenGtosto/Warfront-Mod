@@ -4,12 +4,18 @@ import com.warfront.Warfront;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
-import net.minecraft.network.chat.Component;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,8 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Server-authoritative mission execution manager.
  *
- * Tracks active campaign progress, processes enemy kills, and triggers subregion
- * capture upon mission completion.
+ * Tracks active campaign progress, manages polymorphic objective state,
+ * and interfaces with RegionData for persistent world storage.
  */
 public final class ActiveCampaignMissionManager {
 
@@ -39,10 +45,16 @@ public final class ActiveCampaignMissionManager {
         private final Faction targetFaction;
         private final String targetRoleName;
         private final String displayName;
+        private final String objectiveDescription;
         private final MissionType missionType;
-        private final int requiredKills;
-        private int currentKills;
+        private final ObjectiveType objectiveType;
+        private final int targetProgress;
+        private int currentProgress;
+        private BlockPos missionSiteAnchor;
+        private int phaseIndex;
         private boolean completed;
+        private final List<UUID> trackedEntityUuids;
+        private final List<BlockPos> trackedBlockPositions;
 
         public ActiveSubRegionProgress(
                 int regionX, int regionZ,
@@ -50,10 +62,14 @@ public final class ActiveCampaignMissionManager {
                 Faction targetFaction,
                 String targetRoleName,
                 String displayName,
+                String objectiveDescription,
                 MissionType missionType,
-                int requiredKills
+                ObjectiveType objectiveType,
+                int targetProgress
         ) {
-            this(UUID.randomUUID(), regionX, regionZ, subX, subZ, targetFaction, targetRoleName, displayName, missionType, requiredKills);
+            this(UUID.randomUUID(), regionX, regionZ, subX, subZ, targetFaction, targetRoleName,
+                    displayName, objectiveDescription, missionType, objectiveType,
+                    targetProgress, 0, null, 0, false, new ArrayList<>(), new ArrayList<>());
         }
 
         public ActiveSubRegionProgress(
@@ -63,21 +79,35 @@ public final class ActiveCampaignMissionManager {
                 Faction targetFaction,
                 String targetRoleName,
                 String displayName,
+                String objectiveDescription,
                 MissionType missionType,
-                int requiredKills
+                ObjectiveType objectiveType,
+                int targetProgress,
+                int currentProgress,
+                BlockPos missionSiteAnchor,
+                int phaseIndex,
+                boolean completed,
+                List<UUID> trackedEntityUuids,
+                List<BlockPos> trackedBlockPositions
         ) {
             this.missionInstanceId = missionInstanceId != null ? missionInstanceId : UUID.randomUUID();
             this.regionX = regionX;
             this.regionZ = regionZ;
             this.subX = subX;
             this.subZ = subZ;
-            this.targetFaction = targetFaction;
-            this.targetRoleName = targetRoleName;
-            this.displayName = displayName;
-            this.missionType = missionType;
-            this.requiredKills = requiredKills;
-            this.currentKills = 0;
-            this.completed = false;
+            this.targetFaction = targetFaction != null ? targetFaction : Faction.PILLAGER_CONQUERORS;
+            this.targetRoleName = targetRoleName != null ? targetRoleName : "BASIC";
+            this.displayName = displayName != null ? displayName : "Mission";
+            this.objectiveDescription = objectiveDescription != null ? objectiveDescription : "";
+            this.missionType = missionType != null ? missionType : MissionType.FORWARD_PATROL;
+            this.objectiveType = objectiveType != null ? objectiveType : (missionType != null ? missionType.defaultObjectiveType() : ObjectiveType.ELIMINATE_TARGETS);
+            this.targetProgress = targetProgress;
+            this.currentProgress = currentProgress;
+            this.missionSiteAnchor = missionSiteAnchor;
+            this.phaseIndex = phaseIndex;
+            this.completed = completed;
+            this.trackedEntityUuids = trackedEntityUuids != null ? new ArrayList<>(trackedEntityUuids) : new ArrayList<>();
+            this.trackedBlockPositions = trackedBlockPositions != null ? new ArrayList<>(trackedBlockPositions) : new ArrayList<>();
         }
 
         public UUID missionInstanceId() { return missionInstanceId; }
@@ -88,13 +118,145 @@ public final class ActiveCampaignMissionManager {
         public Faction targetFaction() { return targetFaction; }
         public String targetRoleName() { return targetRoleName; }
         public String displayName() { return displayName; }
+        public String objectiveDescription() { return objectiveDescription; }
         public MissionType missionType() { return missionType; }
-        public int requiredKills() { return requiredKills; }
-        public int currentKills() { return currentKills; }
+        public ObjectiveType objectiveType() { return objectiveType; }
+        public int targetProgress() { return targetProgress; }
+        public int currentProgress() { return currentProgress; }
+        public BlockPos missionSiteAnchor() { return missionSiteAnchor; }
+        public int phaseIndex() { return phaseIndex; }
         public boolean isCompleted() { return completed; }
+        public List<UUID> trackedEntityUuids() { return trackedEntityUuids; }
+        public List<BlockPos> trackedBlockPositions() { return trackedBlockPositions; }
 
-        public void incrementKills() { this.currentKills++; }
+        public void setMissionSiteAnchor(BlockPos anchor) { this.missionSiteAnchor = anchor; }
+        public void setPhaseIndex(int phaseIndex) { this.phaseIndex = phaseIndex; }
         public void setCompleted(boolean completed) { this.completed = completed; }
+        public void setCurrentProgress(int currentProgress) { this.currentProgress = currentProgress; }
+        public void incrementProgress() { this.currentProgress++; }
+        public void addProgress(int amount) { this.currentProgress += amount; }
+
+        // Backward compatibility getters & setters
+        public int requiredKills() { return targetProgress; }
+        public int currentKills() { return currentProgress; }
+        public void incrementKills() { incrementProgress(); }
+
+        public String formatProgressDisplay() {
+            return currentProgress + " / " + targetProgress;
+        }
+
+        /**
+         * Serializes active subregion progress to NBT for world save persistence.
+         */
+        public CompoundTag toCompoundTag() {
+            CompoundTag tag = new CompoundTag();
+            tag.putUUID("instance_id", missionInstanceId);
+            tag.putInt("rx", regionX);
+            tag.putInt("rz", regionZ);
+            tag.putInt("sx", subX);
+            tag.putInt("sz", subZ);
+            tag.putInt("faction", targetFaction.id());
+            tag.putString("role", targetRoleName);
+            tag.putString("display_name", displayName);
+            tag.putString("obj_desc", objectiveDescription);
+            tag.putString("mission_type", missionType.name());
+            tag.putString("obj_type", objectiveType.name());
+            tag.putInt("target_progress", targetProgress);
+            tag.putInt("current_progress", currentProgress);
+            tag.putInt("phase", phaseIndex);
+            tag.putBoolean("completed", completed);
+
+            if (missionSiteAnchor != null) {
+                tag.putInt("anchor_x", missionSiteAnchor.getX());
+                tag.putInt("anchor_y", missionSiteAnchor.getY());
+                tag.putInt("anchor_z", missionSiteAnchor.getZ());
+            }
+
+            ListTag entitiesTag = new ListTag();
+            for (UUID uuid : trackedEntityUuids) {
+                CompoundTag uTag = new CompoundTag();
+                uTag.putUUID("uuid", uuid);
+                entitiesTag.add(uTag);
+            }
+            tag.put("tracked_entities", entitiesTag);
+
+            ListTag blocksTag = new ListTag();
+            for (BlockPos pos : trackedBlockPositions) {
+                CompoundTag bTag = new CompoundTag();
+                bTag.putInt("x", pos.getX());
+                bTag.putInt("y", pos.getY());
+                bTag.putInt("z", pos.getZ());
+                blocksTag.add(bTag);
+            }
+            tag.put("tracked_blocks", blocksTag);
+
+            return tag;
+        }
+
+        /**
+         * Rehydrates an active subregion progress from saved NBT.
+         */
+        public static ActiveSubRegionProgress fromCompoundTag(CompoundTag tag) {
+            if (tag == null) return null;
+            UUID id = tag.contains("instance_id") ? tag.getUUID("instance_id") : UUID.randomUUID();
+            int rx = tag.getInt("rx");
+            int rz = tag.getInt("rz");
+            int sx = tag.getInt("sx");
+            int sz = tag.getInt("sz");
+            Faction faction = Faction.byId(tag.getInt("faction"));
+            String role = tag.getString("role");
+            String dispName = tag.getString("display_name");
+            String objDesc = tag.getString("obj_desc");
+
+            MissionType mType;
+            try {
+                mType = MissionType.valueOf(tag.getString("mission_type"));
+            } catch (Exception e) {
+                mType = MissionType.FORWARD_PATROL;
+            }
+
+            ObjectiveType oType;
+            try {
+                oType = ObjectiveType.valueOf(tag.getString("obj_type"));
+            } catch (Exception e) {
+                oType = mType.defaultObjectiveType();
+            }
+
+            int targetProg = tag.getInt("target_progress");
+            int currProg = tag.getInt("current_progress");
+            int phase = tag.getInt("phase");
+            boolean comp = tag.getBoolean("completed");
+
+            BlockPos anchor = null;
+            if (tag.contains("anchor_x") && tag.contains("anchor_y") && tag.contains("anchor_z")) {
+                anchor = new BlockPos(tag.getInt("anchor_x"), tag.getInt("anchor_y"), tag.getInt("anchor_z"));
+            }
+
+            List<UUID> entities = new ArrayList<>();
+            if (tag.contains("tracked_entities", Tag.TAG_LIST)) {
+                ListTag eList = tag.getList("tracked_entities", Tag.TAG_COMPOUND);
+                for (int i = 0; i < eList.size(); i++) {
+                    CompoundTag uTag = eList.getCompound(i);
+                    if (uTag.contains("uuid")) {
+                        entities.add(uTag.getUUID("uuid"));
+                    }
+                }
+            }
+
+            List<BlockPos> blocks = new ArrayList<>();
+            if (tag.contains("tracked_blocks", Tag.TAG_LIST)) {
+                ListTag bList = tag.getList("tracked_blocks", Tag.TAG_COMPOUND);
+                for (int i = 0; i < bList.size(); i++) {
+                    CompoundTag bTag = bList.getCompound(i);
+                    blocks.add(new BlockPos(bTag.getInt("x"), bTag.getInt("y"), bTag.getInt("z")));
+                }
+            }
+
+            return new ActiveSubRegionProgress(
+                    id, rx, rz, sx, sz, faction, role, dispName, objDesc,
+                    mType, oType, targetProg, currProg, anchor, phase, comp, entities, blocks
+            );
+        }
     }
 
     /**
@@ -136,6 +298,24 @@ public final class ActiveCampaignMissionManager {
     }
 
     /**
+     * Returns an unmodifiable view of all active campaigns for persistence.
+     */
+    public static Map<Long, Map<Integer, ActiveSubRegionProgress>> getAllActiveMissions() {
+        return Collections.unmodifiableMap(ACTIVE_CAMPAIGN_MISSIONS);
+    }
+
+    /**
+     * Rehydrates campaigns from persistent storage on world load.
+     */
+    public static void loadCampaigns(Map<Long, Map<Integer, ActiveSubRegionProgress>> loaded) {
+        ACTIVE_CAMPAIGN_MISSIONS.clear();
+        if (loaded != null) {
+            ACTIVE_CAMPAIGN_MISSIONS.putAll(loaded);
+        }
+        Warfront.LOGGER.info("Loaded {} active campaign region(s) from persistent storage.", ACTIVE_CAMPAIGN_MISSIONS.size());
+    }
+
+    /**
      * Initializes active server-side campaign missions when an attack is launched.
      */
     public static void startCampaign(
@@ -147,7 +327,13 @@ public final class ActiveCampaignMissionManager {
             int activeSubRegionsMask) {
 
         long regionKey = ChunkPos.asLong(regionX, regionZ);
-        SubRegionMission[] generatedMissions = MissionProfile.generateForRegion(regionX, regionZ, targetFaction, baseType, resistance, stability);
+        RegionData regions = (level != null) ? RegionData.get(level) : null;
+        long missionSeed = (regions != null) ? regions.calculateMissionSeed(regionX, regionZ) : 0L;
+        RegionData.Region reg = (regions != null) ? regions.regionAt(regionX, regionZ) : null;
+        BlockPos baseAnchor = (reg != null) ? reg.baseAnchor() : null;
+
+        SubRegionMission[] generatedMissions = MissionProfile.generateForRegion(
+                regionX, regionZ, targetFaction, baseType, resistance, stability, missionSeed, baseAnchor);
 
         Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.computeIfAbsent(regionKey, k -> new HashMap<>());
 
@@ -168,10 +354,16 @@ public final class ActiveCampaignMissionManager {
                         targetFaction,
                         gen.targetRoleName(),
                         gen.displayName(),
+                        gen.description(),
                         gen.type(),
-                        gen.killTarget()
+                        gen.objectiveType(),
+                        gen.targetCount()
                 ));
             }
+        }
+
+        if (regions != null) {
+            regions.setDirty();
         }
 
         Warfront.LOGGER.info("Active server campaign initialized for Region ({}, {}) with {} active subregion missions.",
@@ -187,6 +379,10 @@ public final class ActiveCampaignMissionManager {
         if (removed != null && level != null) {
             for (ActiveSubRegionProgress progress : removed.values()) {
                 KillCountMissionHandler.getInstance().onCleanup(level, regionX, regionZ, progress.subX(), progress.subZ(), progress);
+            }
+            RegionData regions = RegionData.get(level);
+            if (regions != null) {
+                regions.setDirty();
             }
         }
     }

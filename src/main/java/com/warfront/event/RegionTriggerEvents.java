@@ -72,8 +72,10 @@ public final class RegionTriggerEvents {
                         true,
                         rx, rz, sx, sz,
                         progress.displayName(),
-                        progress.currentKills(),
-                        progress.requiredKills(),
+                        progress.objectiveDescription(),
+                        progress.currentProgress(),
+                        progress.targetProgress(),
+                        progress.formatProgressDisplay(),
                         remainingTicks,
                         progress.targetFaction().id(),
                         isDefense
@@ -82,12 +84,7 @@ public final class RegionTriggerEvents {
             } else {
                 // If player was previously inside an active mission, hide the HUD
                 if (Boolean.TRUE.equals(PLAYER_IN_ACTIVE_MISSION.put(playerUUID, false))) {
-                    player.connection.send(new ActiveMissionHudPayload(
-                            false,
-                            0, 0, 0, 0,
-                            "",
-                            0, 0, 0L, 0, false
-                    ));
+                    player.connection.send(ActiveMissionHudPayload.empty());
                 }
             }
         }

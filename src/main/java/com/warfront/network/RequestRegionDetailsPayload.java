@@ -91,13 +91,17 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                 }
             }
 
+            long missionSeed = regions.calculateMissionSeed(region.x(), region.z());
+            net.minecraft.core.BlockPos baseAnchor = region.baseAnchor();
+
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
                     region.owner().id(), effectiveStability, effectiveResistance,
                     region.baseType().id(), (siege != null), true,
                     remainingTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask,
-                    attackerFactionId, isAwaitingReinf, reinfRemainingTicks, isEncircled));
+                    attackerFactionId, isAwaitingReinf, reinfRemainingTicks, isEncircled,
+                    baseAnchor, missionSeed));
         }
     }
 

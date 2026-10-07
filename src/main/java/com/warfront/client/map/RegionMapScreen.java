@@ -401,7 +401,8 @@ public final class RegionMapScreen extends Screen {
             state.getOrGenerateMissions(
                     selectedRegion.regionX(), selectedRegion.regionZ(),
                     enemyFaction, selectedRegion.baseType(),
-                    selectedRegion.resistance(), selectedRegion.stability());
+                    selectedRegion.resistance(), selectedRegion.stability(),
+                    selectedRegion.missionSeed(), selectedRegion.baseAnchor());
 
             for (int i = 0; i < 4; i++) {
                 if (subRegionMissionButtons[i] != null) {
@@ -461,7 +462,8 @@ public final class RegionMapScreen extends Screen {
             state.getOrGenerateMissions(
                     selectedRegion.regionX(), selectedRegion.regionZ(),
                     selectedRegion.owner(), selectedRegion.baseType(),
-                    selectedRegion.resistance(), selectedRegion.stability());
+                    selectedRegion.resistance(), selectedRegion.stability(),
+                    selectedRegion.missionSeed(), selectedRegion.baseAnchor());
 
             for (int i = 0; i < 4; i++) {
                 state.setSubRegionMissionToggled(i, false);
@@ -470,6 +472,7 @@ public final class RegionMapScreen extends Screen {
                 }
             }
             updateActionButtons();
+            renderer.markTextureDirty();
         }
     }
 
@@ -487,6 +490,7 @@ public final class RegionMapScreen extends Screen {
                 state.setSubRegionMissionToggled(i, false);
             }
             updateActionButtons();
+            renderer.markTextureDirty();
         }
     }
 
@@ -531,6 +535,7 @@ public final class RegionMapScreen extends Screen {
         }
 
         updateActionButtons();
+        renderer.markTextureDirty();
 
         PacketDistributor.sendToServer(new RequestRegionDetailsPayload(
                 selectedRegion.regionX(), selectedRegion.regionZ(),

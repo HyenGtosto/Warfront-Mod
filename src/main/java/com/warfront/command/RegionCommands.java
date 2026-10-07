@@ -16,6 +16,14 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.core.Vec3i;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.StructureBlockEntity;
+import net.minecraft.world.level.block.state.properties.StructureMode;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -53,7 +61,15 @@ public final class RegionCommands {
                                                         .executes(RegionCommands::placeBaseAtRegion))))
                                 .then(Commands.literal("clear")
                                         .requires(source -> source.hasPermission(2))
-                                        .executes(RegionCommands::clearBasePlacement))));
+                                        .executes(RegionCommands::clearBasePlacement))
+                                .then(Commands.literal("export")
+                                        .requires(source -> source.hasPermission(2))
+                                        .executes(ctx -> RegionCommands.exportBase(ctx, null))
+                                        .then(Commands.argument("name", StringArgumentType.string())
+                                                .executes(ctx -> RegionCommands.exportBase(ctx, StringArgumentType.getString(ctx, "name")))))
+                                .then(Commands.literal("structure-block")
+                                        .requires(source -> source.hasPermission(2))
+                                        .executes(RegionCommands::setupStructureBlock))));
     }
 
     private static int setOwner(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
@@ -178,6 +194,120 @@ public final class RegionCommands {
         regions.setBasePlaced(region.x(), region.z(), false);
         context.getSource().sendSuccess(
                 () -> Component.literal(String.format("§a[Warfront] Reset base placement state for region (%d, %d). You can now test placing it again.", region.x(), region.z())), true);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int exportBase(CommandContext<CommandSourceStack> context, String customName) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        RegionData regions = RegionData.get(level);
+        RegionData.Region region = regions.regionAt(player.blockPosition());
+
+        if (region.baseType() == BaseType.NONE) {
+            context.getSource().sendFailure(Component.literal("§cCurrent region has no base type assigned (NONE)."));
+            return 0;
+        }
+
+        BlockPos anchor = region.baseAnchor();
+        if (anchor == null) {
+            anchor = com.warfront.region.generator.ProceduralRegionGenerator.getInstance()
+                    .findPhysicalBaseAnchor(level, level.getSeed(), region.x(), region.z(), region.baseType())
+                    .orElse(null);
+        }
+        if (anchor == null) {
+            context.getSource().sendFailure(Component.literal("§cCould not resolve base anchor for current region."));
+            return 0;
+        }
+
+        com.warfront.region.base.BaseBuildingGenerator generator = com.warfront.region.base.BaseBuildingRegistry.getGenerator(region.owner(), region.baseType());
+        int sizeX = generator.getSizeX();
+        int sizeY = generator.getHeight();
+        int sizeZ = generator.getSizeZ();
+
+        int minX = anchor.getX() - (sizeX / 2);
+        int minY = anchor.getY();
+        int minZ = anchor.getZ() - (sizeZ / 2);
+        BlockPos origin = new BlockPos(minX, minY, minZ);
+
+        String path = (customName != null && !customName.isBlank())
+                ? customName
+                : (region.owner() == Faction.PILLAGER_CONQUERORS && region.baseType() == BaseType.OUTPOST)
+                        ? "base/outpost/pillager_outpost"
+                        : "base/" + region.baseType().name().toLowerCase() + "/" + region.owner().name().toLowerCase() + "_" + region.baseType().name().toLowerCase();
+
+        ResourceLocation id = ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, path);
+
+        StructureTemplateManager manager = level.getStructureManager();
+        StructureTemplate template = manager.getOrCreate(id);
+        template.fillFromWorld(level, origin, new Vec3i(sizeX, sizeY, sizeZ), true, Blocks.STRUCTURE_VOID);
+        template.setAuthor(player.getScoreboardName());
+        boolean saved = manager.save(id);
+
+        if (saved) {
+            context.getSource().sendSuccess(() -> Component.literal(String.format(
+                    "§a[Warfront] Successfully exported structure to template: §f%s§a!\n" +
+                    "§7Saved in world: §e<world>/generated/warfront/structures/%s.nbt\n" +
+                    "§6To bundle in mod: Copy file to §bsrc/main/resources/data/warfront/structure/%s.nbt",
+                    id, path, path
+            )), true);
+            return Command.SINGLE_SUCCESS;
+        } else {
+            context.getSource().sendFailure(Component.literal("§cFailed to save structure template to world directory."));
+            return 0;
+        }
+    }
+
+    private static int setupStructureBlock(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        ServerLevel level = player.serverLevel();
+        RegionData regions = RegionData.get(level);
+        RegionData.Region region = regions.regionAt(player.blockPosition());
+
+        if (region.baseType() == BaseType.NONE) {
+            context.getSource().sendFailure(Component.literal("§cCurrent region has no base type assigned (NONE)."));
+            return 0;
+        }
+
+        BlockPos anchor = region.baseAnchor();
+        if (anchor == null) {
+            anchor = com.warfront.region.generator.ProceduralRegionGenerator.getInstance()
+                    .findPhysicalBaseAnchor(level, level.getSeed(), region.x(), region.z(), region.baseType())
+                    .orElse(null);
+        }
+        if (anchor == null) {
+            context.getSource().sendFailure(Component.literal("§cCould not resolve base anchor for current region."));
+            return 0;
+        }
+
+        com.warfront.region.base.BaseBuildingGenerator generator = com.warfront.region.base.BaseBuildingRegistry.getGenerator(region.owner(), region.baseType());
+        int sizeX = generator.getSizeX();
+        int sizeY = generator.getHeight();
+        int sizeZ = generator.getSizeZ();
+
+        int minX = anchor.getX() - (sizeX / 2);
+        int minY = anchor.getY();
+        int minZ = anchor.getZ() - (sizeZ / 2);
+
+        // Place structure block just outside the corner
+        BlockPos sbPos = new BlockPos(minX - 1, minY, minZ - 1);
+        level.setBlock(sbPos, Blocks.STRUCTURE_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
+
+        if (level.getBlockEntity(sbPos) instanceof StructureBlockEntity sb) {
+            ResourceLocation id = ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "base/outpost/pillager_outpost");
+            sb.setStructureName(id);
+            sb.setStructurePos(new BlockPos(1, 0, 1));
+            sb.setStructureSize(new Vec3i(sizeX, sizeY, sizeZ));
+            sb.setMode(StructureMode.SAVE);
+            sb.setShowBoundingBox(true);
+            sb.setIgnoreEntities(false);
+            level.sendBlockUpdated(sbPos, level.getBlockState(sbPos), level.getBlockState(sbPos), 3);
+        }
+
+        context.getSource().sendSuccess(() -> Component.literal(String.format(
+                "§a[Warfront] Placed pre-configured Structure Block at §f%s§a!\n" +
+                "§7Right-click it to inspect bounding box (%dx%dx%d), edit blocks, and click [SAVE]!",
+                sbPos.toShortString(), sizeX, sizeY, sizeZ
+        )), true);
         return Command.SINGLE_SUCCESS;
     }
 }

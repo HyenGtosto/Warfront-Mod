@@ -47,8 +47,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class SubregionPatrolManager {
 
     public static final int SUBREGION_SIZE_BLOCKS = 64;
-    public static final int MAX_SQUADS_PER_SUBREGION = 3;
-    public static final long SPAWN_COOLDOWN_TICKS = 40L * 20L; // 40 seconds = 800 ticks
+    public static final int MAX_SQUADS_PER_SUBREGION = 1;
+    public static final long SPAWN_COOLDOWN_TICKS = 90L * 20L; // 90 seconds = 1800 ticks
     public static final double MIN_WAYPOINT_DIST = 48.0D;
     public static final int HOLD_GROUND_DURATION_TICKS = 15 * 20; // 15 seconds = 300 ticks
 
@@ -269,8 +269,8 @@ public final class SubregionPatrolManager {
 
             RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
             Faction owner = state.owner();
-            if (!owner.isAI()) {
-                continue; // Only AI hostile factions field patrol squads
+            if (!owner.isAI() || state.underSiege() || com.warfront.mission.ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
+                continue; // Skip non-hostile subregions, subregions under siege, or active campaign mission areas
             }
 
             long subKey = makeSubKey(rx, rz, sx, sz);

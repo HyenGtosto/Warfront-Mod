@@ -9,6 +9,10 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * Server-to-client payload synchronizing active subregion mission status and progress
+ * to the player's HUD overlay.
+ */
 public record ActiveMissionHudPayload(
         boolean hasActiveMission,
         int regionX,
@@ -16,8 +20,10 @@ public record ActiveMissionHudPayload(
         int subX,
         int subZ,
         String missionName,
-        int currentKills,
-        int requiredKills,
+        String objectiveDescription,
+        int currentProgress,
+        int targetProgress,
+        String progressDisplayString,
         long remainingTicks,
         int factionId,
         boolean isDefense
@@ -36,8 +42,10 @@ public record ActiveMissionHudPayload(
                     ByteBufCodecs.VAR_INT.decode(buf),
                     ByteBufCodecs.VAR_INT.decode(buf),
                     ByteBufCodecs.STRING_UTF8.decode(buf),
+                    ByteBufCodecs.STRING_UTF8.decode(buf),
                     ByteBufCodecs.VAR_INT.decode(buf),
                     ByteBufCodecs.VAR_INT.decode(buf),
+                    ByteBufCodecs.STRING_UTF8.decode(buf),
                     ByteBufCodecs.VAR_LONG.decode(buf),
                     ByteBufCodecs.VAR_INT.decode(buf),
                     ByteBufCodecs.BOOL.decode(buf)
@@ -51,14 +59,39 @@ public record ActiveMissionHudPayload(
             ByteBufCodecs.VAR_INT.encode(buf, payload.regionZ());
             ByteBufCodecs.VAR_INT.encode(buf, payload.subX());
             ByteBufCodecs.VAR_INT.encode(buf, payload.subZ());
-            ByteBufCodecs.STRING_UTF8.encode(buf, payload.missionName());
-            ByteBufCodecs.VAR_INT.encode(buf, payload.currentKills());
-            ByteBufCodecs.VAR_INT.encode(buf, payload.requiredKills());
+            ByteBufCodecs.STRING_UTF8.encode(buf, payload.missionName() != null ? payload.missionName() : "");
+            ByteBufCodecs.STRING_UTF8.encode(buf, payload.objectiveDescription() != null ? payload.objectiveDescription() : "");
+            ByteBufCodecs.VAR_INT.encode(buf, payload.currentProgress());
+            ByteBufCodecs.VAR_INT.encode(buf, payload.targetProgress());
+            ByteBufCodecs.STRING_UTF8.encode(buf, payload.progressDisplayString() != null ? payload.progressDisplayString() : "");
             ByteBufCodecs.VAR_LONG.encode(buf, payload.remainingTicks());
             ByteBufCodecs.VAR_INT.encode(buf, payload.factionId());
             ByteBufCodecs.BOOL.encode(buf, payload.isDefense());
         }
     };
+
+    /**
+     * Backward-compatibility helper for kill count queries.
+     */
+    public int currentKills() {
+        return currentProgress;
+    }
+
+    /**
+     * Backward-compatibility helper for required kill count queries.
+     */
+    public int requiredKills() {
+        return targetProgress;
+    }
+
+    /**
+     * Factory for an empty inactive HUD payload.
+     */
+    public static ActiveMissionHudPayload empty() {
+        return new ActiveMissionHudPayload(
+                false, 0, 0, 0, 0, "", "", 0, 0, "", 0L, 0, false
+        );
+    }
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

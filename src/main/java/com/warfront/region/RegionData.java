@@ -178,6 +178,8 @@ public final class RegionData extends SavedData {
         for (int index = 0; index < reinfTag.size(); index++) {
             CompoundTag rTag = reinfTag.getCompound(index);
             long regId = rTag.getLong("region_id");
+            long salt = rTag.contains("salt", Tag.TAG_LONG) ? rTag.getLong("salt") :
+                    ((rTag.getLong("start_tick") * 31L) ^ ((long) rTag.getInt("rx") * 10007L) ^ ((long) rTag.getInt("rz") * 20011L) ^ 0xFEEDFACECAFEL);
             data.activeReinforcements.put(regId, new ReinforcementState(
                     rTag.getInt("rx"),
                     rTag.getInt("rz"),
@@ -185,7 +187,8 @@ public final class RegionData extends SavedData {
                     rTag.getFloat("orig_stab"),
                     rTag.getFloat("orig_res"),
                     rTag.getLong("start_tick"),
-                    rTag.getLong("duration_ticks")
+                    rTag.getLong("duration_ticks"),
+                    salt
             ));
         }
 
@@ -205,6 +208,29 @@ public final class RegionData extends SavedData {
         for (int index = 0; index < retTag.size(); index++) {
             CompoundTag rTag = retTag.getCompound(index);
             data.zombieRetaliationWeights.put(rTag.getLong("region_id"), rTag.getInt("weight"));
+        }
+
+        if (tag.contains("active_campaign_missions", Tag.TAG_LIST)) {
+            ListTag activeMissionsTag = tag.getList("active_campaign_missions", Tag.TAG_COMPOUND);
+            Map<Long, Map<Integer, com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress>> loadedMap = new HashMap<>();
+            for (int i = 0; i < activeMissionsTag.size(); i++) {
+                CompoundTag regTag = activeMissionsTag.getCompound(i);
+                long regKey = regTag.getLong("region_key");
+                ListTag subList = regTag.getList("sub_missions", Tag.TAG_COMPOUND);
+                Map<Integer, com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress> subMap = new HashMap<>();
+                for (int j = 0; j < subList.size(); j++) {
+                    com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress p =
+                            com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress.fromCompoundTag(subList.getCompound(j));
+                    if (p != null) {
+                        int bit = p.subZ() * 2 + p.subX();
+                        subMap.put(bit, p);
+                    }
+                }
+                if (!subMap.isEmpty()) {
+                    loadedMap.put(regKey, subMap);
+                }
+            }
+            com.warfront.mission.ActiveCampaignMissionManager.loadCampaigns(loadedMap);
         }
 
         data.migrateLegacyClusterIds();
@@ -294,6 +320,7 @@ public final class RegionData extends SavedData {
             rTag.putFloat("orig_res", rs.originalResistance());
             rTag.putLong("start_tick", rs.startTick());
             rTag.putLong("duration_ticks", rs.durationTicks());
+            rTag.putLong("salt", rs.salt());
             reinfTag.add(rTag);
         }
         tag.put("reinforcements", reinfTag);
@@ -318,6 +345,20 @@ public final class RegionData extends SavedData {
             retTag.add(rTag);
         }
         tag.put("zombie_retaliation", retTag);
+
+        ListTag activeMissionsTag = new ListTag();
+        for (Map.Entry<Long, Map<Integer, com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress>> regEntry :
+                com.warfront.mission.ActiveCampaignMissionManager.getAllActiveMissions().entrySet()) {
+            CompoundTag regTag = new CompoundTag();
+            regTag.putLong("region_key", regEntry.getKey());
+            ListTag subList = new ListTag();
+            for (com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress progress : regEntry.getValue().values()) {
+                subList.add(progress.toCompoundTag());
+            }
+            regTag.put("sub_missions", subList);
+            activeMissionsTag.add(regTag);
+        }
+        tag.put("active_campaign_missions", activeMissionsTag);
 
         return tag;
     }
@@ -882,8 +923,10 @@ public final class RegionData extends SavedData {
                 }
             }
 
-            if (securedCount >= dominoThreshold) {
-                // Defense threshold reached -> DEFENSE SUCCESSFUL! Clear siege campaign completely!
+            boolean allMandatorySecured = areAllMandatoryBaseMissionsSecured(regionX, regionZ, targetRegion);
+
+            if (securedCount >= dominoThreshold && allMandatorySecured) {
+                // Defense threshold reached and all base points secured -> DEFENSE SUCCESSFUL!
                 setRegionSiege(regionX, regionZ, false);
                 activeSieges.remove(regionKey);
                 addLog(level, String.format("§aDefense successful: Region (%d, %d), siege cleared.", regionX, regionZ));
@@ -904,8 +947,11 @@ public final class RegionData extends SavedData {
                 }
             }
 
-            if (matchingCount >= dominoThreshold) {
-                // Threshold reached -> auto-collapse region to faction & FULL REGION CAPTURE!
+            boolean allMandatoryCompleted = areAllMandatoryBaseMissionsCompleted(regionX, regionZ, faction);
+            int activeRemainingMask = com.warfront.mission.ActiveCampaignMissionManager.getActiveSubRegionsMask(regionX, regionZ);
+
+            if (activeRemainingMask == 0 && matchingCount >= dominoThreshold && allMandatoryCompleted) {
+                // All active campaign missions completed AND threshold reached AND mandatory base missions completed -> FULL REGION CAPTURE!
                 long clusterId = 0L;
                 SiegeCampaign campaign = activeSieges.get(regionKey);
                 if (campaign != null && campaign.attackerClusterId() != 0L) {
@@ -933,6 +979,22 @@ public final class RegionData extends SavedData {
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
+            } else if (activeRemainingMask == 0 && activeCampaign != null && activeCampaign.attacker() == Faction.HUMANITY) {
+                // Player's launched sortie is complete, but region is not yet fully captured
+                activeSieges.remove(regionKey);
+                com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, regionX, regionZ);
+                if (matchingCount >= dominoThreshold && !allMandatoryCompleted) {
+                    Warfront.LOGGER.info("Sortie completed for Region ({}, {}): Mandatory base missions must be completed before region falls.", regionX, regionZ);
+                    addLog(level, String.format("§eSortie completed: Region (%d, %d) base strongholds must be neutralized to conquer the region.", regionX, regionZ));
+                } else {
+                    addLog(level, String.format("§aSortie completed: Region (%d, %d). %d/%d sectors secured.", regionX, regionZ, matchingCount, dominoThreshold));
+                }
+                if (level != null) {
+                    com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+                }
+            } else if (matchingCount >= dominoThreshold && !allMandatoryCompleted) {
+                Warfront.LOGGER.info("Domino collapse held for Region ({}, {}): Mandatory base missions must be completed first.", regionX, regionZ);
+                addLog(level, String.format("§eDomino collapse pending: Region (%d, %d) base strongholds must be neutralized first.", regionX, regionZ));
             }
         }
 
@@ -1061,8 +1123,88 @@ public final class RegionData extends SavedData {
 
     public void startReinforcement(int regionX, int regionZ, Faction owner, float origStab, float origRes, long durationTicks, long startTick) {
         long key = ChunkPos.asLong(regionX, regionZ);
-        activeReinforcements.put(key, new ReinforcementState(regionX, regionZ, owner, origStab, origRes, startTick, durationTicks));
+        long salt = (startTick * 31L) ^ ((long) regionX * 10007L) ^ ((long) regionZ * 20011L) ^ 0xFEEDFACECAFEL;
+        activeReinforcements.put(key, new ReinforcementState(regionX, regionZ, owner, origStab, origRes, startTick, durationTicks, salt));
         setDirty();
+    }
+
+    /**
+     * Calculates the deterministic mission seed for a region, factoring in world seed,
+     * regional coordinates, and an active reinforcement salt if in a post-war reinforcement state.
+     */
+    public long calculateMissionSeed(int regionX, int regionZ) {
+        long seed = (level != null) ? level.getSeed() : worldSeed;
+        long salt = 0L;
+        ReinforcementState reinf = activeReinforcements.get(ChunkPos.asLong(regionX, regionZ));
+        if (reinf != null) {
+            salt = reinf.salt();
+        }
+        return seed ^ ((long) regionX * 73856093L) ^ ((long) regionZ * 19349663L) ^ salt;
+    }
+
+    /**
+     * Retrieves the subregion mask of mandatory base missions that must be completed
+     * before domino collapse can trigger.
+     */
+    public int getMandatoryBaseSubRegionsMask(int regionX, int regionZ, BaseType baseType, BlockPos baseAnchor) {
+        return com.warfront.mission.MissionProfile.getOccupiedBaseSubRegionsMask(regionX, regionZ, baseType, baseAnchor);
+    }
+
+    /**
+     * Checks if all mandatory base missions for the region have been captured by the specified faction.
+     */
+    public boolean areAllMandatoryBaseMissionsCompleted(int regionX, int regionZ, Faction faction) {
+        Region targetRegion = regionAt(regionX, regionZ);
+        if (targetRegion.baseType() == BaseType.NONE) {
+            return true;
+        }
+        BlockPos anchor = targetRegion.baseAnchor();
+        if (anchor == null) {
+            return true;
+        }
+        int mandatoryMask = getMandatoryBaseSubRegionsMask(regionX, regionZ, targetRegion.baseType(), anchor);
+        if (mandatoryMask == 0) {
+            return true;
+        }
+        for (int sx = 0; sx <= 1; sx++) {
+            for (int sz = 0; sz <= 1; sz++) {
+                int bit = sz * 2 + sx;
+                if ((mandatoryMask & (1 << bit)) != 0) {
+                    if (subRegionAt(regionX, regionZ, sx, sz).owner() != faction) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Checks if all mandatory base missions for the region are secured (not under siege) for defense resolution.
+     */
+    public boolean areAllMandatoryBaseMissionsSecured(int regionX, int regionZ, Region targetRegion) {
+        if (targetRegion.baseType() == BaseType.NONE) {
+            return true;
+        }
+        BlockPos anchor = targetRegion.baseAnchor();
+        if (anchor == null) {
+            return true;
+        }
+        int mandatoryMask = getMandatoryBaseSubRegionsMask(regionX, regionZ, targetRegion.baseType(), anchor);
+        if (mandatoryMask == 0) {
+            return true;
+        }
+        for (int sx = 0; sx <= 1; sx++) {
+            for (int sz = 0; sz <= 1; sz++) {
+                int bit = sz * 2 + sx;
+                if ((mandatoryMask & (1 << bit)) != 0) {
+                    if (subRegionAt(regionX, regionZ, sx, sz).underSiege()) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     public void cancelReinforcement(int regionX, int regionZ) {
@@ -1335,7 +1477,19 @@ public final class RegionData extends SavedData {
             float originalStability,
             float originalResistance,
             long startTick,
-            long durationTicks
+            long durationTicks,
+            long salt
     ) {
+        public ReinforcementState(
+                int regionX, int regionZ,
+                Faction owner,
+                float originalStability,
+                float originalResistance,
+                long startTick,
+                long durationTicks
+        ) {
+            this(regionX, regionZ, owner, originalStability, originalResistance, startTick, durationTicks,
+                    (startTick * 31L) ^ ((long) regionX * 10007L) ^ ((long) regionZ * 20011L) ^ 0xFEEDFACECAFEL);
+        }
     }
 }

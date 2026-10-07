@@ -1,5 +1,7 @@
 package com.warfront.client.map;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.warfront.network.RegionMapPayload;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
@@ -14,11 +16,13 @@ import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.level.ChunkPos;
+import org.joml.Matrix4f;
 
 public final class RegionMapRenderer {
     private static final int HEADER_HEIGHT = 24;
@@ -29,6 +33,8 @@ public final class RegionMapRenderer {
     private static ResourceLocation base2Loc;
     private static ResourceLocation base3Loc;
     private static ResourceLocation missionLogoLoc;
+    private static ResourceLocation warAttackLoc;
+    private static ResourceLocation warDefenseLoc;
 
     private static ResourceLocation getBaseTexture(BaseType baseType) {
         ensureBaseTexturesLoaded();
@@ -47,6 +53,8 @@ public final class RegionMapRenderer {
         base2Loc = loadTexture("pillager_base2");
         base3Loc = loadTexture("pillager_base3");
         missionLogoLoc = loadTexture("mission_logo");
+        warAttackLoc = loadTexture("war_attack");
+        warDefenseLoc = loadTexture("war_defense");
     }
 
     private static ResourceLocation loadTexture(String name) {
@@ -83,9 +91,10 @@ public final class RegionMapRenderer {
         graphics.enableScissor(viewport.mapLeft(), viewport.mapTop(),
                 viewport.mapLeft() + viewport.mapSize(), viewport.mapTop() + viewport.mapSize());
         renderChunks(graphics, viewport, state, camera);
-        renderFrontlineBorders(graphics, viewport);
+        renderFrontlineBorders(graphics, viewport, state, camera);
         renderSiegeArrows(graphics, viewport, state, camera);
         renderRegionMarkers(graphics, viewport, state, camera);
+        renderWarStatusIcons(graphics, viewport, state, camera);
         renderHoveredRegion(graphics, viewport, camera, mouseX, mouseY);
         renderSelectedRegionHighlight(graphics, viewport, state, camera);
         renderSelectedSubRegionFilter(graphics, viewport, state, camera);
@@ -94,6 +103,23 @@ public final class RegionMapRenderer {
         graphics.disableScissor();
 
         renderSelectedRegionInfo(graphics, font, viewport, state);
+    }
+
+    private boolean isChunkSieged(RegionMapPayload.ChunkData chunk, int chunkX, int chunkZ, RegionMapState state) {
+        if (chunk == null) return false;
+        if (chunk.underSiege()) return true;
+        if (state.getSelectedRegion() != null) {
+            SelectedRegion sel = state.getSelectedRegion();
+            int rx = Math.floorDiv(chunkX, 8);
+            int rz = Math.floorDiv(chunkZ, 8);
+            if (sel.regionX() == rx && sel.regionZ() == rz) {
+                int subX = Math.floorMod(chunkX, 8) >= 4 ? 1 : 0;
+                int subZ = Math.floorMod(chunkZ, 8) >= 4 ? 1 : 0;
+                int bit = subZ * 2 + subX;
+                return state.isSubRegionConfirmed(rx, rz, bit) && (sel.conqueredMask() & (1 << bit)) == 0;
+            }
+        }
+        return false;
     }
 
     private void updateDynamicTexture(RegionMapState state) {
@@ -121,7 +147,7 @@ public final class RegionMapRenderer {
                         int bg = (rawColor >> 8) & 0xFF;
                         int bb = rawColor & 0xFF;
 
-                        boolean isSiege = chunk.underSiege();
+                        boolean isSiege = isChunkSieged(chunk, chunkX, chunkZ, state);
 
                         if (chunk.factionId() != Faction.UNCLAIMED.id()) {
                             Faction faction = Faction.byId(chunk.factionId());
@@ -173,10 +199,10 @@ public final class RegionMapRenderer {
                             RegionMapPayload.ChunkData west = state.getChunks().get(ChunkPos.asLong(chunkX - 1, chunkZ));
                             RegionMapPayload.ChunkData east = state.getChunks().get(ChunkPos.asLong(chunkX + 1, chunkZ));
 
-                            boolean isSiegeBorder = (north == null || !north.underSiege())
-                                    || (south == null || !south.underSiege())
-                                    || (west == null || !west.underSiege())
-                                    || (east == null || !east.underSiege());
+                            boolean isSiegeBorder = !isChunkSieged(north, chunkX, chunkZ - 1, state)
+                                    || !isChunkSieged(south, chunkX, chunkZ + 1, state)
+                                    || !isChunkSieged(west, chunkX - 1, chunkZ, state)
+                                    || !isChunkSieged(east, chunkX + 1, chunkZ, state);
 
                             if (isSiegeBorder) {
                                 br = (br + 255 * 2) / 3;
@@ -229,64 +255,151 @@ public final class RegionMapRenderer {
                 diameter, diameter);
     }
 
-    private void renderFrontlineBorders(GuiGraphics graphics, MapViewport viewport) {
-    }
-
-    private void renderRegionMarkers(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
-        Map<Long, RegionMapPayload.RegionMarkerData> markerMap = new HashMap<>();
-        for (RegionMapPayload.RegionMarkerData marker : state.getMarkers()) {
-            markerMap.put(ChunkPos.asLong(marker.regionX(), marker.regionZ()), marker);
+    private void renderFrontlineBorders(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
+        Set<Long> warRegions = new HashSet<>();
+        for (RegionMapPayload.ActiveWarData war : state.getActiveWars()) {
+            warRegions.add(ChunkPos.asLong(war.regionX(), war.regionZ()));
+        }
+        warRegions.addAll(state.getActivatedRegions());
+        if (state.getSelectedRegion() != null && state.getSelectedRegion().underSiege()) {
+            warRegions.add(ChunkPos.asLong(state.getSelectedRegion().regionX(), state.getSelectedRegion().regionZ()));
         }
 
-        Set<Long> processedRegions = new HashSet<>();
+        if (warRegions.isEmpty()) return;
 
-        // 1. Render explicit base markers (Outpost, HQ, Mega Base)
-        for (RegionMapPayload.RegionMarkerData marker : state.getMarkers()) {
-            long regKey = ChunkPos.asLong(marker.regionX(), marker.regionZ());
-            processedRegions.add(regKey);
+        long timeMs = System.currentTimeMillis();
+        float pulse = (float) (Math.sin(timeMs / 200.0D) * 0.5D + 0.5D);
+        int alpha = (int) (120 + pulse * 135);
+        int borderColor = (alpha << 24) | 0xFF2222;
+        int glowColor = ((alpha / 3) << 24) | 0xFF3333;
 
-            int regionX = marker.regionX();
-            int regionZ = marker.regionZ();
+        for (long regKey : warRegions) {
+            int rx = ChunkPos.getX(regKey);
+            int rz = ChunkPos.getZ(regKey);
 
-            if (!isRegionVisible(state, regionX, regionZ)) {
+            int minCX = rx * 8;
+            int minCZ = rz * 8;
+
+            int x0 = (int) Math.round(viewport.mapLeft() + (minCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+            int y0 = (int) Math.round(viewport.mapTop() + (minCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
+            int x1 = (int) Math.round(viewport.mapLeft() + (minCX + 8 - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+            int y1 = (int) Math.round(viewport.mapTop() + (minCZ + 8 - camera.topChunk(viewport)) * camera.getChunkTileSize());
+
+            // 1. Strict frustum culling FIRST before any lookups
+            if (x1 < viewport.mapLeft() || x0 > viewport.mapLeft() + viewport.mapSize()
+                    || y1 < viewport.mapTop() || y0 > viewport.mapTop() + viewport.mapSize()) {
                 continue;
             }
 
-            BaseType baseType = BaseType.byId(marker.baseTypeId());
-            renderBaseIcon(graphics, viewport, camera, regionX, regionZ, baseType);
-        }
-
-        // 2. Render flag texture (NOBASE) for claimed regions without a base structure
-        for (RegionMapPayload.ChunkData chunk : state.getChunks().values()) {
-            if (chunk.factionId() != Faction.UNCLAIMED.id() && chunk.isVisited()) {
-                int regionX = Math.floorDiv(chunk.chunkX(), 8);
-                int regionZ = Math.floorDiv(chunk.chunkZ(), 8);
-                long regKey = ChunkPos.asLong(regionX, regionZ);
-                if (!processedRegions.contains(regKey)) {
-                    processedRegions.add(regKey);
-                    if (isRegionVisible(state, regionX, regionZ)) {
-                        renderBaseIcon(graphics, viewport, camera, regionX, regionZ, BaseType.NONE);
-                    }
-                }
+            // 2. Fast O(1) fog-of-war check
+            if (!state.isRegionVisible(rx, rz)) {
+                continue;
             }
+
+            // 1px subtle glow
+            graphics.fill(x0 - 1, y0 - 1, x1 + 1, y0, glowColor);
+            graphics.fill(x0 - 1, y1, x1 + 1, y1 + 1, glowColor);
+            graphics.fill(x0 - 1, y0, x0, y1, glowColor);
+            graphics.fill(x1, y0, x1 + 1, y1, glowColor);
+
+            // 2px pulsating combat border
+            graphics.fill(x0, y0, x1, y0 + 2, borderColor);
+            graphics.fill(x0, y1 - 2, x1, y1, borderColor);
+            graphics.fill(x0, y0, x0 + 2, y1, borderColor);
+            graphics.fill(x1 - 2, y0, x1, y1, borderColor);
         }
     }
 
-    private boolean isRegionVisible(RegionMapState state, int regionX, int regionZ) {
-        if (state.isDebugMap()) {
-            return true;
+    private void renderWarStatusIcons(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
+        ensureBaseTexturesLoaded();
+        if (warAttackLoc == null || warDefenseLoc == null) return;
+
+        Set<Long> warRegions = new HashSet<>();
+        for (RegionMapPayload.ActiveWarData war : state.getActiveWars()) {
+            warRegions.add(ChunkPos.asLong(war.regionX(), war.regionZ()));
         }
-        int minCX = regionX * 8;
-        int minCZ = regionZ * 8;
-        for (int cx = 0; cx < 8; cx++) {
-            for (int cz = 0; cz < 8; cz++) {
-                RegionMapPayload.ChunkData c = state.getChunks().get(ChunkPos.asLong(minCX + cx, minCZ + cz));
-                if (c != null && c.isVisited()) {
-                    return true;
+        warRegions.addAll(state.getActivatedRegions());
+        if (state.getSelectedRegion() != null && state.getSelectedRegion().underSiege()) {
+            warRegions.add(ChunkPos.asLong(state.getSelectedRegion().regionX(), state.getSelectedRegion().regionZ()));
+        }
+
+        if (warRegions.isEmpty()) return;
+
+        SelectedRegion sel = state.getSelectedRegion();
+
+        for (long regKey : warRegions) {
+            int rx = ChunkPos.getX(regKey);
+            int rz = ChunkPos.getZ(regKey);
+
+            double centerCX = rx * 8 + 4.0D;
+            double centerCZ = rz * 8 + 4.0D;
+            double iconChunks = 3.5D;
+            double startCX = centerCX - (iconChunks / 2.0D);
+            double startCZ = centerCZ - (iconChunks / 2.0D);
+
+            int drawX = (int) Math.round(viewport.mapLeft() + (startCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+            int drawY = (int) Math.round(viewport.mapTop() + (startCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
+            int drawW = (int) Math.round(iconChunks * camera.getChunkTileSize());
+            int drawH = (int) Math.round(iconChunks * camera.getChunkTileSize());
+
+            // 1. Strict frustum culling FIRST
+            if (drawX + drawW < viewport.mapLeft() || drawX > viewport.mapLeft() + viewport.mapSize()
+                    || drawY + drawH < viewport.mapTop() || drawY > viewport.mapTop() + viewport.mapSize()) {
+                continue;
+            }
+
+            // 2. Fast O(1) fog-of-war check
+            if (!state.isRegionVisible(rx, rz)) {
+                continue;
+            }
+
+            // Disappear when inspecting and selecting missions on this region; appear when no longer selected
+            boolean isSelected = (sel != null && sel.regionX() == rx && sel.regionZ() == rz);
+            if (isSelected) {
+                boolean isDefense = (sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED)
+                        || (sel.owner() == Faction.HUMANITY && sel.underSiege());
+                boolean isActivated = isDefense || state.getActivatedRegions().contains(regKey) || sel.underSiege();
+                if (isActivated) {
+                    continue;
+                }
+            }
+
+            RegionMapPayload.ActiveWarData activeWar = state.getActiveWar(rx, rz);
+            boolean isDefense = false;
+            if (activeWar != null) {
+                isDefense = activeWar.isDefense();
+            } else if (isSelected) {
+                isDefense = (sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED)
+                        || (sel.owner() == Faction.HUMANITY && sel.underSiege());
+            }
+
+            ResourceLocation texture = isDefense ? warDefenseLoc : warAttackLoc;
+            graphics.blit(texture, drawX, drawY, drawW, drawH, 0.0F, 0.0F, 1, 1, 1, 1);
+        }
+    }
+
+    private void renderRegionMarkers(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
+        double tileSize = camera.getChunkTileSize();
+        double visibleChunks = viewport.mapSize() / tileSize;
+        double leftChunk = camera.leftChunk(viewport);
+        double topChunk = camera.topChunk(viewport);
+
+        int minRX = (int) Math.floor(leftChunk / 8.0D);
+        int maxRX = (int) Math.ceil((leftChunk + visibleChunks) / 8.0D);
+        int minRZ = (int) Math.floor(topChunk / 8.0D);
+        int maxRZ = (int) Math.ceil((topChunk + visibleChunks) / 8.0D);
+
+        for (int rx = minRX; rx <= maxRX; rx++) {
+            for (int rz = minRZ; rz <= maxRZ; rz++) {
+                if (!state.isRegionVisible(rx, rz)) {
+                    continue;
+                }
+                BaseType baseType = state.getRegionBase(rx, rz);
+                if (baseType != null) {
+                    renderBaseIcon(graphics, viewport, camera, rx, rz, baseType);
                 }
             }
         }
-        return false;
     }
 
     private void renderBaseIcon(GuiGraphics graphics, MapViewport viewport, RegionMapCamera camera, int regionX, int regionZ, BaseType baseType) {
@@ -319,84 +432,55 @@ public final class RegionMapRenderer {
         graphics.blit(texture, drawX, drawY, drawW, drawH, 0.0F, 0.0F, 1, 1, 1, 1);
     }
 
-    private void drawThickLine(GuiGraphics graphics, int x0, int y0, int x1, int y1, int color) {
-        int dx = Math.abs(x1 - x0);
-        int dy = Math.abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1;
-        int sy = y0 < y1 ? 1 : -1;
-        int err = dx - dy;
-
-        int x = x0;
-        int y = y0;
-
-        while (true) {
-            graphics.fill(x - 1, y - 1, x + 2, y + 2, color);
-            if (x == x1 && y == y1) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) {
-                err -= dy;
-                x += sx;
-            }
-            if (e2 < dx) {
-                err += dx;
-                y += sy;
-            }
-        }
+    private static void drawQuad(VertexConsumer vc, Matrix4f mat,
+            float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, int color) {
+        vc.addVertex(mat, x1, y1, 0.0f).setColor(color);
+        vc.addVertex(mat, x2, y2, 0.0f).setColor(color);
+        vc.addVertex(mat, x3, y3, 0.0f).setColor(color);
+        vc.addVertex(mat, x4, y4, 0.0f).setColor(color);
     }
 
-    private void fillTriangle(GuiGraphics graphics, int x0, int y0, int x1, int y1, int x2, int y2, int color) {
-        int minX = Math.min(x0, Math.min(x1, x2));
-        int maxX = Math.max(x0, Math.max(x1, x2));
-        int minY = Math.min(y0, Math.min(y1, y2));
-        int maxY = Math.max(y0, Math.max(y1, y2));
-
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = minX; x <= maxX; x++) {
-                if (isPointInTriangle(x, y, x0, y0, x1, y1, x2, y2)) {
-                    graphics.fill(x, y, x + 1, y + 1, color);
-                }
-            }
-        }
-    }
-
-    private boolean isPointInTriangle(int px, int py, int x0, int y0, int x1, int y1, int x2, int y2) {
-        int d1 = (px - x1) * (y0 - y1) - (x0 - x1) * (py - y1);
-        int d2 = (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2);
-        int d3 = (px - x0) * (y2 - y0) - (x2 - x0) * (py - y0);
-
-        boolean hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-        boolean hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-
-        return !(hasNeg && hasPos);
-    }
-
-    private void drawSingleLine(GuiGraphics graphics, int x0, int y0, int x1, int y1, int color) {
-        int dx = Math.abs(x1 - x0);
-        int dy = Math.abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1;
-        int sy = y0 < y1 ? 1 : -1;
-        int err = dx - dy;
-
-        int x = x0;
-        int y = y0;
-
-        while (true) {
-            graphics.fill(x, y, x + 1, y + 1, color);
-            if (x == x1 && y == y1) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) {
-                err -= dy;
-                x += sx;
-            }
-            if (e2 < dx) {
-                err += dx;
-                y += sy;
-            }
-        }
+    private static void drawThickLineQuad(VertexConsumer vc, Matrix4f mat,
+            float x0, float y0, float x1, float y1, float thickness, int color) {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float len = (float) Math.hypot(dx, dy);
+        if (len < 0.001f) return;
+        float nx = -dy / len;
+        float ny = dx / len;
+        float h = thickness * 0.5f;
+        drawQuad(vc, mat,
+                x0 + nx * h, y0 + ny * h,
+                x1 + nx * h, y1 + ny * h,
+                x1 - nx * h, y1 - ny * h,
+                x0 - nx * h, y0 - ny * h,
+                color);
     }
 
     private void renderSiegeArrows(GuiGraphics graphics, MapViewport viewport, RegionMapState state, RegionMapCamera camera) {
-        for (RegionMapPayload.SiegeArrowData arrow : state.getSiegeArrows()) {
+        List<RegionMapPayload.SiegeArrowData> arrows = state.getSiegeArrows();
+        if (arrows.isEmpty()) return;
+
+        double tileSize = camera.getChunkTileSize();
+        double leftChunk = camera.leftChunk(viewport);
+        double topChunk = camera.topChunk(viewport);
+        int mapLeft = viewport.mapLeft();
+        int mapTop = viewport.mapTop();
+        int mapSize = viewport.mapSize();
+
+        int vMinX = mapLeft;
+        int vMaxX = mapLeft + mapSize;
+        int vMinY = mapTop;
+        int vMaxY = mapTop + mapSize;
+
+        Matrix4f matrix = graphics.pose().last().pose();
+        VertexConsumer vc = graphics.bufferSource().getBuffer(RenderType.gui());
+
+        int lineColor = 0xFFFF2222;
+        int redFill = 0xFFFF2222;
+        int redBorder = 0xFFFF0000;
+
+        for (RegionMapPayload.SiegeArrowData arrow : arrows) {
             double srcCenterCX = arrow.sourceRegionX() * 8 + 4;
             double srcCenterCZ = arrow.sourceRegionZ() * 8 + 4;
             double tgtCenterCX = arrow.targetRegionX() * 8 + 4;
@@ -411,41 +495,68 @@ public final class RegionMapRenderer {
             double endCX = srcCenterCX + dcx * 0.75D;
             double endCZ = srcCenterCZ + dcz * 0.75D;
 
-            int x0 = (int) Math.round(viewport.mapLeft() + (startCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
-            int y0 = (int) Math.round(viewport.mapTop() + (startCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
-            int x1 = (int) Math.round(viewport.mapLeft() + (endCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
-            int y1 = (int) Math.round(viewport.mapTop() + (endCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
+            float x0 = (float) (mapLeft + (startCX - leftChunk) * tileSize);
+            float y0 = (float) (mapTop + (startCZ - topChunk) * tileSize);
+            float x1 = (float) (mapLeft + (endCX - leftChunk) * tileSize);
+            float y1 = (float) (mapTop + (endCZ - topChunk) * tileSize);
 
-            int lineColor = 0xFFFF2222;
-            drawThickLine(graphics, x0, y0, x1, y1, lineColor);
+            // Strict viewport frustum culling: skip immediately if arrow bounding box is off-screen
+            float minX = Math.min(x0, x1) - 32.0f;
+            float maxX = Math.max(x0, x1) + 32.0f;
+            float minY = Math.min(y0, y1) - 32.0f;
+            float maxY = Math.max(y0, y1) + 32.0f;
 
-            double vx = x1 - x0;
-            double vy = y1 - y0;
-            double len = Math.hypot(vx, vy);
+            if (maxX < vMinX || minX > vMaxX || maxY < vMinY || minY > vMaxY) {
+                continue;
+            }
 
-            if (len > 0.001D) {
-                double ux = vx / len;
-                double uy = vy / len;
-                double nx = -uy;
-                double ny = ux;
+            float vx = x1 - x0;
+            float vy = y1 - y0;
+            float len = (float) Math.hypot(vx, vy);
 
-                // Scale arrowhead size proportionally with camera zoom like bases
-                double arrowHeadLen = Math.max(8.0D, 2.0D * camera.getChunkTileSize());
-                double arrowHeadWidth = Math.max(5.0D, 1.2D * camera.getChunkTileSize());
+            if (len > 0.001f) {
+                float ux = vx / len;
+                float uy = vy / len;
+                float nx = -uy;
+                float ny = ux;
 
-                int tipX = x1;
-                int tipY = y1;
-                int leftX = (int) Math.round(x1 - ux * arrowHeadLen + nx * arrowHeadWidth);
-                int leftY = (int) Math.round(y1 - uy * arrowHeadLen + ny * arrowHeadWidth);
-                int rightX = (int) Math.round(x1 - ux * arrowHeadLen - nx * arrowHeadWidth);
-                int rightY = (int) Math.round(y1 - uy * arrowHeadLen - ny * arrowHeadWidth);
+                // Scale arrowhead size proportionally with zoom, but capped to sleek tactical proportions
+                float arrowHeadLen = (float) Math.clamp(1.8D * tileSize, 8.0D, 22.0D);
+                float arrowHeadWidth = (float) Math.clamp(1.0D * tileSize, 5.0D, 13.0D);
+                float shaftThickness = (float) Math.clamp(0.2D * tileSize, 2.0D, 4.0D);
 
-                int redFill = 0xFFFF2222;
-                int redBorder = 0xFFFF0000;
-                fillTriangle(graphics, tipX, tipY, leftX, leftY, rightX, rightY, redFill);
-                drawSingleLine(graphics, tipX, tipY, leftX, leftY, redBorder);
-                drawSingleLine(graphics, tipX, tipY, rightX, rightY, redBorder);
-                drawSingleLine(graphics, leftX, leftY, rightX, rightY, redBorder);
+                // Shaft stops at the base of the arrowhead (overlapping slightly into head to avoid seam)
+                float shaftEndLen = Math.max(0.0f, len - arrowHeadLen + shaftThickness * 0.5f);
+                float sx1 = x0 + ux * shaftEndLen;
+                float sy1 = y0 + uy * shaftEndLen;
+
+                // 1. Draw shaft as single quad
+                float hThick = shaftThickness * 0.5f;
+                drawQuad(vc, matrix,
+                        x0 + nx * hThick, y0 + ny * hThick,
+                        sx1 + nx * hThick, sy1 + ny * hThick,
+                        sx1 - nx * hThick, sy1 - ny * hThick,
+                        x0 - nx * hThick, y0 - ny * hThick,
+                        lineColor);
+
+                // 2. Arrowhead geometry
+                float tipX = x1;
+                float tipY = y1;
+                float leftX = x1 - ux * arrowHeadLen + nx * arrowHeadWidth;
+                float leftY = y1 - uy * arrowHeadLen + ny * arrowHeadWidth;
+                float rightX = x1 - ux * arrowHeadLen - nx * arrowHeadWidth;
+                float rightY = y1 - uy * arrowHeadLen - ny * arrowHeadWidth;
+                float midX = (leftX + rightX) * 0.5f;
+                float midY = (leftY + rightY) * 0.5f;
+
+                // 3. Arrowhead solid fill (non-degenerate quad covering both halves of the triangle, rendered in both winding orders)
+                drawQuad(vc, matrix, tipX, tipY, rightX, rightY, midX, midY, leftX, leftY, redFill);
+                drawQuad(vc, matrix, tipX, tipY, leftX, leftY, midX, midY, rightX, rightY, redFill);
+
+                // 4. Arrowhead borders (3 crisp quads)
+                drawThickLineQuad(vc, matrix, tipX, tipY, leftX, leftY, 1.5f, redBorder);
+                drawThickLineQuad(vc, matrix, leftX, leftY, rightX, rightY, 1.5f, redBorder);
+                drawThickLineQuad(vc, matrix, rightX, rightY, tipX, tipY, 1.5f, redBorder);
             }
         }
     }
@@ -550,6 +661,15 @@ public final class RegionMapRenderer {
         }
     }
 
+    private static final Map<com.warfront.mission.MissionType, ResourceLocation> MISSION_TYPE_TEXTURES = new java.util.EnumMap<>(com.warfront.mission.MissionType.class);
+
+    private static ResourceLocation getMissionTexture(com.warfront.mission.MissionType type) {
+        ensureBaseTexturesLoaded();
+        if (type == null) return missionLogoLoc;
+        return MISSION_TYPE_TEXTURES.computeIfAbsent(type, t ->
+                loadTexture("mission_" + t.name().toLowerCase(java.util.Locale.ROOT)));
+    }
+
     /**
      * Renders the mission logo icon centered inside each non-conquered subregion
      * of the currently activated selected region.
@@ -595,7 +715,12 @@ public final class RegionMapRenderer {
                 continue;
             }
 
-            graphics.blit(missionLogoLoc, drawX, drawY, drawW, drawH, 0.0F, 0.0F, 1, 1, 1, 1);
+            com.warfront.mission.SubRegionMission mission = (i < missions.length) ? missions[i] : null;
+            ResourceLocation iconLoc = (mission != null && mission.type() != null)
+                    ? getMissionTexture(mission.type())
+                    : missionLogoLoc;
+
+            graphics.blit(iconLoc, drawX, drawY, drawW, drawH, 0.0F, 0.0F, 1, 1, 1, 1);
         }
     }
 
@@ -719,9 +844,12 @@ public final class RegionMapRenderer {
                         Component.literal(String.format("§fArrival: §e%02d:%02d", mins, secs)));
             }
         } else if (selectedRegion.owner() != Faction.HUMANITY && selectedRegion.owner() != Faction.UNCLAIMED) {
+            String reqText = (selectedRegion.baseType() != BaseType.NONE)
+                    ? String.format("§fReq: §e%d Sec §c(Base Req)", selectedRegion.dominoThreshold())
+                    : String.format("§fReq: §e%d Sectors", selectedRegion.dominoThreshold());
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
                     Component.literal("§c§lATTACK TARGET"),
-                    Component.literal(String.format("§fReq: §e%d Sectors", selectedRegion.dominoThreshold())));
+                    Component.literal(reqText));
         }
     }
 

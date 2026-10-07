@@ -161,19 +161,27 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
 
                 CachedRegionData cache = regionCache.get(net.minecraft.world.level.ChunkPos.asLong(rx, rz));
                 RegionData.SubRegionState subRegion = cache.getSubRegion(subX, subZ);
+                boolean isSieged = com.warfront.mission.ActiveCampaignMissionManager.hasActiveMission(rx, rz, subX, subZ);
 
-                chunks.add(new RegionMapPayload.ChunkData(chunkX, chunkZ, biomeColor, subRegion.owner().id(), subRegion.underSiege(), cache.isVisited(), subRegion.clusterId()));
+                chunks.add(new RegionMapPayload.ChunkData(chunkX, chunkZ, biomeColor, subRegion.owner().id(), isSieged, cache.isVisited(), subRegion.clusterId()));
             }
         }
 
         List<RegionMapPayload.SiegeArrowData> siegeArrows = new ArrayList<>();
+        List<RegionMapPayload.ActiveWarData> activeWars = new ArrayList<>();
         for (RegionData.SiegeCampaign campaign : regions.getActiveSieges().values()) {
+            int trx = campaign.targetRegionX();
+            int trz = campaign.targetRegionZ();
+
+            boolean warPermitted = !viewType.hasFogOfWar() || regions.isRegionVisited(trx, trz);
+            if (warPermitted) {
+                boolean isDefense = (campaign.attacker() != com.warfront.region.Faction.HUMANITY);
+                activeWars.add(new RegionMapPayload.ActiveWarData(trx, trz, campaign.attacker().id(), isDefense));
+            }
+
             if (campaign.attacker() == com.warfront.region.Faction.HUMANITY) {
                 continue; // Only enemy AI arrows render
             }
-
-            int trx = campaign.targetRegionX();
-            int trz = campaign.targetRegionZ();
 
             for (RegionData.SourcePos src : campaign.sources()) {
                 // Fog-of-war rule: Siege arrows ONLY included if DEBUG view OR if source or target region is VISITED by player
@@ -194,7 +202,7 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         Warfront.LOGGER.info("Map Snapshot ({}) built in {} ms: {} total regions ({} saved, {} procedural), {} chunks",
                 viewType.name(), elapsedMs, totalRegions, savedCount, proceduralCount, diameter * diameter);
 
-        PacketDistributor.sendToPlayer(player, new RegionMapPayload(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, logMessages, isExplicitRequest, viewType));
+        PacketDistributor.sendToPlayer(player, new RegionMapPayload(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, activeWars, logMessages, isExplicitRequest, viewType));
     }
 
     private record CachedRegionData(boolean isVisited, com.warfront.region.BaseType baseType, com.warfront.region.Faction owner,

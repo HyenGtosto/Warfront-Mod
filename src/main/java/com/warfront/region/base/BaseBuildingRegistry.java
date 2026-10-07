@@ -3,6 +3,11 @@ package com.warfront.region.base;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 
+import com.warfront.Warfront;
+import com.warfront.region.base.structure.StructureVariantRegistry;
+import com.warfront.region.base.structure.TemplatePremadeStructure;
+import net.minecraft.resources.ResourceLocation;
+
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -11,7 +16,8 @@ import java.util.Map;
  *
  * Designed for modular expansion: concrete building blueprints (e.g. Pillager Outposts,
  * Zombie Spires, Humanity Fortresses) can be registered per faction and tier.
- * Currently, all enemy base placements are configured to deploy the test cobblestone monolith.
+ * Currently, Pillager Outposts load native NBT structure templates from data/warfront/structure/.
+ * All other enemy base tiers deploy the test cobblestone monolith until their NBT templates are created.
  */
 public final class BaseBuildingRegistry {
 
@@ -19,6 +25,15 @@ public final class BaseBuildingRegistry {
     private static final Map<Faction, Map<BaseType, BaseBuildingGenerator>> GENERATORS = new EnumMap<>(Faction.class);
 
     static {
+        // Register native NBT structure template for Pillager Outposts
+        ResourceLocation outpostTemplate = ResourceLocation.fromNamespaceAndPath(
+                Warfront.MOD_ID, "base/outpost/pillager_outpost");
+        StructureVariantRegistry.registerVariant(
+                Faction.PILLAGER_CONQUERORS,
+                BaseType.OUTPOST,
+                new TemplatePremadeStructure(outpostTemplate, 27, 27, 23)
+        );
+
         // Initialize active generators for all factions with the monolith generator
         for (Faction faction : Faction.values()) {
             if (faction != Faction.UNCLAIMED && faction != Faction.HUMANITY) {
@@ -29,6 +44,9 @@ public final class BaseBuildingRegistry {
                 GENERATORS.put(faction, factionMap);
             }
         }
+
+        // Active concrete structure generators
+        register(Faction.PILLAGER_CONQUERORS, BaseType.OUTPOST, new PillagerOutpostGenerator());
     }
 
     private BaseBuildingRegistry() {
