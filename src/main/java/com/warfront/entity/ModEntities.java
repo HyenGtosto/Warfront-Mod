@@ -49,6 +49,20 @@ public final class ModEntities {
                             .clientTrackingRange(8)
                             .build("pillager_commander"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<SupplyWagonCartEntity>> SUPPLY_WAGON_CART =
+            ENTITY_TYPES.register("supply_wagon_cart", () ->
+                    EntityType.Builder.of(SupplyWagonCartEntity::new, MobCategory.MISC)
+                            .sized(2.4f, 2.8f)
+                            .clientTrackingRange(10)
+                            .build("supply_wagon_cart"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<SupplyWagonExtensionEntity>> SUPPLY_WAGON_EXTENSION =
+            ENTITY_TYPES.register("supply_wagon_extension", () ->
+                    EntityType.Builder.of(SupplyWagonExtensionEntity::new, MobCategory.MISC)
+                            .sized(2.4f, 2.8f)
+                            .clientTrackingRange(10)
+                            .build("supply_wagon_extension"));
+
     private ModEntities() {
     }
 
@@ -63,5 +77,7 @@ public final class ModEntities {
         event.put(PILLAGER_SCOUT.get(), PillagerScoutEntity.createAttributes().build());
         event.put(PILLAGER_MARKSMAN.get(), PillagerMarksmanEntity.createAttributes().build());
         event.put(PILLAGER_COMMANDER.get(), PillagerCommanderEntity.createAttributes().build());
+        event.put(SUPPLY_WAGON_CART.get(), SupplyWagonCartEntity.createAttributes().build());
+        event.put(SUPPLY_WAGON_EXTENSION.get(), SupplyWagonExtensionEntity.createAttributes().build());
     }
 }

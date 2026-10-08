@@ -4,13 +4,16 @@ import com.warfront.Warfront;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
+import com.warfront.network.ActiveMissionHudPayload;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,7 +51,7 @@ public final class ActiveCampaignMissionManager {
         private final String objectiveDescription;
         private final MissionType missionType;
         private final ObjectiveType objectiveType;
-        private final int targetProgress;
+        private int targetProgress;
         private int currentProgress;
         private BlockPos missionSiteAnchor;
         private int phaseIndex;
@@ -131,6 +134,7 @@ public final class ActiveCampaignMissionManager {
 
         public void setMissionSiteAnchor(BlockPos anchor) { this.missionSiteAnchor = anchor; }
         public void setPhaseIndex(int phaseIndex) { this.phaseIndex = phaseIndex; }
+        public void setTargetProgress(int targetProgress) { this.targetProgress = targetProgress; }
         public void setCompleted(boolean completed) { this.completed = completed; }
         public void setCurrentProgress(int currentProgress) { this.currentProgress = currentProgress; }
         public void incrementProgress() { this.currentProgress++; }
@@ -142,6 +146,11 @@ public final class ActiveCampaignMissionManager {
         public void incrementKills() { incrementProgress(); }
 
         public String formatProgressDisplay() {
+            if (missionType == MissionType.FORWARD_OUTPOST || missionType == MissionType.OUTPOST_DESTROY_BUILDING) {
+                int totalBlocks = trackedBlockPositions.size() + currentProgress;
+                int pct = totalBlocks > 0 ? Math.min(100, (currentProgress * 100) / totalBlocks) : 0;
+                return pct + "% / 50%";
+            }
             return currentProgress + " / " + targetProgress;
         }
 
@@ -274,6 +283,23 @@ public final class ActiveCampaignMissionManager {
     }
 
     /**
+     * Checks if there are any active, uncompleted campaign missions anywhere in the region.
+     */
+    public static boolean hasAnyActiveMissionInRegion(int regionX, int regionZ) {
+        long regionKey = ChunkPos.asLong(regionX, regionZ);
+        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
+        if (subMissions == null || subMissions.isEmpty()) {
+            return false;
+        }
+        for (ActiveSubRegionProgress progress : subMissions.values()) {
+            if (progress != null && !progress.isCompleted()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Authoritative query: Checks if a specific mission instance is currently active and uncompleted.
      */
     public static boolean isMissionInstanceActive(UUID missionInstanceId, int regionX, int regionZ, int subX, int subZ) {
@@ -378,7 +404,16 @@ public final class ActiveCampaignMissionManager {
         Map<Integer, ActiveSubRegionProgress> removed = ACTIVE_CAMPAIGN_MISSIONS.remove(regionKey);
         if (removed != null && level != null) {
             for (ActiveSubRegionProgress progress : removed.values()) {
-                KillCountMissionHandler.getInstance().onCleanup(level, regionX, regionZ, progress.subX(), progress.subZ(), progress);
+                progress.setCompleted(true);
+                for (UUID uuid : progress.trackedEntityUuids()) {
+                    net.minecraft.world.entity.Entity e = level.getEntity(uuid);
+                    if (e != null && e.isAlive()) {
+                        com.warfront.spawn.MissionEntityTracker.registerMissionEntity(
+                                e, progress.missionInstanceId(), regionX, regionZ, progress.subX(), progress.subZ(), progress.targetFaction());
+                    }
+                }
+                MissionHandlerRegistry.getHandler(progress.missionType())
+                        .onCleanup(level, regionX, regionZ, progress.subX(), progress.subZ(), progress);
             }
             RegionData regions = RegionData.get(level);
             if (regions != null) {
@@ -406,12 +441,13 @@ public final class ActiveCampaignMissionManager {
     }
 
     /**
-     * Triggered when a player is present in an active mission subregion to manage reinforcement spawning.
+     * Triggered when a player is present in an active mission subregion to manage in-world mission execution.
      */
     public static void onPlayerInSubregion(ServerLevel level, int regionX, int regionZ, int subX, int subZ, ServerPlayer player) {
         ActiveSubRegionProgress progress = getActiveProgress(regionX, regionZ, subX, subZ);
         if (progress != null && !progress.isCompleted()) {
-            KillCountMissionHandler.getInstance().onPlayerInSubregion(level, regionX, regionZ, subX, subZ, progress, player);
+            MissionHandlerRegistry.getHandler(progress.missionType())
+                    .onPlayerInSubregion(level, regionX, regionZ, subX, subZ, progress, player);
         }
     }
 
@@ -424,17 +460,201 @@ public final class ActiveCampaignMissionManager {
             int originSubX, int originSubZ,
             Faction mobFaction,
             String mobRoleName) {
+        onEntityKilled(level, originRegionX, originRegionZ, originSubX, originSubZ, mobFaction, mobRoleName, null);
+    }
+
+    /**
+     * Authoritative mob kill processor passing the exact Mob entity.
+     */
+    public static void onEntityKilled(
+            ServerLevel level,
+            int originRegionX, int originRegionZ,
+            int originSubX, int originSubZ,
+            Faction mobFaction,
+            String mobRoleName,
+            Mob mob) {
 
         ActiveSubRegionProgress progress = getActiveProgress(originRegionX, originRegionZ, originSubX, originSubZ);
         if (progress != null && !progress.isCompleted()) {
-            KillCountMissionHandler.getInstance().onEntityKilled(
-                    level,
-                    originRegionX, originRegionZ,
-                    originSubX, originSubZ,
-                    progress,
-                    mobFaction,
-                    mobRoleName
-            );
+            MissionHandlerRegistry.getHandler(progress.missionType())
+                    .onEntityKilled(
+                            level,
+                            originRegionX, originRegionZ,
+                            originSubX, originSubZ,
+                            progress,
+                            mobFaction,
+                            mobRoleName,
+                            mob
+                    );
+        }
+    }
+
+    /**
+     * Processes a block break event within an active mission subregion.
+     */
+    public static void onBlockBroken(
+            ServerLevel level,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            BlockPos pos,
+            BlockState state,
+            ServerPlayer player) {
+
+        ActiveSubRegionProgress progress = getActiveProgress(regionX, regionZ, subX, subZ);
+        if (progress != null && !progress.isCompleted()) {
+            boolean handled = MissionHandlerRegistry.getHandler(progress.missionType())
+                    .onBlockBroken(level, regionX, regionZ, subX, subZ, progress, pos, state, player);
+            if (handled) return;
+        }
+
+        // Check if any other active mission in this region is tracking this block position
+        long regionKey = ChunkPos.asLong(regionX, regionZ);
+        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
+        if (subMissions != null) {
+            for (ActiveSubRegionProgress other : subMissions.values()) {
+                if (other != progress && !other.isCompleted() && other.trackedBlockPositions().contains(pos)) {
+                    MissionHandlerRegistry.getHandler(other.missionType())
+                            .onBlockBroken(level, regionX, regionZ, other.subX(), other.subZ(), other, pos, state, player);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Unified completion handler: Secures the subregion for Humanity, performs cleanup,
+     * logs to RegionData, triggers domino check, and broadcasts HUD/map updates.
+     */
+    public static void completeMission(
+            ServerLevel level,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            ActiveSubRegionProgress progress) {
+
+        if (progress == null || progress.isCompleted()) {
+            return;
+        }
+
+        progress.setCompleted(true);
+        for (UUID uuid : progress.trackedEntityUuids()) {
+            net.minecraft.world.entity.Entity e = level.getEntity(uuid);
+            if (e != null && e.isAlive()) {
+                com.warfront.spawn.MissionEntityTracker.registerMissionEntity(
+                        e, progress.missionInstanceId(), regionX, regionZ, subX, subZ, progress.targetFaction());
+            }
+        }
+        MissionHandlerRegistry.getHandler(progress.missionType())
+                .onCleanup(level, regionX, regionZ, subX, subZ, progress);
+
+        RegionData regions = RegionData.get(level);
+        if (regions != null) {
+            regions.claimSubRegion(level, regionX, regionZ, subX, subZ, Faction.HUMANITY, 100.0F);
+
+            String logMsg = String.format("§aMission Completed! Sub-region (%d, %d) in Region (%d, %d) secured.",
+                    subX, subZ, regionX, regionZ);
+            regions.addLog(level, logMsg);
+            regions.setDirty();
+        }
+
+        Warfront.LOGGER.info("Subregion mission completed: Region ({}, {}) Sub ({}, {}). Captured to HUMANITY.",
+                regionX, regionZ, subX, subZ);
+
+        com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+        broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+    }
+
+    /**
+     * Unified failure handler: Marks mission as failed, cleans up spawned entities/blocks,
+     * logs failure message, clears active subregion bit in the campaign mask, and updates HUD/map.
+     */
+    public static void failMission(
+            ServerLevel level,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            ActiveSubRegionProgress progress,
+            String failureReason) {
+
+        if (progress == null || progress.isCompleted()) {
+            return;
+        }
+
+        progress.setCompleted(true);
+        for (UUID uuid : progress.trackedEntityUuids()) {
+            net.minecraft.world.entity.Entity e = level.getEntity(uuid);
+            if (e != null && e.isAlive()) {
+                com.warfront.spawn.MissionEntityTracker.registerMissionEntity(
+                        e, progress.missionInstanceId(), regionX, regionZ, subX, subZ, progress.targetFaction());
+            }
+        }
+        MissionHandlerRegistry.getHandler(progress.missionType())
+                .onCleanup(level, regionX, regionZ, subX, subZ, progress);
+
+        RegionData regions = RegionData.get(level);
+        if (regions != null) {
+            long regionKey = net.minecraft.world.level.ChunkPos.asLong(regionX, regionZ);
+            RegionData.SiegeCampaign siege = regions.getActiveSieges().get(regionKey);
+            if (siege != null) {
+                int bit = subZ * 2 + subX;
+                int newActiveMask = siege.activeSubRegionsMask() & ~(1 << bit);
+                regions.getActiveSieges().put(regionKey, new RegionData.SiegeCampaign(
+                        siege.attacker(),
+                        siege.targetRegionX(), siege.targetRegionZ(),
+                        siege.sources(), siege.attackValue(), siege.encircled(),
+                        siege.startTick(), siege.durationTicks(),
+                        newActiveMask,
+                        siege.attackerClusterId()));
+            }
+
+            String logMsg = String.format("§cMission Failed! Sub-region (%d, %d) in Region (%d, %d): %s",
+                    subX, subZ, regionX, regionZ, failureReason);
+            regions.addLog(level, logMsg);
+            regions.setDirty();
+        }
+
+        Warfront.LOGGER.info("Subregion mission failed: Region ({}, {}) Sub ({}, {}). Reason: {}",
+                regionX, regionZ, subX, subZ, failureReason);
+
+        com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+        broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+    }
+
+    /**
+     * Broadcasts an authoritative HUD progress update packet to all players in the level.
+     */
+    public static void broadcastHudUpdate(
+            ServerLevel level,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            ActiveSubRegionProgress progress) {
+
+        if (level == null || progress == null) {
+            return;
+        }
+
+        RegionData regions = RegionData.get(level);
+        RegionData.SiegeCampaign siege = (regions != null) ? regions.getSiege(regionX, regionZ) : null;
+        long remainingTicks = 0L;
+        if (siege != null) {
+            long elapsed = level.getGameTime() - siege.startTick();
+            remainingTicks = Math.max(0L, siege.durationTicks() - elapsed);
+        }
+        boolean isDefense = (siege != null && siege.attacker() != Faction.HUMANITY);
+
+        ActiveMissionHudPayload hudUpdate = new ActiveMissionHudPayload(
+                !progress.isCompleted(),
+                regionX, regionZ, subX, subZ,
+                progress.displayName(),
+                progress.objectiveDescription(),
+                progress.currentProgress(),
+                progress.targetProgress(),
+                progress.formatProgressDisplay(),
+                remainingTicks,
+                progress.targetFaction().id(),
+                isDefense
+        );
+
+        for (ServerPlayer player : level.players()) {
+            player.connection.send(hudUpdate);
         }
     }
 }

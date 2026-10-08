@@ -21,7 +21,7 @@ import java.util.Map;
  */
 public final class BaseBuildingRegistry {
 
-    private static final BaseBuildingGenerator DEFAULT_MONOLITH = new CobblestoneMonolithGenerator();
+    private static final BaseBuildingGenerator UNIMPLEMENTED_PLACEHOLDER_MONOLITH = new CobblestoneMonolithGenerator();
     private static final Map<Faction, Map<BaseType, BaseBuildingGenerator>> GENERATORS = new EnumMap<>(Faction.class);
 
     static {
@@ -34,13 +34,13 @@ public final class BaseBuildingRegistry {
                 new TemplatePremadeStructure(outpostTemplate, 27, 27, 23)
         );
 
-        // Initialize active generators for all factions with the monolith generator
+        // Initialize placeholder generators for unimplemented base tiers/factions
         for (Faction faction : Faction.values()) {
             if (faction != Faction.UNCLAIMED && faction != Faction.HUMANITY) {
                 Map<BaseType, BaseBuildingGenerator> factionMap = new EnumMap<>(BaseType.class);
-                factionMap.put(BaseType.OUTPOST, DEFAULT_MONOLITH);
-                factionMap.put(BaseType.HEADQUARTERS, DEFAULT_MONOLITH);
-                factionMap.put(BaseType.MEGA_BASE, DEFAULT_MONOLITH);
+                factionMap.put(BaseType.OUTPOST, UNIMPLEMENTED_PLACEHOLDER_MONOLITH);
+                factionMap.put(BaseType.HEADQUARTERS, UNIMPLEMENTED_PLACEHOLDER_MONOLITH);
+                factionMap.put(BaseType.MEGA_BASE, UNIMPLEMENTED_PLACEHOLDER_MONOLITH);
                 GENERATORS.put(faction, factionMap);
             }
         }
@@ -54,11 +54,12 @@ public final class BaseBuildingRegistry {
 
     /**
      * Retrieves the building generator registered for the specified faction and base tier.
-     * Falls back to the default monolith generator if no specific blueprint is registered.
+     * Returns an unimplemented placeholder building generator if the tier/faction has not yet been implemented.
+     * Returns null if baseType is NONE or arguments are null.
      */
     public static BaseBuildingGenerator getGenerator(Faction faction, BaseType baseType) {
         if (faction == null || baseType == null || baseType == BaseType.NONE) {
-            return DEFAULT_MONOLITH;
+            return null;
         }
 
         Map<BaseType, BaseBuildingGenerator> factionMap = GENERATORS.get(faction);
@@ -69,7 +70,7 @@ public final class BaseBuildingRegistry {
             }
         }
 
-        return DEFAULT_MONOLITH;
+        return UNIMPLEMENTED_PLACEHOLDER_MONOLITH;
     }
 
     /**

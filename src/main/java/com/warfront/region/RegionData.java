@@ -506,18 +506,45 @@ public final class RegionData extends SavedData {
         return state != null && state.basePlaced();
     }
 
+    /**
+     * Returns a list of all regions where a persistent base structure has been placed in the world.
+     */
+    public List<Region> getAllPlacedBaseRegions() {
+        List<Region> list = new ArrayList<>();
+        for (Map.Entry<Long, RegionState> entry : regions.entrySet()) {
+            RegionState state = entry.getValue();
+            if (state.basePlaced() && state.baseType() != BaseType.NONE && state.baseAnchor() != null) {
+                long key = entry.getKey();
+                int rx = ChunkPos.getX(key);
+                int rz = ChunkPos.getZ(key);
+                list.add(new Region(rx, rz, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), state.basePlaced()));
+            }
+        }
+        return list;
+    }
+
     public void markBasePlaced(int regionX, int regionZ) {
-        setBasePlaced(regionX, regionZ, true);
+        setBasePlaced(regionX, regionZ, true, null);
+    }
+
+    public void markBasePlaced(int regionX, int regionZ, BlockPos actualAnchor) {
+        setBasePlaced(regionX, regionZ, true, actualAnchor);
     }
 
     public void setBasePlaced(int regionX, int regionZ, boolean placed) {
+        setBasePlaced(regionX, regionZ, placed, null);
+    }
+
+    public void setBasePlaced(int regionX, int regionZ, boolean placed, BlockPos actualAnchor) {
         long key = ChunkPos.asLong(regionX, regionZ);
         RegionState state = regions.get(key);
+        BlockPos anchorToUse = actualAnchor != null ? actualAnchor : (state != null ? state.baseAnchor() : null);
         if (state == null) {
             Region reg = regionAt(regionX, regionZ);
-            state = new RegionState(reg.owner(), reg.stability(), reg.resistance(), reg.baseType(), reg.clusterId(), reg.baseAnchor(), placed);
+            if (anchorToUse == null) anchorToUse = reg.baseAnchor();
+            state = new RegionState(reg.owner(), reg.stability(), reg.resistance(), reg.baseType(), reg.clusterId(), anchorToUse, placed);
         } else {
-            state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), placed);
+            state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), anchorToUse, placed);
         }
         regions.put(key, state);
         setDirty();
@@ -950,8 +977,8 @@ public final class RegionData extends SavedData {
             boolean allMandatoryCompleted = areAllMandatoryBaseMissionsCompleted(regionX, regionZ, faction);
             int activeRemainingMask = com.warfront.mission.ActiveCampaignMissionManager.getActiveSubRegionsMask(regionX, regionZ);
 
-            if (activeRemainingMask == 0 && matchingCount >= dominoThreshold && allMandatoryCompleted) {
-                // All active campaign missions completed AND threshold reached AND mandatory base missions completed -> FULL REGION CAPTURE!
+            if (matchingCount >= dominoThreshold && allMandatoryCompleted) {
+                // Threshold reached AND mandatory base missions completed -> FULL REGION CAPTURE!
                 long clusterId = 0L;
                 SiegeCampaign campaign = activeSieges.get(regionKey);
                 if (campaign != null && campaign.attackerClusterId() != 0L) {
@@ -971,6 +998,7 @@ public final class RegionData extends SavedData {
                 com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
                         com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
                 setRegion(level, regionX, regionZ, faction, strength.stability(), strength.resistance(), baseType, clusterId);
+                activeSieges.remove(regionKey);
                 com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, regionX, regionZ);
                 if (faction == Faction.HUMANITY) {
                     addLog(level, String.format("§aRegion conquered: Region (%d, %d).", regionX, regionZ));
@@ -979,35 +1007,31 @@ public final class RegionData extends SavedData {
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
-            } else if (activeRemainingMask == 0 && activeCampaign != null && activeCampaign.attacker() == Faction.HUMANITY) {
-                // Player's launched sortie is complete, but region is not yet fully captured
-                activeSieges.remove(regionKey);
-                com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, regionX, regionZ);
+            } else {
+                // Region is not fully captured yet: keep the regional war going until timer expires or domino threshold is reached!
+                // Clear the claimed subregion bit from the campaign's active mask
+                if (activeCampaign != null) {
+                    int bit = subZ * 2 + subX;
+                    int newActiveMask = activeCampaign.activeSubRegionsMask() & ~(1 << bit);
+                    activeSieges.put(regionKey, new SiegeCampaign(
+                            activeCampaign.attacker(),
+                            activeCampaign.targetRegionX(), activeCampaign.targetRegionZ(),
+                            activeCampaign.sources(), activeCampaign.attackValue(), activeCampaign.encircled(),
+                            activeCampaign.startTick(), activeCampaign.durationTicks(),
+                            newActiveMask,
+                            activeCampaign.attackerClusterId()));
+                }
+
                 if (matchingCount >= dominoThreshold && !allMandatoryCompleted) {
-                    Warfront.LOGGER.info("Sortie completed for Region ({}, {}): Mandatory base missions must be completed before region falls.", regionX, regionZ);
-                    addLog(level, String.format("§eSortie completed: Region (%d, %d) base strongholds must be neutralized to conquer the region.", regionX, regionZ));
+                    Warfront.LOGGER.info("Domino collapse held for Region ({}, {}): Mandatory base missions must be completed first.", regionX, regionZ);
+                    addLog(level, String.format("§eDomino collapse pending: Region (%d, %d) base strongholds must be neutralized first.", regionX, regionZ));
                 } else {
-                    addLog(level, String.format("§aSortie completed: Region (%d, %d). %d/%d sectors secured.", regionX, regionZ, matchingCount, dominoThreshold));
+                    addLog(level, String.format("§aSubregion secured: Region (%d, %d). %d/%d sectors secured. Regional war remains active.", regionX, regionZ, matchingCount, dominoThreshold));
                 }
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
-            } else if (matchingCount >= dominoThreshold && !allMandatoryCompleted) {
-                Warfront.LOGGER.info("Domino collapse held for Region ({}, {}): Mandatory base missions must be completed first.", regionX, regionZ);
-                addLog(level, String.format("§eDomino collapse pending: Region (%d, %d) base strongholds must be neutralized first.", regionX, regionZ));
             }
-        }
-
-        // If the region STILL has an active campaign, extend its duration by +60 seconds (+1200 ticks)
-        if (activeSieges.containsKey(regionKey)) {
-            SiegeCampaign currentCampaign = activeSieges.get(regionKey);
-            activeSieges.put(regionKey, new SiegeCampaign(
-                    currentCampaign.attacker(),
-                    currentCampaign.targetRegionX(), currentCampaign.targetRegionZ(),
-                    currentCampaign.sources(), currentCampaign.attackValue(), currentCampaign.encircled(),
-                    currentCampaign.startTick(), currentCampaign.durationTicks() + 1200L,
-                    currentCampaign.activeSubRegionsMask(),
-                    currentCampaign.attackerClusterId()));
         }
 
         setDirty();
@@ -1074,6 +1098,12 @@ public final class RegionData extends SavedData {
         // Gambit Mechanic: Triggered ONLY on FULL REGION CAPTURE for Humanity!
         if (faction == Faction.HUMANITY && level != null) {
             checkAndExecuteGambit(level, regionX, regionZ);
+
+            // Scenario 4: Player won the war on region -> remaining enemy base structure blocks decay
+            if (existing != null && existing.baseAnchor() != null) {
+                Region regView = new Region(regionX, regionZ, existing.owner(), existing.stability(), existing.resistance(), existing.baseType(), existing.clusterId(), existing.baseAnchor(), existing.basePlaced());
+                com.warfront.region.base.PersistentBaseProtectionManager.decayBaseRemainsIfPresent(level, regionX, regionZ, regView, existing.baseAnchor(), this);
+            }
         }
 
         setDirty();

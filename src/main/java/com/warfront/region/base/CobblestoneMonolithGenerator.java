@@ -38,6 +38,42 @@ public class CobblestoneMonolithGenerator implements BaseBuildingGenerator {
     }
 
     @Override
+    public java.util.Map<BlockPos, BlockState> getPristineBlocks(ServerLevel level, BlockPos anchor) {
+        if (level == null || anchor == null) {
+            return java.util.Map.of();
+        }
+        int halfX = SIZE_X / 2;
+        int halfZ = SIZE_Z / 2;
+        int startX = anchor.getX() - halfX;
+        int endX = anchor.getX() + halfX;
+        int startZ = anchor.getZ() - halfZ;
+        int endZ = anchor.getZ() + halfZ;
+        int startY = anchor.getY();
+        int endY = startY + HEIGHT - 1;
+
+        java.util.Map<BlockPos, BlockState> map = new java.util.HashMap<>();
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+
+        for (int x = startX; x <= endX; x++) {
+            boolean isWallX = (x <= startX + 1 || x >= endX - 1);
+            for (int z = startZ; z <= endZ; z++) {
+                boolean isWallZ = (z <= startZ + 1 || z >= endZ - 1);
+                boolean isWall = isWallX || isWallZ;
+
+                for (int y = startY; y <= endY; y++) {
+                    boolean isRoof = (y >= endY - 1);
+                    boolean isFloor = (y <= startY + 1);
+
+                    if (isWall || isRoof || isFloor) {
+                        map.put(new BlockPos(x, y, z), cobble);
+                    }
+                }
+            }
+        }
+        return map;
+    }
+
+    @Override
     public boolean place(BasePlacementContext context) {
         ServerLevel level = context.level();
         BlockPos anchor = context.anchor();

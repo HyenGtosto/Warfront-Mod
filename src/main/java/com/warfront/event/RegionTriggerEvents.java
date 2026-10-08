@@ -6,6 +6,7 @@ import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import com.warfront.region.SubRegionPos;
 import com.warfront.spawn.ExplorationSpawnManager;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
@@ -53,6 +54,23 @@ public final class RegionTriggerEvents {
         if (player.tickCount % 20 == 0) {
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress =
                     ActiveCampaignMissionManager.getActiveProgress(rx, rz, sx, sz);
+
+            // Proximity fallback: If current subregion has no active mission, check if an active base demolition mission in this region is within 80 blocks
+            if (progress == null || progress.isCompleted()) {
+                for (int bit = 0; bit < 4; bit++) {
+                    ActiveCampaignMissionManager.ActiveSubRegionProgress candidate =
+                            ActiveCampaignMissionManager.getActiveProgress(rx, rz, bit % 2, bit / 2);
+                    if (candidate != null && !candidate.isCompleted() && candidate.missionSiteAnchor() != null) {
+                        BlockPos anc = candidate.missionSiteAnchor();
+                        if (player.distanceToSqr(anc.getX() + 0.5D, anc.getY() + 0.5D, anc.getZ() + 0.5D) <= 80.0D * 80.0D) {
+                            progress = candidate;
+                            sx = bit % 2;
+                            sz = bit / 2;
+                            break;
+                        }
+                    }
+                }
+            }
 
             if (progress != null && !progress.isCompleted()) {
                 // Handle in-world reinforcement spawning

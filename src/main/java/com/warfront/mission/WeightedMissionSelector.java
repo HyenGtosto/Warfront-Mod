@@ -157,7 +157,13 @@ public final class WeightedMissionSelector {
         long varHash = mix64(seed ^ 0x987654321L);
         int subVariation = (int) ((varHash & 0x7FFFFFFFFFFFFFFFL) % 3); // 0, 1, or 2
 
-        int finalTargetCount = Math.max(1, selected.baseCountMin() + baseCountOffset + resBonus + subVariation);
+        int finalTargetCount;
+        if (selected.type() == MissionType.KILL_COUNT) {
+            int[] variations = {40, 45, 50};
+            finalTargetCount = variations[(int) ((countHash & 0x7FFFFFFFFFFFFFFFL) % variations.length)];
+        } else {
+            finalTargetCount = Math.max(1, selected.baseCountMin() + baseCountOffset + resBonus + subVariation);
+        }
 
         // 5. Deterministically pick target role
         String selectedRole = "BASIC";

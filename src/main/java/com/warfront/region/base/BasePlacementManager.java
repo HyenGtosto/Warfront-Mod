@@ -136,6 +136,9 @@ public final class BasePlacementManager {
         }
 
         BaseBuildingGenerator generator = BaseBuildingRegistry.getGenerator(owner, baseType);
+        if (generator == null) {
+            return false;
+        }
 
         int halfX = generator.getSizeX() / 2;
         int halfZ = generator.getSizeZ() / 2;
@@ -164,7 +167,7 @@ public final class BasePlacementManager {
         if (!force && level.getBlockState(checkGround).is(net.minecraft.world.level.block.Blocks.COBBLESTONE)) {
             Warfront.LOGGER.warn("[Warfront] Structure already exists at {} in region ({}, {}). Aborting placement to prevent double height stacking.",
                     checkGround, regionX, regionZ);
-            regions.markBasePlaced(regionX, regionZ);
+            regions.markBasePlaced(regionX, regionZ, checkGround);
             return false;
         }
 
@@ -185,7 +188,7 @@ public final class BasePlacementManager {
 
         boolean placed = generator.place(context);
         if (placed) {
-            regions.markBasePlaced(regionX, regionZ);
+            regions.markBasePlaced(regionX, regionZ, anchor);
             Warfront.LOGGER.info("[Warfront] Placed persistent base ({}) for {} at {} in region ({}, {})",
                     baseType, owner.displayName().getString(), anchor, regionX, regionZ);
             regions.addLog(level, String.format("§eEnemy %s placed at [%d, %d, %d] in Region (%d, %d)",

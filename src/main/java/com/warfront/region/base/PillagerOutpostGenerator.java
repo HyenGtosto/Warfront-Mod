@@ -42,4 +42,16 @@ public class PillagerOutpostGenerator implements BaseBuildingGenerator {
         }
         return false;
     }
+
+    @Override
+    public java.util.Map<net.minecraft.core.BlockPos, net.minecraft.world.level.block.state.BlockState> getPristineBlocks(
+            net.minecraft.server.level.ServerLevel level,
+            net.minecraft.core.BlockPos anchor
+    ) {
+        PremadeStructure variant = StructureVariantRegistry.getDefaultVariant(Faction.PILLAGER_CONQUERORS, BaseType.OUTPOST);
+        if (variant != null) {
+            return variant.getPristineBlocks(level, anchor);
+        }
+        return java.util.Map.of();
+    }
 }

@@ -28,10 +28,14 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onEntityJoin);
         NeoForge.EVENT_BUS.addListener(com.warfront.region.base.BasePlacementManager::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.region.base.PersistentBaseProtectionManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.event.MissionDeathEventHandler::onLivingDeath);
+        NeoForge.EVENT_BUS.addListener(com.warfront.event.MissionBlockEventHandler::onBlockBreak);
+        NeoForge.EVENT_BUS.addListener(com.warfront.event.MissionBlockEventHandler::onExplosionDetonate);
         NeoForge.EVENT_BUS.addListener(com.warfront.ai.AIAttackManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.RoamingEntityTracker::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.MissionEntityTracker::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.mission.site.MissionSiteSnapshotManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.AttackRoamerManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.SubregionPatrolManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onLivingChangeTarget);
@@ -39,21 +43,25 @@ public final class Warfront {
             if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel) {
                 com.warfront.network.RequestRegionMapPayload.clearColorCache();
                 com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
+                com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.LevelEvent.Unload event) -> {
             if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel) {
                 com.warfront.network.RequestRegionMapPayload.clearColorCache();
                 com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
+                com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStartedEvent event) -> {
             com.warfront.network.RequestRegionMapPayload.clearColorCache();
             com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
+            com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent event) -> {
             com.warfront.network.RequestRegionMapPayload.clearColorCache();
             com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
+            com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
         });
     }
 }

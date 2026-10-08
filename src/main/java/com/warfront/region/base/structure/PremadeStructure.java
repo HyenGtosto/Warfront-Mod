@@ -35,4 +35,14 @@ public interface PremadeStructure {
      * @return true if the structure was successfully placed
      */
     boolean place(BasePlacementContext context);
+
+    /**
+     * Resolves the pristine blueprint map of world positions to expected BlockStates for a base anchored at anchor.
+     */
+    default java.util.Map<net.minecraft.core.BlockPos, net.minecraft.world.level.block.state.BlockState> getPristineBlocks(
+            net.minecraft.server.level.ServerLevel level,
+            net.minecraft.core.BlockPos anchor
+    ) {
+        return java.util.Map.of();
+    }
 }

@@ -14,6 +14,7 @@
   "command.warfront.region.owner_set": "Region %s, %s owner set to %s",
   "block.warfront.claim_core": "Claim Core",
   "block.warfront.command_terminal": "Command Terminal",
+  "block.warfront.mission_target_core": "Mission Target Core",
   "item.warfront.map_terminal": "Map Terminal",
   "item.warfront.testing_map_terminal": "Testing Strategic Map (3k)",
   "faction.warfront.unclaimed": "Unclaimed",
@@ -48,5 +49,8 @@
   "entity.warfront.pillager_marksman": "Pillager Marksman",
   "item.warfront.pillager_marksman_spawn_egg": "Pillager Marksman Spawn Egg",
   "entity.warfront.pillager_commander": "Pillager Commander",
-  "item.warfront.pillager_commander_spawn_egg": "Pillager Commander Spawn Egg"
+  "item.warfront.pillager_commander_spawn_egg": "Pillager Commander Spawn Egg",
+  "entity.warfront.supply_wagon_cart": "Supply Wagon Cart",
+  "entity.warfront.supply_wagon_extension": "Supply Wagon Extension",
+  "container.warfront.supply_wagon_chest": "Supply Wagon Chest"
 }

@@ -392,6 +392,63 @@ When a region houses a physical base, the subregions containing the base footpri
     - `RegionMapState.java`: Tracks active wars, provides `isRegionAtWar(...)` and `getActiveWar(...)`, and checks regional war state directly in `updateMapData(...)` instead of relying on chunk sampling.
     - `RegionMapScreen.java`: Explicitly calls `renderer.markTextureDirty()` on `onLaunchAttack`, `onCancelAttack`, and `onConfirmCampaign` for snappy UI updates.
 
+### 10.8. Iteration 2: Dynamic & Cheap Easy Missions Implementation
+* **Polymorphic Mission Execution Architecture:**
+  - `MissionObjectiveHandler.java`: Replaced monolithic kill-count logic with a polymorphic interface supporting `onPlayerInSubregion`, `onEntityKilled`, `onBlockBroken`, and `onCleanup`.
+  - `MissionHandlerRegistry.java`: Central registry mapping `MissionType` to dedicated objective handlers, with seamless fallback to `KillCountMissionHandler`.
+  - `ActiveCampaignMissionManager.java`: Dispatches gameplay events through `MissionHandlerRegistry`, adds `completeMission(...)` (capturing sector to Humanity, triggering domino check, and notifying map terminals) and `broadcastHudUpdate(...)`.
+* **Zero-Lag Temporary Mission Sites & Clean World Restoration:**
+  - `MissionSiteSnapshot.java` & `MissionSiteSnapshotManager.java`: Captures original `BlockState` prior to placing temporary structures or props; restores terrain cleanly top-to-bottom on mission completion, expiration, or cancellation, preventing world griefing and material duplication.
+  - `MissionSiteAnchorResolver.java`: Deterministically resolves dry-land surface anchors within the $64 \times 64$ subregion keeping a 12-block border margin, evaluating `findDryLandSurfaceY` for solid footing.
+  - `TemporaryStructureBuilder.java`: Builds compact field installations with stepped cobblestone/log foundation columns downward to solid ground so buildings never float on uneven slopes.
+* **The 4 Easy Tier Missions & Spawning Overhaul:**
+  - **1. Eliminate Hostiles / Kill Count (`KILL_COUNT` - `ELIMINATE_TARGETS`):**
+    - Replaced `FORWARD_PATROL`. Instead of spawning independent wave mobs, the mission leverages `SubregionPatrolManager` which increases patrol cap to 4 squads with a 20-second respawn cooldown.
+    - Patrol mobs carry origin coordinates and patrol tags; kills are cleanly credited to the active mission subregion.
+    - Deterministic target count variations of 40, 45, or 50 kills. Uses `mission_kill_count.png` on the map.
+  - **2. Supply Convoy (`SUPPLY_CONVOY` - `INTERCEPT`):**
+    - Handled by `SupplyConvoyMissionHandler.java`. Spawns a moving supply convoy:
+      - Front Wagon: `SupplyWagonCartEntity` (GeckoLib) pulled by 2 harnessed horses, continuously pathfinding through 3 subregion border waypoints (with 10-second pauses upon arrival). Halts if both horses die; moves continuously while alive.
+      - Rear Wagon: `SupplyWagonExtensionEntity` (GeckoLib) trailer coupled behind the front cart via hitch and rope leash without independent AI. Features an interactive 27-slot chest with randomized military logistics loot and drops all items without loss upon destruction.
+      - Escort Squads: 6 armed guards (2 Warriors and 4 Marksmen, 3 per side) marching in formation. Governed by `ConvoyEscortGoal` with dynamic leashes (8 blocks max for marksmen, 24 blocks max for warriors) and an anti-glitch full-retreat mechanic requiring them to sprint all the way back to the cart station before re-engaging.
+    - Mission completes when the extension wagon is destroyed or looted.
+  - **3. Forward Outpost (`FORWARD_OUTPOST` - `DESTROY_STRUCTURE`):**
+    - Handled by `ForwardOutpostMissionHandler.java`. Generates a compact $8 \times 8$ palisade watchtower with stepped foundations and an embedded central Command Core (`WarfrontBlocks.MISSION_TARGET_CORE`).
+    - Base Destruction Mechanic: Tracks all structural blocks placed. Clearing $\ge 60\%$ of the base structure (via hand mining or TNT detonations) clears the mission.
+  - **4. Scout Network (`SCOUT_NETWORK` - `DESTROY_OBJECTIVES`):**
+    - Handled by `ScoutNetworkMissionHandler.java`. Guarantees at least 3 distributed $3 \times 3$ wooden lookout nests across the subregion using multi-attempt sector search and anchor resolver fallbacks.
+    - Each nest is manned by a sniper Marksman and contains an Observation Relay (`WarfrontBlocks.MISSION_TARGET_CORE`).
+* **Active War Patrol Spawning:**
+  - Removed previous restriction blocking patrols in active mission zones. Active war subregions now run with a cap of 3 squads and 30-second cooldown (boosted to 4 squads and 20-second cooldown for `KILL_COUNT`).
+  - Out-of-war exploration patrol timers updated to 3 squads max with a 45-second cooldown (900 ticks).
+* **Incentivizing TNT Usage (`MISSION_TARGET_CORE` & Explosion Detonation):**
+  - Registered `WarfrontBlocks.MISSION_TARGET_CORE` with Obsidian hardness (`destroyTime = 50.0F`) and fragile blast resistance (`explosionResistance = 0.5F`).
+  - `MissionBlockEventHandler.java`: Intercepts both `BlockEvent.BreakEvent` and `ExplosionEvent.Detonate`, crediting structural and core destruction from TNT explosives in active mission sectors.
+* **In-World Event Integration:**
+  - `MissionBlockEventHandler.java`: Intercepts `BlockEvent.BreakEvent` and `ExplosionEvent.Detonate`, resolving subregion pos and routing to `ActiveCampaignMissionManager.onBlockBroken(...)`.
+  - Registered in `Warfront.java`.
+  - `MissionDeathEventHandler.java`: Passes exact `Mob` instance to `ActiveCampaignMissionManager.onEntityKilled(...)`, falling back to current coordinates if mobs crossed subregion borders.
+
+### 10.9. Persistent Base Self-Repair, Controlled Decay & Placeholder Architecture
+* **5-Scenario Lifecycle Enforcement (`PersistentBaseProtectionManager.java`):**
+  1. **Scenario 1 (Peace/Vandalism):** Player destroys base blocks while no mission/war is active $\rightarrow$ Base reconstructs itself on the spot in batches of up to 16 blocks per interval with villager sparkles and anvil chime.
+  2. **Scenario 2 (Mission Engaged):** Player enters active mission subregion $\rightarrow$ Both decay and repair are strictly paused so combat destruction is permanent.
+  3. **Scenario 3 (Sortie Cleared, War Ongoing):** Player wins base sortie but regional siege is still active $\rightarrow$ Base remains stay frozen in place.
+  4. **Scenario 4 (Region Conquered by Humanity):** Player wins the war and captures the region $\rightarrow$ Remaining base blocks decay gradually with POOF dissolution particles.
+  5. **Scenario 5 (War Lost / Expired):** Regional siege times out or fails $\rightarrow$ Region remains/returns to enemy control and bases self-repair back to full integrity.
+* **Accurate NBT Structure Template Extraction (`TemplatePremadeStructure.java`):**
+  - Replaced Mojang `filterBlocks` mapping query with direct palette and block tag deserialization from native NBT.
+  - Correctly offsets local coordinates against the base anchor and guarantees non-empty blueprint retrieval.
+  - Safe caching in `BLUEPRINT_CACHE`: only non-empty blueprints are cached to avoid cache poisoning.
+* **Foundation Invariant:**
+  - Foundations beneath ground level ($y < anchor.getY()$) are strictly excluded from both the repair goal and the demolition/decay quota.
+* **Controlled Decay Speed (`MissionSiteSnapshotManager.java`):**
+  - Cut decay speed in half: 2 blocks/tick (with players nearby) instead of 4 blocks/tick for smooth visual pacing.
+* **Monolith Placeholder Distinction (`BaseBuildingRegistry.java`):**
+  - The Cobblestone Monolith is strictly a **placeholder** for tiers and factions not yet implemented (e.g. Mega Bases, Spires), **never** a fallback for implemented structures. If an implemented template encounters an issue, it logs an error rather than silently generating a monolith.
+* **Visual & Audio Effects Separation:**
+  - `POOF` particle effects are strictly reserved for structural decay, demolition, and mob despawns. Self-repair produces only `HAPPY_VILLAGER` green sparkles and `ANVIL_USE` sound effects.
+
 ---
 
 ## 11. Developer Rules for Future Iterations
@@ -399,6 +456,8 @@ When a region houses a physical base, the subregions containing the base footpri
 1. **Always Check Stored State First:** Never re-derive or guess a base location or region owner if `RegionData` already has it stored.
 2. **Never Re-Introduce Region-Wide Bans on Rivers:** Keep river checks localized to footprint viability and base-center aquatic ratio ($\le 50\%$).
 3. **Keep `AlliedFactionHelper` Free of Recursion:** Never call `livingA.isAlliedTo(livingB)` inside `AlliedFactionHelper.isAllied`. Check tags, teams, squads, and IDs directly.
-4. **Preserve GeckoLib Performance:** Do not run client-side animation state logic on the server thread.
-5. **Document Every Milestone:** Update this file at the conclusion of every major feature or refactor.
-6. **Document Latest Changes:** Maintain a walkthrough of what code and logic was changed in each file.
+4. **Do Not generate your idea of a behavior:** The user explains what needs to be accomplished in their prompt. Do not add your idea of what should be done to that process.
+5. **Always Ask For Confirmation:** You are required to create an implementation plan for every task given to you to then present to the user. Only move to the implementation part if user accepts your plan, otherwise ask for what to change.
+6. **Preserve GeckoLib Performance:** Do not run client-side animation state logic on the server thread.
+7. **Document Every Milestone:** Update this file at the conclusion of every major feature or refactor.
+8. **Document Latest Changes:** Maintain a walkthrough of what code and logic was changed in each file.

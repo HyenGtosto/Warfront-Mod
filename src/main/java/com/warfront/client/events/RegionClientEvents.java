@@ -7,6 +7,8 @@ import com.warfront.client.renderer.PillagerCommanderRenderer;
 import com.warfront.client.renderer.PillagerMarksmanRenderer;
 import com.warfront.client.renderer.PillagerScoutRenderer;
 import com.warfront.client.renderer.PillagerWarriorRenderer;
+import com.warfront.client.renderer.SupplyWagonCartRenderer;
+import com.warfront.client.renderer.SupplyWagonExtensionRenderer;
 import com.warfront.entity.ModEntities;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
@@ -38,5 +40,7 @@ public final class RegionClientEvents {
         event.registerEntityRenderer(ModEntities.PILLAGER_SCOUT.get(), PillagerScoutRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_MARKSMAN.get(), PillagerMarksmanRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_COMMANDER.get(), PillagerCommanderRenderer::new);
+        event.registerEntityRenderer(ModEntities.SUPPLY_WAGON_CART.get(), SupplyWagonCartRenderer::new);
+        event.registerEntityRenderer(ModEntities.SUPPLY_WAGON_EXTENSION.get(), SupplyWagonExtensionRenderer::new);
     }
 }

@@ -22,23 +22,23 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
     private static final MissionDefinition FALLBACK_HARD_DEF;
 
     static {
-        MissionDefinition patrol = new MissionDefinition(
-                "default_patrol",
-                MissionType.FORWARD_PATROL,
+        MissionDefinition killCount = new MissionDefinition(
+                "default_kill_count",
+                MissionType.KILL_COUNT,
                 ObjectiveType.ELIMINATE_TARGETS,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
                 0.0f, 49.999f,
                 100,
                 Map.of(),
-                5, 8,
-                0.05f,
+                40, 50,
+                0.0f,
                 List.of("BASIC"),
-                "Forward Patrol",
+                "Eliminate Hostiles",
                 "Engage and eliminate occupying hostile patrols in this sector."
         );
-        EASY_DEFINITIONS.add(patrol);
-        FALLBACK_EASY_DEF = patrol;
+        EASY_DEFINITIONS.add(killCount);
+        FALLBACK_EASY_DEF = killCount;
 
         EASY_DEFINITIONS.add(new MissionDefinition(
                 "default_convoy",
@@ -49,11 +49,11 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 0.0f, 49.999f,
                 100,
                 Map.of(),
-                4, 6,
+                2, 2,
                 0.05f,
                 List.of("BASIC"),
                 "Supply Convoy",
-                "Intercept enemy logistics transport moving through this sector."
+                "Intercept and destroy both supply convoy wagons moving through this sector."
         ));
 
         EASY_DEFINITIONS.add(new MissionDefinition(

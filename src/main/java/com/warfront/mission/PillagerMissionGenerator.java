@@ -50,23 +50,23 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
         // ==========================================
         // 4 Easy Named Missions (Resistance < 50%)
         // ==========================================
-        MissionDefinition forwardPatrol = new MissionDefinition(
-                "pillager_forward_patrol",
-                MissionType.FORWARD_PATROL,
+        MissionDefinition killCount = new MissionDefinition(
+                "pillager_kill_count",
+                MissionType.KILL_COUNT,
                 ObjectiveType.ELIMINATE_TARGETS,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
                 0.0f, 49.999f,
                 100,
                 Map.of(),
-                4, 5,
-                0.04f,
-                List.of("SCOUT", "WARRIOR"),
-                "Forward Patrol",
-                "Disrupt a light reconnaissance patrol operating near the frontline."
+                40, 50,
+                0.0f,
+                List.of("WARRIOR", "MARKSMAN"),
+                "Eliminate Hostiles",
+                "Thin out hostile patrol squads operating in this sector."
         );
-        EASY_DEFINITIONS.add(forwardPatrol);
-        FALLBACK_EASY_DEF = forwardPatrol;
+        EASY_DEFINITIONS.add(killCount);
+        FALLBACK_EASY_DEF = killCount;
 
         MissionDefinition supplyConvoy = new MissionDefinition(
                 "pillager_supply_convoy",
@@ -77,11 +77,11 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 0.0f, 49.999f,
                 100,
                 Map.of(),
-                3, 4,
+                2, 2,
                 0.04f,
-                List.of("WARRIOR", "SCOUT"),
+                List.of("WARRIOR", "MARKSMAN"),
                 "Supply Convoy",
-                "Intercept logistical supply pack moving between hostile positions."
+                "Intercept and destroy both supply convoy wagons moving through this sector."
         );
         EASY_DEFINITIONS.add(supplyConvoy);
 
@@ -111,7 +111,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 0.0f, 49.999f,
                 100,
                 Map.of(),
-                2, 3,
+                3, 4,
                 0.03f,
                 List.of("MARKSMAN", "SCOUT"),
                 "Scout Network",

@@ -47,8 +47,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class SubregionPatrolManager {
 
     public static final int SUBREGION_SIZE_BLOCKS = 64;
-    public static final int MAX_SQUADS_PER_SUBREGION = 1;
-    public static final long SPAWN_COOLDOWN_TICKS = 90L * 20L; // 90 seconds = 1800 ticks
+    public static final int MAX_SQUADS_PER_SUBREGION = 3;
+    public static final long SPAWN_COOLDOWN_TICKS = 45L * 20L; // 45 seconds = 900 ticks
     public static final double MIN_WAYPOINT_DIST = 48.0D;
     public static final int HOLD_GROUND_DURATION_TICKS = 15 * 20; // 15 seconds = 300 ticks
 
@@ -268,23 +268,49 @@ public final class SubregionPatrolManager {
             int sz = sub[3];
 
             RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
-            Faction owner = state.owner();
-            if (!owner.isAI() || state.underSiege() || com.warfront.mission.ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
-                continue; // Skip non-hostile subregions, subregions under siege, or active campaign mission areas
+            com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress progress =
+                    com.warfront.mission.ActiveCampaignMissionManager.getActiveProgress(rx, rz, sx, sz);
+
+            int maxSquads;
+            long cooldownTicks;
+            Faction targetFaction;
+
+            if (progress != null && !progress.isCompleted()) {
+                // Active War Subregion
+                targetFaction = progress.targetFaction();
+                if (!targetFaction.isAI()) {
+                    continue;
+                }
+                if (progress.missionType() == com.warfront.mission.MissionType.KILL_COUNT) {
+                    maxSquads = 4;
+                    cooldownTicks = 20L * 20L; // 20 seconds = 400 ticks
+                } else {
+                    maxSquads = 3;
+                    cooldownTicks = 30L * 20L; // 30 seconds = 600 ticks
+                }
+            } else {
+                // Out-of-war Subregion: 3 max squads, 45s cooldown
+                Faction owner = state.owner();
+                if (!owner.isAI() || state.underSiege()) {
+                    continue; // Skip non-hostile subregions or subregions under siege
+                }
+                targetFaction = owner;
+                maxSquads = MAX_SQUADS_PER_SUBREGION; // 1
+                cooldownTicks = SPAWN_COOLDOWN_TICKS; // 90 seconds = 1800 ticks
             }
 
             long subKey = makeSubKey(rx, rz, sx, sz);
             List<PatrolSquad> squads = ACTIVE_PATROLS.computeIfAbsent(subKey, k -> new CopyOnWriteArrayList<>());
 
-            if (squads.size() < MAX_SQUADS_PER_SUBREGION) {
+            if (squads.size() < maxSquads) {
                 Long lastSpawn = LAST_SPAWN_TIME.get(subKey);
-                if (lastSpawn == null || (gameTime - lastSpawn) >= SPAWN_COOLDOWN_TICKS) {
-                    PatrolSquad spawned = spawnPatrolSquad(level, regions, rx, rz, sx, sz, owner);
+                if (lastSpawn == null || (gameTime - lastSpawn) >= cooldownTicks) {
+                    PatrolSquad spawned = spawnPatrolSquad(level, regions, rx, rz, sx, sz, targetFaction);
                     if (spawned != null) {
                         squads.add(spawned);
                         LAST_SPAWN_TIME.put(subKey, gameTime);
                         Warfront.LOGGER.info("[PATROL] Spawned squad {} in Subregion ({}, {} - {}, {}). Active squads: {}/{}",
-                                spawned.getSquadId(), rx, rz, sx, sz, squads.size(), MAX_SQUADS_PER_SUBREGION);
+                                spawned.getSquadId(), rx, rz, sx, sz, squads.size(), maxSquads);
                     }
                 }
             }
@@ -386,8 +412,13 @@ public final class SubregionPatrolManager {
                 mob.addTag("warfront_squad_" + squadId);
                 mob.getPersistentData().putBoolean("warfront_roaming", true);
                 mob.getPersistentData().putBoolean("isMissionMob", false);
+                mob.getPersistentData().putBoolean("isPatrolMob", true);
                 mob.getPersistentData().putUUID("squadId", squadId);
                 mob.getPersistentData().putInt("faction", faction.id());
+                mob.getPersistentData().putInt("originRegionX", rx);
+                mob.getPersistentData().putInt("originRegionZ", rz);
+                mob.getPersistentData().putInt("originSubX", sx);
+                mob.getPersistentData().putInt("originSubZ", sz);
 
                 squad.addMember(mob.getUUID());
                 RoamingEntityTracker.registerWandering(mob, rx, rz, sx, sz, faction);

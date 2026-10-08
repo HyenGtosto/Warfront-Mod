@@ -72,7 +72,7 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
             int existingSiegeMask = 0;
             if (siege != null) {
                 if (siege.attacker() == com.warfront.region.Faction.HUMANITY) {
-                    existingSiegeMask = siege.activeSubRegionsMask();
+                    existingSiegeMask = siege.activeSubRegionsMask() & ~conqueredMask;
                 } else {
                     existingSiegeMask = com.warfront.mission.ActiveCampaignMissionManager.getActiveSubRegionsMask(payload.regionX(), payload.regionZ());
                 }

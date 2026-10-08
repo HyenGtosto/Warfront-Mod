@@ -22,7 +22,12 @@ public final class MissionDeathEventHandler {
         }
 
         CompoundTag data = mob.getPersistentData();
-        if (!data.getBoolean(RoamingEntityTracker.WARFRONT_TAG)) {
+        boolean isWarfront = data.getBoolean(RoamingEntityTracker.WARFRONT_TAG)
+                || data.getBoolean("isMissionMob")
+                || data.getBoolean("isPatrolMob")
+                || mob.getTags().contains("warfront_mission")
+                || mob.getTags().contains("warfront_patrol");
+        if (!isWarfront) {
             return; // Not a Warfront-owned mob
         }
 
@@ -31,14 +36,27 @@ public final class MissionDeathEventHandler {
         int originSubX = data.getInt("originSubX");
         int originSubZ = data.getInt("originSubZ");
 
+        int blockX = (int) mob.getX();
+        int blockZ = (int) mob.getZ();
+        int currentRegionX = Math.floorDiv(blockX, com.warfront.region.RegionData.REGION_SIZE_BLOCKS);
+        int currentRegionZ = Math.floorDiv(blockZ, com.warfront.region.RegionData.REGION_SIZE_BLOCKS);
+        int currentSubX = Math.floorMod(Math.floorDiv(blockX, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+        int currentSubZ = Math.floorMod(Math.floorDiv(blockZ, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+
         if (data.getBoolean("isAttackRoamer")) {
-            int blockX = (int) mob.getX();
-            int blockZ = (int) mob.getZ();
-            int currentRegionX = Math.floorDiv(blockX, com.warfront.region.RegionData.REGION_SIZE_BLOCKS);
-            int currentRegionZ = Math.floorDiv(blockZ, com.warfront.region.RegionData.REGION_SIZE_BLOCKS);
             if (currentRegionX == originRegionX && currentRegionZ == originRegionZ) {
-                originSubX = Math.floorMod(Math.floorDiv(blockX, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
-                originSubZ = Math.floorMod(Math.floorDiv(blockZ, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+                originSubX = currentSubX;
+                originSubZ = currentSubZ;
+            }
+        }
+
+        // If the origin subregion doesn't have an active mission, but the entity died within an active mission subregion
+        if (!ActiveCampaignMissionManager.hasActiveMission(originRegionX, originRegionZ, originSubX, originSubZ)) {
+            if (ActiveCampaignMissionManager.hasActiveMission(currentRegionX, currentRegionZ, currentSubX, currentSubZ)) {
+                originRegionX = currentRegionX;
+                originRegionZ = currentRegionZ;
+                originSubX = currentSubX;
+                originSubZ = currentSubZ;
             }
         }
 
@@ -52,7 +70,8 @@ public final class MissionDeathEventHandler {
                 originRegionX, originRegionZ,
                 originSubX, originSubZ,
                 faction,
-                roleName
+                roleName,
+                mob
         );
     }
 }

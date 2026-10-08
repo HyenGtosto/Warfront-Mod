@@ -16,6 +16,15 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlac
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
 
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -30,20 +39,14 @@ public class TemplatePremadeStructure implements PremadeStructure {
     private final int fallbackSizeX;
     private final int fallbackSizeZ;
     private final int fallbackHeight;
-    private final PremadeStructure fallbackStructure;
     private static final int MAX_FOUNDATION_DEPTH = 14;
     private static final int SET_BLOCK_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
 
     public TemplatePremadeStructure(ResourceLocation templateId, int sizeX, int sizeZ, int height) {
-        this(templateId, sizeX, sizeZ, height, null);
-    }
-
-    public TemplatePremadeStructure(ResourceLocation templateId, int fallbackSizeX, int fallbackSizeZ, int fallbackHeight, PremadeStructure fallbackStructure) {
         this.templateId = templateId;
-        this.fallbackSizeX = fallbackSizeX;
-        this.fallbackSizeZ = fallbackSizeZ;
-        this.fallbackHeight = fallbackHeight;
-        this.fallbackStructure = fallbackStructure;
+        this.fallbackSizeX = sizeX;
+        this.fallbackSizeZ = sizeZ;
+        this.fallbackHeight = height;
     }
 
     @Override
@@ -71,6 +74,68 @@ public class TemplatePremadeStructure implements PremadeStructure {
     }
 
     @Override
+    public Map<BlockPos, BlockState> getPristineBlocks(ServerLevel level, BlockPos anchor) {
+        if (level == null || anchor == null) {
+            return Map.of();
+        }
+        StructureTemplateManager manager = level.getStructureManager();
+        Optional<StructureTemplate> templateOpt = manager.get(templateId);
+        if (templateOpt.isEmpty() || templateOpt.get().getSize().getX() <= 0) {
+            Warfront.LOGGER.warn("[Warfront] Structure template '{}' could not be loaded by StructureTemplateManager.", templateId);
+            return Map.of();
+        }
+
+        StructureTemplate template = templateOpt.get();
+        Vec3i size = template.getSize();
+        int halfX = size.getX() / 2;
+        int halfZ = size.getZ() / 2;
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY(), anchor.getZ() - halfZ);
+
+        CompoundTag tag = template.save(new CompoundTag());
+        ListTag paletteTag = tag.contains("palette", Tag.TAG_LIST)
+                ? tag.getList("palette", Tag.TAG_COMPOUND)
+                : null;
+        if (paletteTag == null && tag.contains("palettes", Tag.TAG_LIST)) {
+            ListTag palettesList = tag.getList("palettes", Tag.TAG_LIST);
+            if (!palettesList.isEmpty()) {
+                paletteTag = (ListTag) palettesList.get(0);
+            }
+        }
+
+        List<BlockState> palette = new ArrayList<>();
+        if (paletteTag != null) {
+            for (int i = 0; i < paletteTag.size(); i++) {
+                palette.add(NbtUtils.readBlockState(
+                        level.holderLookup(Registries.BLOCK),
+                        paletteTag.getCompound(i)));
+            }
+        }
+
+        ListTag blocksTag = tag.getList("blocks", Tag.TAG_COMPOUND);
+        Map<BlockPos, BlockState> result = new HashMap<>(blocksTag.size());
+        for (int i = 0; i < blocksTag.size(); i++) {
+            CompoundTag b = blocksTag.getCompound(i);
+            ListTag posTag = b.getList("pos", Tag.TAG_INT);
+            int lx = posTag.getInt(0);
+            int ly = posTag.getInt(1);
+            int lz = posTag.getInt(2);
+            int stateIdx = b.getInt("state");
+            if (stateIdx >= 0 && stateIdx < palette.size()) {
+                BlockState state = palette.get(stateIdx);
+                BlockPos worldPos = origin.offset(lx, ly, lz);
+                // Strictly exclude foundations beneath ground level and air blocks
+                if (worldPos.getY() >= anchor.getY() && !state.isAir()) {
+                    result.put(worldPos.immutable(), state);
+                }
+            }
+        }
+
+        Warfront.LOGGER.info("[Warfront] Resolved {} pristine blocks for template '{}' centered at anchor {}.",
+                result.size(), templateId, anchor);
+        return result;
+    }
+
+    @Override
     public boolean place(BasePlacementContext context) {
         ServerLevel level = context.level();
         BlockPos anchor = context.anchor();
@@ -82,10 +147,6 @@ public class TemplatePremadeStructure implements PremadeStructure {
         Optional<StructureTemplate> templateOpt = manager.get(templateId);
 
         if (templateOpt.isEmpty() || templateOpt.get().getSize().getX() <= 0) {
-            if (fallbackStructure != null) {
-                Warfront.LOGGER.info("[Warfront] Structure template '{}' not found in resources/generated. Delegating to fallback blueprint.", templateId);
-                return fallbackStructure.place(context);
-            }
             Warfront.LOGGER.error("[Warfront] Required structure template '{}' not found in data/{}/structure/{}.nbt!",
                     templateId, templateId.getNamespace(), templateId.getPath());
             return false;

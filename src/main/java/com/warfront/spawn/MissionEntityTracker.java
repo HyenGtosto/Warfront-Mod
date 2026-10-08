@@ -51,6 +51,36 @@ public final class MissionEntityTracker {
     }
 
     /**
+     * Registers a newly spawned mission entity with its authoritative mission instance metadata.
+     */
+    public static void registerMissionEntity(
+            Entity entity,
+            UUID missionInstanceId,
+            int regionX,
+            int regionZ,
+            int subX,
+            int subZ,
+            Faction faction
+    ) {
+        if (entity == null || missionInstanceId == null) {
+            return;
+        }
+        if (entity instanceof Mob mob) {
+            mob.setNoAi(false);
+        }
+        TRACKED_MISSION_MOBS.put(entity.getUUID(), new TrackedMissionMob(
+                entity.getUUID(),
+                missionInstanceId,
+                regionX,
+                regionZ,
+                subX,
+                subZ,
+                faction,
+                entity.level().getGameTime()
+        ));
+    }
+
+    /**
      * Registers a newly spawned mission mob with its authoritative mission instance metadata.
      */
     public static void registerMissionMob(
@@ -62,20 +92,7 @@ public final class MissionEntityTracker {
             int subZ,
             Faction faction
     ) {
-        if (mob == null || missionInstanceId == null) {
-            return;
-        }
-        mob.setNoAi(false);
-        TRACKED_MISSION_MOBS.put(mob.getUUID(), new TrackedMissionMob(
-                mob.getUUID(),
-                missionInstanceId,
-                regionX,
-                regionZ,
-                subX,
-                subZ,
-                faction,
-                mob.level().getGameTime()
-        ));
+        registerMissionEntity(mob, missionInstanceId, regionX, regionZ, subX, subZ, faction);
     }
 
     /**
@@ -89,7 +106,7 @@ public final class MissionEntityTracker {
         for (TrackedMissionMob item : TRACKED_MISSION_MOBS.values()) {
             if (missionInstanceId.equals(item.missionInstanceId())) {
                 Entity entity = level.getEntity(item.entityUuid());
-                if (entity instanceof Mob mob && mob.isAlive()) {
+                if (entity != null && entity.isAlive()) {
                     living++;
                 }
             }
@@ -98,7 +115,7 @@ public final class MissionEntityTracker {
     }
 
     /**
-     * Server tick evaluation hook for mission-specific mob lifecycle.
+     * Server tick evaluation hook for mission-specific entity lifecycle.
      */
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerLevel level = event.getServer().overworld();
@@ -107,7 +124,10 @@ public final class MissionEntityTracker {
         }
 
         long gameTime = level.getGameTime();
-        if (gameTime % EVAL_INTERVAL_TICKS != 0) {
+        boolean checkActiveLeash = (gameTime % EVAL_INTERVAL_TICKS == 0);
+        boolean checkTerminalDispersal = (gameTime % 10 == 0); // 10 ticks = 0.5s per entity dispersal
+
+        if (!checkActiveLeash && !checkTerminalDispersal) {
             return;
         }
 
@@ -116,13 +136,13 @@ public final class MissionEntityTracker {
             return;
         }
 
-        // Group tracked mobs by missionInstanceId
+        // Group tracked entities by missionInstanceId
         Map<UUID, List<TrackedMissionMob>> mobsByMission = new HashMap<>();
         List<UUID> deadOrInvalid = new ArrayList<>();
 
         for (TrackedMissionMob tracked : TRACKED_MISSION_MOBS.values()) {
             Entity entity = level.getEntity(tracked.entityUuid());
-            if (!(entity instanceof Mob mob) || !mob.isAlive()) {
+            if (entity == null || !entity.isAlive()) {
                 deadOrInvalid.add(tracked.entityUuid());
                 continue;
             }
@@ -144,55 +164,65 @@ public final class MissionEntityTracker {
                     missionId, sample.regionX(), sample.regionZ(), sample.subX(), sample.subZ());
 
             if (isInstanceActive) {
+                if (!checkActiveLeash) continue;
                 // CASE A: Mission IS ACTIVE -> 64-block leash
                 for (TrackedMissionMob item : group) {
                     Entity entity = level.getEntity(item.entityUuid());
-                    if (!(entity instanceof Mob mob) || !mob.isAlive()) {
+                    if (entity == null || !entity.isAlive()) {
                         TRACKED_MISSION_MOBS.remove(item.entityUuid());
                         continue;
                     }
 
-                    double minDistSq = getMinDistanceSqToPlayers(mob, players, level);
+                    double minDistSq = getMinDistanceSqToPlayers(entity, players, level);
                     if (minDistSq > ACTIVE_MISSION_DESPAWN_RADIUS_SQ) {
                         // Despawn distant active mission mob so new wave can spawn closer to combat
-                        mob.discard();
+                        entity.discard();
                         TRACKED_MISSION_MOBS.remove(item.entityUuid());
-                    } else {
+                    } else if (entity instanceof Mob mob) {
                         // Keep mob combat-ready
                         mob.setNoAi(false);
                     }
                 }
             } else {
+                if (!checkTerminalDispersal) continue;
                 // CASE B: Mission IS TERMINAL (Cleared, Abandoned, Cancelled, Expired)
-                List<Mob> nearbyLeftoverMobs = new ArrayList<>();
+                List<Entity> nearbyLeftoverEntities = new ArrayList<>();
 
                 for (TrackedMissionMob item : group) {
                     Entity entity = level.getEntity(item.entityUuid());
-                    if (!(entity instanceof Mob mob) || !mob.isAlive()) {
+                    if (entity == null || !entity.isAlive()) {
                         TRACKED_MISSION_MOBS.remove(item.entityUuid());
                         continue;
                     }
 
-                    double minDistSq = getMinDistanceSqToPlayers(mob, players, level);
+                    double minDistSq = getMinDistanceSqToPlayers(entity, players, level);
                     if (minDistSq > ACTIVE_MISSION_DESPAWN_RADIUS_SQ) {
                         // Despawn distant leftover mob immediately
-                        mob.discard();
+                        entity.discard();
                         TRACKED_MISSION_MOBS.remove(item.entityUuid());
                     } else {
-                        nearbyLeftoverMobs.add(mob);
+                        nearbyLeftoverEntities.add(entity);
                     }
                 }
 
-                // Staggered Dispersal: Despawn at most 1 nearby leftover mob per evaluation interval
-                if (!nearbyLeftoverMobs.isEmpty()) {
-                    Mob chosenToDisperse = nearbyLeftoverMobs.get(0);
+                // Staggered Dispersal: Despawn at most 1 nearby leftover entity per evaluation interval with POOF particles
+                if (!nearbyLeftoverEntities.isEmpty()) {
+                    Entity chosenToDisperse = nearbyLeftoverEntities.get(0);
                     level.sendParticles(
                             ParticleTypes.POOF,
                             chosenToDisperse.getX(),
-                            chosenToDisperse.getY() + 1.0D,
+                            chosenToDisperse.getY() + Math.max(0.5D, chosenToDisperse.getBbHeight() / 2.0D),
                             chosenToDisperse.getZ(),
-                            10,
-                            0.3D, 0.5D, 0.3D, 0.05D
+                            12,
+                            0.35D, 0.45D, 0.35D, 0.05D
+                    );
+                    level.playSound(
+                            null,
+                            chosenToDisperse.blockPosition(),
+                            net.minecraft.sounds.SoundEvents.CHICKEN_EGG,
+                            net.minecraft.sounds.SoundSource.HOSTILE,
+                            0.8F,
+                            1.2F
                     );
                     chosenToDisperse.discard();
                     TRACKED_MISSION_MOBS.remove(chosenToDisperse.getUUID());
@@ -201,11 +231,11 @@ public final class MissionEntityTracker {
         }
     }
 
-    private static double getMinDistanceSqToPlayers(Mob mob, List<ServerPlayer> players, ServerLevel level) {
+    private static double getMinDistanceSqToPlayers(Entity entity, List<ServerPlayer> players, ServerLevel level) {
         double minDistSq = Double.MAX_VALUE;
         for (ServerPlayer player : players) {
             if (player.level() != level) continue;
-            double dSq = mob.distanceToSqr(player);
+            double dSq = entity.distanceToSqr(player);
             if (dSq < minDistSq) {
                 minDistSq = dSq;
             }

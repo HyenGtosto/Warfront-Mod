@@ -25,6 +25,14 @@ public final class WarfrontBlocks {
             () -> new CommandTerminalBlock(BlockBehaviour.Properties.ofFullCopy(Blocks.DIRT)));
     public static final DeferredItem<BlockItem> COMMAND_TERMINAL_ITEM = ITEMS.registerSimpleBlockItem("command_terminal", COMMAND_TERMINAL);
 
+    public static final DeferredBlock<Block> MISSION_TARGET_CORE = BLOCKS.registerSimpleBlock("mission_target_core",
+            BlockBehaviour.Properties.of()
+                    .mapColor(net.minecraft.world.level.material.MapColor.COLOR_RED)
+                    .strength(50.0F, 0.5F)
+                    .sound(net.minecraft.world.level.block.SoundType.METAL)
+                    .requiresCorrectToolForDrops());
+    public static final DeferredItem<BlockItem> MISSION_TARGET_CORE_ITEM = ITEMS.registerSimpleBlockItem("mission_target_core", MISSION_TARGET_CORE);
+
     public static final DeferredItem<Item> MAP_TERMINAL = ITEMS.register("map_terminal",
             () -> new MapTerminalItem(new Item.Properties().stacksTo(1)));
 
@@ -53,6 +61,7 @@ public final class WarfrontBlocks {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS || event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(CLAIM_CORE_ITEM);
             event.accept(COMMAND_TERMINAL_ITEM);
+            event.accept(MISSION_TARGET_CORE_ITEM);
             event.accept(MAP_TERMINAL);
             event.accept(TESTING_MAP_TERMINAL);
         }
