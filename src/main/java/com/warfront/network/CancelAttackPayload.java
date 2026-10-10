@@ -35,6 +35,13 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
     public static void handle(CancelAttackPayload payload, IPayloadContext context) {
         ServerPlayer player = (ServerPlayer) context.player();
         ServerLevel level = player.serverLevel();
+
+        com.warfront.faction.PlayerFaction playerFaction = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(player.getUUID());
+        if (playerFaction == null) {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot interact with the war without being in a faction!"));
+            return;
+        }
+
         RegionData regions = RegionData.get(level);
 
         RegionData.SiegeCampaign existingSiege = regions.getSiege(payload.regionX(), payload.regionZ());
@@ -42,22 +49,53 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
 
         if (existingSiege != null) {
             boolean isDefense = existingSiege.attacker() != Faction.HUMANITY;
-            if (!isDefense) {
-                // Cancel player attack campaign on server
+            if (existingSiege.isFieldBattle()) {
+                boolean isAttackerFaction = existingSiege.attackerPlayerFactionId() != null && existingSiege.attackerPlayerFactionId().equals(playerFaction.getId());
+                boolean isDefenderFaction = existingSiege.defenderPlayerFactionId() != null && existingSiege.defenderPlayerFactionId().equals(playerFaction.getId());
+                if (!isAttackerFaction && !isDefenderFaction) {
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot cancel a field battle your faction is not part of!"));
+                    return;
+                }
                 regions.setRegionSiege(payload.regionX(), payload.regionZ(), false);
                 regions.getActiveSieges().remove(regionKey);
-                ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
                 regions.revertRegionSubRegionsToOwner(level, payload.regionX(), payload.regionZ());
-
-                regions.addLog(level, String.format("§eCampaign cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
-                Warfront.LOGGER.info("Campaign cancelled by player {} for Region ({}, {}).",
+                com.warfront.mission.FieldBattleManager.clearHudForFieldBattle(level, payload.regionX(), payload.regionZ(), existingSiege.attackerPlayerFactionId(), existingSiege.defenderPlayerFactionId());
+                regions.addLog(level, String.format("§eField battle cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
+                Warfront.LOGGER.info("Field battle cancelled by player {} for Region ({}, {}).",
                         player.getName().getString(), payload.regionX(), payload.regionZ());
             } else {
-                // Cancel player defense missions on server (AI siege remains active at region level)
-                ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
-                regions.addLog(level, String.format("§eDefense missions cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
-                Warfront.LOGGER.info("Defense missions cancelled by player {} for Region ({}, {}).",
-                        player.getName().getString(), payload.regionX(), payload.regionZ());
+                if (!isDefense) {
+                    if (existingSiege.attackerPlayerFactionId() != null && !existingSiege.attackerPlayerFactionId().equals(playerFaction.getId())) {
+                        player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot cancel another faction's campaign!"));
+                        return;
+                    }
+                    // Cancel player attack campaign on server
+                    regions.setRegionSiege(payload.regionX(), payload.regionZ(), false);
+                    regions.getActiveSieges().remove(regionKey);
+                    ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
+                    regions.revertRegionSubRegionsToOwner(level, payload.regionX(), payload.regionZ());
+
+                    regions.addLog(level, String.format("§eCampaign cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
+                    Warfront.LOGGER.info("Campaign cancelled by player {} for Region ({}, {}).",
+                            player.getName().getString(), payload.regionX(), payload.regionZ());
+                } else {
+                    java.util.UUID defenderId = existingSiege.defenderPlayerFactionId();
+                    if (defenderId == null) {
+                        RegionData.Region target = regions.regionAt(payload.regionX(), payload.regionZ());
+                        if (target.owner() == Faction.HUMANITY) {
+                            defenderId = target.playerFactionId();
+                        }
+                    }
+                    if (defenderId != null && !defenderId.equals(playerFaction.getId())) {
+                        player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Only the defending faction can cancel defense missions!"));
+                        return;
+                    }
+                    // Cancel player defense missions on server (AI siege remains active at region level)
+                    ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
+                    regions.addLog(level, String.format("§eDefense missions cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
+                    Warfront.LOGGER.info("Defense missions cancelled by player {} for Region ({}, {}).",
+                            player.getName().getString(), payload.regionX(), payload.regionZ());
+                }
             }
 
             RequestRegionMapPayload.notifyActiveMapTerminals(level);
@@ -68,9 +106,9 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             float effectiveStability = regions.calculateEffectiveStability(payload.regionX(), payload.regionZ());
 
             int dominoThreshold = regions.calculateDominoThreshold(payload.regionX(), payload.regionZ());
-            int reachableMask = regions.computeReachableMask(payload.regionX(), payload.regionZ());
-            int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
-            boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ());
+            int reachableMask = regions.computeReachableMask(payload.regionX(), payload.regionZ(), playerFaction.getId());
+            int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ(), playerFaction.getId());
+            boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ(), playerFaction.getId());
 
             long remainingTicks = 0L;
             if (isDefense) {

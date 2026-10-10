@@ -191,8 +191,6 @@ public final class BasePlacementManager {
             regions.markBasePlaced(regionX, regionZ, anchor);
             Warfront.LOGGER.info("[Warfront] Placed persistent base ({}) for {} at {} in region ({}, {})",
                     baseType, owner.displayName().getString(), anchor, regionX, regionZ);
-            regions.addLog(level, String.format("§eEnemy %s placed at [%d, %d, %d] in Region (%d, %d)",
-                    baseType.name(), anchor.getX(), anchor.getY(), anchor.getZ(), regionX, regionZ));
             return true;
         }
 

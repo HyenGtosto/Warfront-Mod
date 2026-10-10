@@ -20,7 +20,8 @@ public final class RegionMapState {
 
     public enum ActiveTab {
         MAP_VIEW,
-        INTELLIGENCE_LOGS
+        INTELLIGENCE_LOGS,
+        FACTION
     }
 
     public enum TickAction {
@@ -177,7 +178,13 @@ public final class RegionMapState {
                 payload.reinforcementRemainingTicks(),
                 payload.isEncircled(),
                 payload.baseAnchor(),
-                payload.missionSeed());
+                payload.missionSeed(),
+                payload.playerFactionName(),
+                payload.attackerFactionName(),
+                payload.isFieldBattle(),
+                payload.attackerProgress(),
+                payload.defenderProgress(),
+                payload.playerInFactionRegion());
 
         if (payload.underSiege()) {
             activatedRegions.add(regKey);

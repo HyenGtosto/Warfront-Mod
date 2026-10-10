@@ -97,6 +97,8 @@ public final class AttackRoamerManager {
     private AttackRoamerManager() {
     }
 
+    private static long lastTerminalDispersalTick = 0L;
+
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerLevel level = event.getServer().overworld();
         if (level == null) {
@@ -130,8 +132,9 @@ public final class AttackRoamerManager {
             }
         }
 
-        // 2. Process terminal dispersal for concluded sieges (similar to mission mob cleanup)
-        if (!TERMINAL_SQUADS_BY_REGION.isEmpty() && !players.isEmpty()) {
+        // 2. Process terminal dispersal for concluded sieges (2.5s per mob)
+        if (!TERMINAL_SQUADS_BY_REGION.isEmpty() && !players.isEmpty() && (gameTime - lastTerminalDispersalTick >= 50L)) {
+            lastTerminalDispersalTick = gameTime;
             List<Long> emptyTerminalRegions = new ArrayList<>();
 
             for (Map.Entry<Long, List<ActiveSquad>> entry : TERMINAL_SQUADS_BY_REGION.entrySet()) {

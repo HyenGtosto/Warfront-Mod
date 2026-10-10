@@ -78,7 +78,14 @@ public final class RegionCommands {
                 .orElseThrow(() -> CommandSyntaxException.BUILT_IN_EXCEPTIONS.dispatcherUnknownArgument().create());
         RegionData regions = RegionData.get(player.serverLevel());
         RegionData.Region region = regions.regionAt(player.blockPosition());
-        regions.setOwner(region.x(), region.z(), faction);
+        if (faction == Faction.HUMANITY) {
+            java.util.UUID pfId = null;
+            com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(player.serverLevel()).getFactionByPlayer(player.getUUID());
+            if (pf != null) pfId = pf.getId();
+            regions.setRegion(player.serverLevel(), region.x(), region.z(), faction, 20.0F, 20.0F, BaseType.NONE, 0L, null, pfId);
+        } else {
+            regions.setOwner(player.serverLevel(), region.x(), region.z(), faction);
+        }
         context.getSource().sendSuccess(
                 () -> Component.translatable("command.warfront.region.owner_set", faction.displayName(), region.x(), region.z()), true);
         return Command.SINGLE_SUCCESS;
@@ -103,7 +110,7 @@ public final class RegionCommands {
                 int rz = centerRZ + dz;
                 RegionData.Region region = regions.regionAt(rx, rz);
                 if (region.owner() == faction) {
-                    regions.setOwner(rx, rz, Faction.UNCLAIMED);
+                    regions.setOwner(level, rx, rz, Faction.UNCLAIMED);
                     wipedCount++;
                 }
             }

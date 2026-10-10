@@ -137,6 +137,21 @@ public class SupplyWagonExtensionEntity extends PathfinderMob implements GeoEnti
     }
 
     @Override
+    public boolean isPushable() {
+        return false;
+    }
+
+    @Override
+    public boolean isPushedByFluid() {
+        return false;
+    }
+
+    @Override
+    public void push(Entity other) {
+        // Heavy wagon trailer is immune to collision pushes
+    }
+
+    @Override
     public Component getDisplayName() {
         return Component.translatable("container.warfront.supply_wagon_chest");
     }
@@ -198,15 +213,6 @@ public class SupplyWagonExtensionEntity extends PathfinderMob implements GeoEnti
         }
     }
 
-    @Override
-    public void push(Entity other) {
-        if (other == null) return;
-        UUID otherId = other.getUUID();
-        if (otherId.equals(cartWagonUuid)) {
-            return;
-        }
-        super.push(other);
-    }
 
     @Override
     public void dropLeash(boolean broadcastPacket, boolean dropItem) {
@@ -241,6 +247,9 @@ public class SupplyWagonExtensionEntity extends PathfinderMob implements GeoEnti
                     (int) Math.round(targetX),
                     (int) Math.round(targetZ)
             );
+            if (targetY <= this.level().getMinBuildHeight() + 5 || Math.abs(targetY - cartWagon.getBlockY()) > 8) {
+                targetY = cartWagon.getBlockY();
+            }
 
             double dx = targetX - this.getX();
             double dz = targetZ - this.getZ();

@@ -46,7 +46,7 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
         }
 
         RegionData regions = RegionData.get(player.serverLevel());
-        boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisited(payload.regionX(), payload.regionZ());
+        boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisitedForPlayer(player.serverLevel(), player.getUUID(), payload.regionX(), payload.regionZ());
 
         if (!isVisited) {
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
@@ -65,10 +65,16 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                 remainingTicks = Math.max(0L, siege.durationTicks() - elapsed);
             }
 
+            com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(player.serverLevel()).getFactionByPlayer(player.getUUID());
+            java.util.UUID pfId = (pf != null) ? pf.getId() : null;
+
+            RegionData.Region playerRegion = regions.regionAt(player.blockPosition());
+            boolean playerInFactionRegion = (pfId != null) && (playerRegion.owner() == com.warfront.region.Faction.HUMANITY) && pfId.equals(playerRegion.playerFactionId());
+
             int dominoThreshold = regions.calculateDominoThreshold(payload.regionX(), payload.regionZ());
-            int reachableMask = regions.computeReachableMask(payload.regionX(), payload.regionZ());
-            int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ());
-            boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ());
+            int reachableMask = regions.computeReachableMask(payload.regionX(), payload.regionZ(), pfId);
+            int conqueredMask = regions.computeConqueredMask(payload.regionX(), payload.regionZ(), pfId);
+            boolean regionReachable = regions.isRegionReachable(payload.regionX(), payload.regionZ(), pfId);
             int existingSiegeMask = 0;
             if (siege != null) {
                 if (siege.attacker() == com.warfront.region.Faction.HUMANITY) {
@@ -94,6 +100,30 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
             long missionSeed = regions.calculateMissionSeed(region.x(), region.z());
             net.minecraft.core.BlockPos baseAnchor = region.baseAnchor();
 
+            String playerFactionName = "";
+            if (region.playerFactionId() != null) {
+                com.warfront.faction.PlayerFaction ownerPf = com.warfront.faction.PlayerFactionData.get(player.serverLevel()).getFactionById(region.playerFactionId());
+                if (ownerPf != null) {
+                    playerFactionName = ownerPf.getName();
+                }
+            }
+
+            String attackerFactionName = "";
+            boolean isFieldBattle = false;
+            float attackerProgress = 0.0F;
+            float defenderProgress = 0.0F;
+            if (siege != null) {
+                if (siege.attackerPlayerFactionId() != null) {
+                    com.warfront.faction.PlayerFaction apf = com.warfront.faction.PlayerFactionData.get(player.serverLevel()).getFactionById(siege.attackerPlayerFactionId());
+                    if (apf != null) {
+                        attackerFactionName = apf.getName();
+                    }
+                }
+                isFieldBattle = siege.isFieldBattle();
+                attackerProgress = siege.attackerProgress();
+                defenderProgress = siege.defenderProgress();
+            }
+
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
@@ -101,7 +131,9 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                     region.baseType().id(), (siege != null), true,
                     remainingTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask,
                     attackerFactionId, isAwaitingReinf, reinfRemainingTicks, isEncircled,
-                    baseAnchor, missionSeed));
+                    baseAnchor, missionSeed,
+                    playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress,
+                    playerInFactionRegion));
         }
     }
 

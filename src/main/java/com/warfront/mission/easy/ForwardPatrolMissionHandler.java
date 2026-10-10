@@ -62,11 +62,14 @@ public final class ForwardPatrolMissionHandler implements MissionObjectiveHandle
         int spawnZ = -1;
         int spawnY = Integer.MIN_VALUE;
 
-        for (int attempt = 0; attempt < 16; attempt++) {
+        int baseX = (player.getBlockX() >= subMinX && player.getBlockX() <= subMaxX) ? player.getBlockX() : (subMinX + subMaxX) / 2;
+        int baseZ = (player.getBlockZ() >= subMinZ && player.getBlockZ() <= subMaxZ) ? player.getBlockZ() : (subMinZ + subMaxZ) / 2;
+
+        for (int attempt = 0; attempt < 24; attempt++) {
             double angle = level.getRandom().nextDouble() * 2 * Math.PI;
-            double dist = 18.0 + level.getRandom().nextDouble() * 8.0;
-            int cx = Math.clamp((int) (player.getBlockX() + Math.cos(angle) * dist), subMinX + 4, subMaxX - 4);
-            int cz = Math.clamp((int) (player.getBlockZ() + Math.sin(angle) * dist), subMinZ + 4, subMaxZ - 4);
+            double dist = 14.0 + level.getRandom().nextDouble() * 12.0;
+            int cx = Math.clamp((int) (baseX + Math.cos(angle) * dist), subMinX + 4, subMaxX - 4);
+            int cz = Math.clamp((int) (baseZ + Math.sin(angle) * dist), subMinZ + 4, subMaxZ - 4);
 
             int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, cx, cz);
             if (y != Integer.MIN_VALUE) {

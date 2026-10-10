@@ -34,8 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class PersistentBaseProtectionManager {
 
-    /** How often (in server ticks) bases evaluate structural integrity and self-repair (100 ticks = 5 seconds). */
-    private static final int REPAIR_INTERVAL_TICKS = 60;
+    /** How often (in server ticks) bases evaluate structural integrity and self-repair (30 ticks = 1.5 seconds). */
+    private static final int REPAIR_INTERVAL_TICKS = 30;
 
     /** Maximum blocks a base will self-repair per interval to provide smooth, cascading reconstruction. */
     private static final int MAX_REPAIRED_BLOCKS_PER_INTERVAL = 16;

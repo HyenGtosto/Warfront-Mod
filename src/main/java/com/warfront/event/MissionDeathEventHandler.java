@@ -43,21 +43,45 @@ public final class MissionDeathEventHandler {
         int currentSubX = Math.floorMod(Math.floorDiv(blockX, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
         int currentSubZ = Math.floorMod(Math.floorDiv(blockZ, com.warfront.spawn.ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
 
-        if (data.getBoolean("isAttackRoamer")) {
-            if (currentRegionX == originRegionX && currentRegionZ == originRegionZ) {
-                originSubX = currentSubX;
-                originSubZ = currentSubZ;
+        boolean isMissionMob = data.getBoolean("isMissionMob") || mob.getTags().contains("warfront_mission");
+
+        // For ambient and patrol mobs, require player involvement in the death so natural causes (daylight, fall, despawn)
+        // do not automatically advance kill count missions in the background
+        if (!isMissionMob) {
+            boolean playerInvolved = false;
+            if (event.getSource() != null && event.getSource().getEntity() instanceof net.minecraft.world.entity.player.Player) {
+                playerInvolved = true;
+            } else if (mob.getKillCredit() instanceof net.minecraft.world.entity.player.Player) {
+                playerInvolved = true;
+            } else if (mob.getLastHurtByMob() instanceof net.minecraft.world.entity.player.Player) {
+                playerInvolved = true;
+            } else if (event.getSource() != null && event.getSource().getEntity() instanceof net.minecraft.world.entity.TamableAnimal tamed && tamed.getOwner() instanceof net.minecraft.world.entity.player.Player) {
+                playerInvolved = true;
+            } else if (event.getSource() != null && event.getSource().getDirectEntity() instanceof net.minecraft.world.entity.projectile.Projectile proj && proj.getOwner() instanceof net.minecraft.world.entity.player.Player) {
+                playerInvolved = true;
+            }
+            if (!playerInvolved) {
+                return;
             }
         }
 
-        // If the origin subregion doesn't have an active mission, but the entity died within an active mission subregion
-        if (!ActiveCampaignMissionManager.hasActiveMission(originRegionX, originRegionZ, originSubX, originSubZ)) {
-            if (ActiveCampaignMissionManager.hasActiveMission(currentRegionX, currentRegionZ, currentSubX, currentSubZ)) {
-                originRegionX = currentRegionX;
-                originRegionZ = currentRegionZ;
-                originSubX = currentSubX;
-                originSubZ = currentSubZ;
-            }
+        int targetRegionX;
+        int targetRegionZ;
+        int targetSubX;
+        int targetSubZ;
+
+        // If explicitly spawned as a mission entity and that specific mission is active, route to origin.
+        // Otherwise (patrol mobs, roamers), route strictly to where the killed target physically is.
+        if (isMissionMob && ActiveCampaignMissionManager.hasActiveMission(originRegionX, originRegionZ, originSubX, originSubZ)) {
+            targetRegionX = originRegionX;
+            targetRegionZ = originRegionZ;
+            targetSubX = originSubX;
+            targetSubZ = originSubZ;
+        } else {
+            targetRegionX = currentRegionX;
+            targetRegionZ = currentRegionZ;
+            targetSubX = currentSubX;
+            targetSubZ = currentSubZ;
         }
 
         int factionId = data.getInt("faction");
@@ -67,8 +91,8 @@ public final class MissionDeathEventHandler {
 
         ActiveCampaignMissionManager.onEntityKilled(
                 level,
-                originRegionX, originRegionZ,
-                originSubX, originSubZ,
+                targetRegionX, targetRegionZ,
+                targetSubX, targetSubZ,
                 faction,
                 roleName,
                 mob

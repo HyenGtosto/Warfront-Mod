@@ -96,6 +96,34 @@ public final class MissionEntityTracker {
     }
 
     /**
+     * Registers a tracked entity UUID even if its entity object is currently unloaded.
+     */
+    public static void registerMissionEntityUuid(
+            UUID entityUuid,
+            UUID missionInstanceId,
+            int regionX,
+            int regionZ,
+            int subX,
+            int subZ,
+            Faction faction,
+            long gameTime
+    ) {
+        if (entityUuid == null || missionInstanceId == null) {
+            return;
+        }
+        TRACKED_MISSION_MOBS.put(entityUuid, new TrackedMissionMob(
+                entityUuid,
+                missionInstanceId,
+                regionX,
+                regionZ,
+                subX,
+                subZ,
+                faction,
+                gameTime
+        ));
+    }
+
+    /**
      * Counts how many mobs belonging to a specific mission instance are currently alive in the level.
      */
     public static int getLivingMissionMobCount(UUID missionInstanceId, ServerLevel level) {
@@ -125,7 +153,7 @@ public final class MissionEntityTracker {
 
         long gameTime = level.getGameTime();
         boolean checkActiveLeash = (gameTime % EVAL_INTERVAL_TICKS == 0);
-        boolean checkTerminalDispersal = (gameTime % 10 == 0); // 10 ticks = 0.5s per entity dispersal
+        boolean checkTerminalDispersal = (gameTime % 50 == 0); // 50 ticks = 2.5s per entity dispersal
 
         if (!checkActiveLeash && !checkTerminalDispersal) {
             return;
@@ -142,11 +170,14 @@ public final class MissionEntityTracker {
 
         for (TrackedMissionMob tracked : TRACKED_MISSION_MOBS.values()) {
             Entity entity = level.getEntity(tracked.entityUuid());
-            if (entity == null || !entity.isAlive()) {
-                deadOrInvalid.add(tracked.entityUuid());
-                continue;
+            if (entity != null) {
+                if (!entity.isAlive()) {
+                    deadOrInvalid.add(tracked.entityUuid());
+                    continue;
+                }
+                mobsByMission.computeIfAbsent(tracked.missionInstanceId(), k -> new ArrayList<>()).add(tracked);
             }
-            mobsByMission.computeIfAbsent(tracked.missionInstanceId(), k -> new ArrayList<>()).add(tracked);
+            // Note: If entity == null, its chunk is currently unloaded. Do NOT purge it so it will be cleaned up when loaded!
         }
 
         for (UUID invalidUuid : deadOrInvalid) {

@@ -79,20 +79,28 @@ public final class AIAttackManager {
                             }
                         }
 
+                        RegionData.Region targetReg = regions.regionAt(trx, trz);
+                        String defenderName = "Humanity";
+                        if (targetReg.playerFactionId() != null) {
+                            com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(targetReg.playerFactionId());
+                            if (pf != null) defenderName = pf.getName();
+                        }
+
                         if (securedCount >= dominoThreshold) {
                             // Player successfully defended enough sectors before timer expired -> DEFENSE VICTORY!
                             regions.setRegionSiege(trx, trz, false);
-                            regions.addLog(level, String.format("§aSiege expired: Region (%d, %d) defended against %s.", trx, trz, attacker.commandName()));
-                            Warfront.LOGGER.info("Siege expired: Region ({}, {}) defended.", trx, trz);
+                            regions.addLog(level, String.format("§aSiege expired: Region (%d, %d) defended by %s against %s.", trx, trz, defenderName, attacker.commandName()));
+                            Warfront.LOGGER.info("Siege expired: Region ({}, {}) defended by {}.", trx, trz, defenderName);
                         } else {
                             // Defense failed -> Defending region falls to attacking AI faction!
                             BaseType baseType = regions.determineBaseTypeForConqueredRegion(trx, trz, attacker);
                             regions.claim(level, trx, trz, attacker, 0.0F, 0.0F, baseType);
-                            regions.addLog(level, String.format("§cSiege expired: Region (%d, %d) conquered by %s.", trx, trz, attacker.commandName()));
-                            Warfront.LOGGER.info("Siege expired: Region ({}, {}) conquered by {}.", trx, trz, attacker.commandName());
+                            regions.addLog(level, String.format("§cSiege expired: Region (%d, %d) [%s] conquered by %s.", trx, trz, defenderName, attacker.commandName()));
+                            Warfront.LOGGER.info("Siege expired: Region ({}, {}) [{}] conquered by {}.", trx, trz, defenderName, attacker.commandName());
                         }
                     } else {
                         // Player campaign expired
+                        java.util.UUID attackerPfId = campaign.attackerPlayerFactionId();
                         regions.setRegionSiege(trx, trz, false);
                         regions.getActiveSieges().remove(net.minecraft.world.level.ChunkPos.asLong(trx, trz));
                         com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, trx, trz);
@@ -104,7 +112,7 @@ public final class AIAttackManager {
 
                         if (heldSectors >= dominoThreshold) {
                             // Full domino collapse threshold reached -> Complete capture for Humanity!
-                            regions.claim(level, trx, trz, Faction.HUMANITY, 0.5F, 0.5F, BaseType.NONE);
+                            regions.claim(level, trx, trz, Faction.HUMANITY, 20.0F, 20.0F, BaseType.NONE, attackerPfId);
                             String outcome = String.format("§aCampaign victory: Region (%d, %d) captured for Humanity!", trx, trz);
                             regions.addLog(level, outcome);
                             Warfront.LOGGER.info("Campaign expired with victory: Region ({}, {}) captured.", trx, trz);
@@ -314,7 +322,12 @@ public final class AIAttackManager {
             anyAttackLaunched = true;
 
             RegionData.RegionState targetRegion = getRawOrSavedRegionState(level, regions, chosen.targetRegionX(), chosen.targetRegionZ());
-            String defenderInfo = String.format("[%s - %s]", targetRegion.owner().commandName(), targetRegion.baseType().name());
+            String ownerName = targetRegion.owner().commandName();
+            if (targetRegion.playerFactionId() != null) {
+                com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(targetRegion.playerFactionId());
+                if (pf != null) ownerName = pf.getName();
+            }
+            String defenderInfo = String.format("[%s - %s]", ownerName, targetRegion.baseType().name());
 
             String logMsg;
             if (details.encircled()) {

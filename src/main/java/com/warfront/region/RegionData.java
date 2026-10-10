@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -47,6 +48,7 @@ public final class RegionData extends SavedData {
     private final Map<Long, Integer> zombieRetaliationWeights = new HashMap<>();
     private final List<String> warfrontLogs = new ArrayList<>();
     private final java.util.Set<Long> visitedRegions = new java.util.HashSet<>();
+    private final Map<UUID, Set<Long>> playerVisitedRegions = new HashMap<>();
     private long worldSeed;
     private transient ServerLevel level;
 
@@ -94,6 +96,7 @@ public final class RegionData extends SavedData {
                         regionTag.getInt("base_anchor_y"),
                         regionTag.getInt("base_anchor_z"));
             }
+            UUID playerFactionId = regionTag.hasUUID("player_faction_id") ? regionTag.getUUID("player_faction_id") : null;
 
             if (faction != Faction.UNCLAIMED) {
                 float rawStab = regionTag.getFloat(STABILITY_TAG);
@@ -111,7 +114,11 @@ public final class RegionData extends SavedData {
                         baseType,
                         clusterId,
                         baseAnchor,
-                        basePlaced));
+                        basePlaced,
+                        playerFactionId));
+            } else {
+                data.regions.put(regionTag.getLong(REGION_TAG), new RegionState(
+                        Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L, null, false, null));
             }
         }
 
@@ -124,6 +131,7 @@ public final class RegionData extends SavedData {
             Faction faction = Faction.byId(subTag.getInt(FACTION_TAG));
             float rawStab = subTag.getFloat(STABILITY_TAG);
             long clusterId = subTag.contains("cluster_id", Tag.TAG_LONG) ? subTag.getLong("cluster_id") : 0L;
+            UUID playerFactionId = subTag.hasUUID("player_faction_id") ? subTag.getUUID("player_faction_id") : null;
 
             if (rawStab > 0.0F && rawStab <= 1.0F) rawStab *= 100.0F;
 
@@ -131,7 +139,7 @@ public final class RegionData extends SavedData {
             boolean underSiege = subTag.getBoolean(SIEGE_TAG);
 
             long subKey = subRegionKeyFromRegionId(regionId, subX, subZ);
-            data.subRegions.put(subKey, new SubRegionState(faction, stability, underSiege, clusterId));
+            data.subRegions.put(subKey, new SubRegionState(faction, stability, underSiege, clusterId, playerFactionId));
         }
 
         ListTag siegesTag = tag.getList(SIEGES_TAG, Tag.TAG_COMPOUND);
@@ -161,6 +169,12 @@ public final class RegionData extends SavedData {
                     ? sTag.getLong("attacker_cluster_id")
                     : 0L;
 
+            UUID attackerPlayerFactionId = sTag.hasUUID("attacker_pf_id") ? sTag.getUUID("attacker_pf_id") : null;
+            UUID defenderPlayerFactionId = sTag.hasUUID("defender_pf_id") ? sTag.getUUID("defender_pf_id") : null;
+            float attackerProgress = sTag.getFloat("attacker_progress");
+            float defenderProgress = sTag.getFloat("defender_progress");
+            boolean isFieldBattle = sTag.getBoolean("is_field_battle");
+
             data.activeSieges.put(targetId, new SiegeCampaign(
                     attacker,
                     sTag.getInt("tgt_rx"), sTag.getInt("tgt_rz"),
@@ -170,7 +184,12 @@ public final class RegionData extends SavedData {
                     sTag.getLong("start_tick"),
                     durationTicks,
                     activeSubRegionsMask,
-                    attackerClusterId
+                    attackerClusterId,
+                    attackerPlayerFactionId,
+                    defenderPlayerFactionId,
+                    attackerProgress,
+                    defenderProgress,
+                    isFieldBattle
             ));
         }
 
@@ -201,6 +220,24 @@ public final class RegionData extends SavedData {
         for (int index = 0; index < visitedTag.size(); index++) {
             if (visitedTag.get(index) instanceof net.minecraft.nbt.LongTag longTag) {
                 data.visitedRegions.add(longTag.getAsLong());
+            }
+        }
+
+        if (tag.contains("player_visited_regions", Tag.TAG_LIST)) {
+            ListTag pVisitedList = tag.getList("player_visited_regions", Tag.TAG_COMPOUND);
+            for (int i = 0; i < pVisitedList.size(); i++) {
+                CompoundTag pTag = pVisitedList.getCompound(i);
+                if (pTag.hasUUID("player_uuid")) {
+                    UUID pUuid = pTag.getUUID("player_uuid");
+                    Set<Long> set = new HashSet<>();
+                    ListTag keysTag = pTag.getList("regions", Tag.TAG_LONG);
+                    for (int j = 0; j < keysTag.size(); j++) {
+                        if (keysTag.get(j) instanceof net.minecraft.nbt.LongTag lTag) {
+                            set.add(lTag.getAsLong());
+                        }
+                    }
+                    data.playerVisitedRegions.put(pUuid, set);
+                }
             }
         }
 
@@ -257,6 +294,9 @@ public final class RegionData extends SavedData {
             if (entry.getValue().basePlaced()) {
                 regionTag.putBoolean("base_placed", true);
             }
+            if (entry.getValue().playerFactionId() != null) {
+                regionTag.putUUID("player_faction_id", entry.getValue().playerFactionId());
+            }
             regionsTag.add(regionTag);
         }
         tag.put(REGIONS_TAG, regionsTag);
@@ -276,6 +316,9 @@ public final class RegionData extends SavedData {
             subTag.putFloat(STABILITY_TAG, entry.getValue().stability());
             subTag.putBoolean(SIEGE_TAG, entry.getValue().underSiege());
             subTag.putLong("cluster_id", entry.getValue().clusterId());
+            if (entry.getValue().playerFactionId() != null) {
+                subTag.putUUID("player_faction_id", entry.getValue().playerFactionId());
+            }
             subRegionsTag.add(subTag);
         }
         tag.put(SUB_REGIONS_TAG, subRegionsTag);
@@ -294,6 +337,15 @@ public final class RegionData extends SavedData {
             sTag.putLong("duration_ticks", sc.durationTicks());
             sTag.putInt("active_sub_regions_mask", sc.activeSubRegionsMask());
             sTag.putLong("attacker_cluster_id", sc.attackerClusterId());
+            if (sc.attackerPlayerFactionId() != null) {
+                sTag.putUUID("attacker_pf_id", sc.attackerPlayerFactionId());
+            }
+            if (sc.defenderPlayerFactionId() != null) {
+                sTag.putUUID("defender_pf_id", sc.defenderPlayerFactionId());
+            }
+            sTag.putFloat("attacker_progress", sc.attackerProgress());
+            sTag.putFloat("defender_progress", sc.defenderProgress());
+            sTag.putBoolean("is_field_battle", sc.isFieldBattle());
 
             ListTag sourcesTag = new ListTag();
             for (SourcePos src : sc.sources()) {
@@ -336,6 +388,19 @@ public final class RegionData extends SavedData {
             visitedTag.add(net.minecraft.nbt.LongTag.valueOf(key));
         }
         tag.put("visited_regions", visitedTag);
+
+        ListTag playerVisitedTag = new ListTag();
+        for (Map.Entry<UUID, Set<Long>> entry : playerVisitedRegions.entrySet()) {
+            CompoundTag pTag = new CompoundTag();
+            pTag.putUUID("player_uuid", entry.getKey());
+            ListTag keysTag = new ListTag();
+            for (long key : entry.getValue()) {
+                keysTag.add(net.minecraft.nbt.LongTag.valueOf(key));
+            }
+            pTag.put("regions", keysTag);
+            playerVisitedTag.add(pTag);
+        }
+        tag.put("player_visited_regions", playerVisitedTag);
 
         ListTag retTag = new ListTag();
         for (Map.Entry<Long, Integer> entry : zombieRetaliationWeights.entrySet()) {
@@ -380,6 +445,51 @@ public final class RegionData extends SavedData {
         if (changed) {
             setDirty();
         }
+    }
+
+    public void unlock3x3AroundForPlayer(UUID playerUUID, int centerRegionX, int centerRegionZ) {
+        if (playerUUID == null) {
+            unlock3x3Around(centerRegionX, centerRegionZ);
+            return;
+        }
+        boolean changed = false;
+        Set<Long> set = playerVisitedRegions.computeIfAbsent(playerUUID, k -> new HashSet<>());
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                long key = ChunkPos.asLong(centerRegionX + dx, centerRegionZ + dz);
+                if (set.add(key)) {
+                    changed = true;
+                }
+                visitedRegions.add(key);
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
+    public boolean isRegionVisitedForPlayer(ServerLevel level, UUID playerUUID, int regionX, int regionZ) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        if (playerUUID == null) {
+            return visitedRegions.contains(key);
+        }
+        Set<Long> playerSet = playerVisitedRegions.get(playerUUID);
+        if (playerSet != null && playerSet.contains(key)) {
+            return true;
+        }
+        if (level != null) {
+            com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(playerUUID);
+            if (pf != null) {
+                for (UUID memberUUID : pf.getMembers().keySet()) {
+                    if (memberUUID.equals(playerUUID)) continue;
+                    Set<Long> memberSet = playerVisitedRegions.get(memberUUID);
+                    if (memberSet != null && memberSet.contains(key)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     public void addLog(ServerLevel level, String message) {
@@ -430,7 +540,23 @@ public final class RegionData extends SavedData {
                 long key = entry.getKey();
                 int rx = ChunkPos.getX(key);
                 int rz = ChunkPos.getZ(key);
-                list.add(new Region(rx, rz, faction, entry.getValue().stability(), entry.getValue().resistance(), entry.getValue().baseType(), entry.getValue().clusterId()));
+                RegionState s = entry.getValue();
+                list.add(new Region(rx, rz, faction, s.stability(), s.resistance(), s.baseType(), s.clusterId(), s.baseAnchor(), s.basePlaced(), s.playerFactionId()));
+            }
+        }
+        return list;
+    }
+
+    public List<Region> getRegionsOwnedBy(UUID playerFactionId) {
+        List<Region> list = new ArrayList<>();
+        if (playerFactionId == null) return list;
+        for (Map.Entry<Long, RegionState> entry : regions.entrySet()) {
+            if (playerFactionId.equals(entry.getValue().playerFactionId())) {
+                long key = entry.getKey();
+                int rx = ChunkPos.getX(key);
+                int rz = ChunkPos.getZ(key);
+                RegionState s = entry.getValue();
+                list.add(new Region(rx, rz, s.owner(), s.stability(), s.resistance(), s.baseType(), s.clusterId(), s.baseAnchor(), s.basePlaced(), s.playerFactionId()));
             }
         }
         return list;
@@ -492,12 +618,12 @@ public final class RegionData extends SavedData {
             BlockPos resolved = ProceduralRegionGenerator.getInstance()
                     .findPhysicalBaseAnchor(this.level, worldSeed, regionX, regionZ, state.baseType()).orElse(null);
             if (resolved != null) {
-                state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), resolved, state.basePlaced());
+                state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), resolved, state.basePlaced(), state.playerFactionId());
                 regions.put(key, state);
                 setDirty();
             }
         }
-        return new Region(regionX, regionZ, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), state.basePlaced());
+        return new Region(regionX, regionZ, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), state.basePlaced(), state.playerFactionId());
     }
 
     public boolean isBasePlaced(int regionX, int regionZ) {
@@ -517,7 +643,7 @@ public final class RegionData extends SavedData {
                 long key = entry.getKey();
                 int rx = ChunkPos.getX(key);
                 int rz = ChunkPos.getZ(key);
-                list.add(new Region(rx, rz, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), state.basePlaced()));
+                list.add(new Region(rx, rz, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), state.baseAnchor(), state.basePlaced(), state.playerFactionId()));
             }
         }
         return list;
@@ -542,9 +668,9 @@ public final class RegionData extends SavedData {
         if (state == null) {
             Region reg = regionAt(regionX, regionZ);
             if (anchorToUse == null) anchorToUse = reg.baseAnchor();
-            state = new RegionState(reg.owner(), reg.stability(), reg.resistance(), reg.baseType(), reg.clusterId(), anchorToUse, placed);
+            state = new RegionState(reg.owner(), reg.stability(), reg.resistance(), reg.baseType(), reg.clusterId(), anchorToUse, placed, reg.playerFactionId());
         } else {
-            state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), anchorToUse, placed);
+            state = new RegionState(state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId(), anchorToUse, placed, state.playerFactionId());
         }
         regions.put(key, state);
         setDirty();
@@ -571,14 +697,14 @@ public final class RegionData extends SavedData {
             long seed = (targetLevel != null) ? targetLevel.getSeed() : 0L;
             state = com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(targetLevel, seed, regionX, regionZ);
         }
-        return new SubRegionState(state.owner(), state.stability(), false, state.clusterId());
+        return new SubRegionState(state.owner(), state.stability(), false, state.clusterId(), state.playerFactionId());
     }
 
     /**
      * Returns a 4-bit mask (bit = sz*2+sx) where each bit is set if the
      * sub-region is SECURED (owned by HUMANITY in enemy territory, or not under siege in friendly territory).
      */
-    public int computeSecuredMask(int regionX, int regionZ) {
+    public int computeSecuredMask(int regionX, int regionZ, UUID playerFactionId) {
         int mask = 0;
         Region region = regionAt(regionX, regionZ);
         SiegeCampaign siege = getActiveSieges().get(ChunkPos.asLong(regionX, regionZ));
@@ -593,7 +719,7 @@ public final class RegionData extends SavedData {
                         mask |= (1 << bit);
                     }
                 } else {
-                    if (subState.owner() == Faction.HUMANITY) {
+                    if (subState.owner() == Faction.HUMANITY && (playerFactionId == null || playerFactionId.equals(subState.playerFactionId()))) {
                         mask |= (1 << bit);
                     }
                 }
@@ -602,83 +728,103 @@ public final class RegionData extends SavedData {
         return mask;
     }
 
+    public int computeSecuredMask(int regionX, int regionZ) {
+        return computeSecuredMask(regionX, regionZ, null);
+    }
+
+    public int computeConqueredMask(int regionX, int regionZ, UUID playerFactionId) {
+        return computeSecuredMask(regionX, regionZ, playerFactionId);
+    }
+
     public int computeConqueredMask(int regionX, int regionZ) {
-        return computeSecuredMask(regionX, regionZ);
+        return computeSecuredMask(regionX, regionZ, null);
     }
 
     /**
-     * A region is reachable (attackable/defendable by the player) if at least one sub-region
-     * inside is already owned by HUMANITY, OR if it is a HUMANITY region under siege,
-     * OR if at least one of its 4 cardinal neighboring regions (N/S/E/W) is owned by HUMANITY or UNCLAIMED.
+     * A region is reachable by playerFactionId if:
+     * 1. It is owned by playerFactionId (defendable if under siege, or friendly).
+     * 2. It is already under siege with playerFactionId as the active attacker.
+     * 3. At least one of its 4 cardinal neighboring regions (N/S/E/W) is owned by playerFactionId.
      */
-    public boolean isRegionReachable(int regionX, int regionZ) {
+    public boolean isRegionReachable(int regionX, int regionZ, UUID playerFactionId) {
+        if (playerFactionId == null) {
+            return false;
+        }
         Region region = regionAt(regionX, regionZ);
-        if (region.owner() == Faction.HUMANITY) {
+        if (region.owner() == Faction.HUMANITY && playerFactionId.equals(region.playerFactionId())) {
             return true;
         }
-        if (computeSecuredMask(regionX, regionZ) != 0) {
+        SiegeCampaign activeSiege = activeSieges.get(ChunkPos.asLong(regionX, regionZ));
+        if (activeSiege != null && playerFactionId.equals(activeSiege.attackerPlayerFactionId())) {
             return true;
         }
         int[] dx = {0,  0, -1, 1};
         int[] dz = {-1, 1,  0, 0};
         for (int i = 0; i < 4; i++) {
-            Faction neighbor = regionAt(regionX + dx[i], regionZ + dz[i]).owner();
-            if (neighbor == Faction.HUMANITY || neighbor == Faction.UNCLAIMED) {
+            Region neighbor = regionAt(regionX + dx[i], regionZ + dz[i]);
+            if (neighbor.owner() == Faction.HUMANITY && playerFactionId.equals(neighbor.playerFactionId())) {
                 return true;
             }
         }
         return false;
     }
 
+    public boolean isRegionReachable(int regionX, int regionZ) {
+        return isRegionReachable(regionX, regionZ, (UUID) null);
+    }
+
     /**
      * Returns a 4-bit mask (bit = sz*2+sx) where each bit is set if the
      * corresponding sub-region of (regionX, regionZ) is reachable.
-     *
-     * For Defense (HUMANITY territory): all non-secured sub-regions are reachable without border checks.
-     * For Attack (Enemy territory): sub-regions bordering friendly territory are reachable.
      */
-    public int computeReachableMask(int regionX, int regionZ) {
+    public int computeReachableMask(int regionX, int regionZ, UUID playerFactionId) {
         Region region = regionAt(regionX, regionZ);
-        int securedMask = computeSecuredMask(regionX, regionZ);
+        int securedMask = computeSecuredMask(regionX, regionZ, playerFactionId);
 
-        if (region.owner() == Faction.HUMANITY) {
+        if (region.owner() == Faction.HUMANITY && (playerFactionId == null || playerFactionId.equals(region.playerFactionId()))) {
             // Defense mission: all sub-regions under siege (not yet secured) are reachable at all times
             return 0xF & ~securedMask;
         }
 
-        // Attack mission: Pre-fetch external and internal neighbor factions
-        Faction west  = regionAt(regionX - 1, regionZ).owner();
-        Faction east  = regionAt(regionX + 1, regionZ).owner();
-        Faction north = regionAt(regionX, regionZ - 1).owner();
-        Faction south = regionAt(regionX, regionZ + 1).owner();
+        // Attack mission: Pre-fetch external and internal neighbor ownership
+        boolean westFriendly  = isNeighborFriendly(regionX - 1, regionZ, playerFactionId);
+        boolean eastFriendly  = isNeighborFriendly(regionX + 1, regionZ, playerFactionId);
+        boolean northFriendly = isNeighborFriendly(regionX, regionZ - 1, playerFactionId);
+        boolean southFriendly = isNeighborFriendly(regionX, regionZ + 1, playerFactionId);
 
-        Faction s00 = subRegionAt(regionX, regionZ, 0, 0).owner();
-        Faction s10 = subRegionAt(regionX, regionZ, 1, 0).owner();
-        Faction s01 = subRegionAt(regionX, regionZ, 0, 1).owner();
-        Faction s11 = subRegionAt(regionX, regionZ, 1, 1).owner();
+        boolean s00Friendly = isSubFriendly(regionX, regionZ, 0, 0, playerFactionId);
+        boolean s10Friendly = isSubFriendly(regionX, regionZ, 1, 0, playerFactionId);
+        boolean s01Friendly = isSubFriendly(regionX, regionZ, 0, 1, playerFactionId);
+        boolean s11Friendly = isSubFriendly(regionX, regionZ, 1, 1, playerFactionId);
 
         int mask = 0;
 
         // Sub(0,0) bit 0: external=west,north  internal=Sub(1,0),Sub(0,1)
-        if ((securedMask & (1 << 0)) == 0 && isReachable(west, north, s10, s01)) mask |= (1 << 0);
+        if ((securedMask & (1 << 0)) == 0 && (westFriendly || northFriendly || s10Friendly || s01Friendly)) mask |= (1 << 0);
         // Sub(1,0) bit 1: external=east,north  internal=Sub(0,0),Sub(1,1)
-        if ((securedMask & (1 << 1)) == 0 && isReachable(east, north, s00, s11)) mask |= (1 << 1);
+        if ((securedMask & (1 << 1)) == 0 && (eastFriendly || northFriendly || s00Friendly || s11Friendly)) mask |= (1 << 1);
         // Sub(0,1) bit 2: external=west,south  internal=Sub(0,0),Sub(1,1)
-        if ((securedMask & (1 << 2)) == 0 && isReachable(west, south, s00, s11)) mask |= (1 << 2);
+        if ((securedMask & (1 << 2)) == 0 && (westFriendly || southFriendly || s00Friendly || s11Friendly)) mask |= (1 << 2);
         // Sub(1,1) bit 3: external=east,south  internal=Sub(1,0),Sub(0,1)
-        if ((securedMask & (1 << 3)) == 0 && isReachable(east, south, s10, s01)) mask |= (1 << 3);
+        if ((securedMask & (1 << 3)) == 0 && (eastFriendly || southFriendly || s10Friendly || s01Friendly)) mask |= (1 << 3);
 
         return mask;
     }
 
-    /** True if any of the four neighbor factions is HUMANITY or UNCLAIMED. */
-    private static boolean isReachable(Faction a, Faction b, Faction c, Faction d) {
-        return isFriendlyOrEmpty(a) || isFriendlyOrEmpty(b)
-                || isFriendlyOrEmpty(c) || isFriendlyOrEmpty(d);
+    private boolean isNeighborFriendly(int rx, int rz, UUID playerFactionId) {
+        if (playerFactionId == null) return false;
+        Region r = regionAt(rx, rz);
+        return r.owner() == Faction.HUMANITY && playerFactionId.equals(r.playerFactionId());
     }
 
-    private static boolean isFriendlyOrEmpty(Faction f) {
-        return f == Faction.HUMANITY || f == Faction.UNCLAIMED;
+    private boolean isSubFriendly(int rx, int rz, int sx, int sz, UUID playerFactionId) {
+        if (playerFactionId == null) return false;
+        SubRegionState s = subRegionAt(rx, rz, sx, sz);
+        return s.owner() == Faction.HUMANITY && playerFactionId.equals(s.playerFactionId());
+    }
+
+    public int computeReachableMask(int regionX, int regionZ) {
+        return computeReachableMask(regionX, regionZ, null);
     }
 
     public void setSiege(int regionX, int regionZ, int subX, int subZ, boolean underSiege) {
@@ -907,10 +1053,14 @@ public final class RegionData extends SavedData {
     }
 
     public void claimSubRegion(int regionX, int regionZ, int subX, int subZ, Faction faction, float stability) {
-        claimSubRegion(null, regionX, regionZ, subX, subZ, faction, stability);
+        claimSubRegion(null, regionX, regionZ, subX, subZ, faction, stability, null);
     }
 
     public void claimSubRegion(ServerLevel level, int regionX, int regionZ, int subX, int subZ, Faction faction, float stability) {
+        claimSubRegion(level, regionX, regionZ, subX, subZ, faction, stability, null);
+    }
+
+    public void claimSubRegion(ServerLevel level, int regionX, int regionZ, int subX, int subZ, Faction faction, float stability, UUID playerFactionId) {
         long regionKey = ChunkPos.asLong(regionX, regionZ);
         SiegeCampaign activeCampaign = activeSieges.get(regionKey);
         if (activeCampaign != null && activeCampaign.attacker() == faction) {
@@ -919,6 +1069,11 @@ public final class RegionData extends SavedData {
             if (!isMissionActive) {
                 return;
             }
+        }
+
+        UUID effectivePfId = playerFactionId;
+        if (effectivePfId == null && activeCampaign != null && activeCampaign.attacker() == faction) {
+            effectivePfId = activeCampaign.attackerPlayerFactionId();
         }
 
         long key = subRegionKey(regionX, regionZ, subX, subZ);
@@ -934,7 +1089,10 @@ public final class RegionData extends SavedData {
                 subClusterId = findAdjacentClusterId(regionX, regionZ, faction);
             }
         }
-        subRegions.put(key, new SubRegionState(faction, stability, false, subClusterId));
+        subRegions.put(key, new SubRegionState(faction, (faction == Faction.HUMANITY) ? 20.0F : stability, false, subClusterId, effectivePfId));
+        if (faction == Faction.HUMANITY && level != null) {
+            com.warfront.spawn.SubregionPatrolManager.onSubregionCaptured(level, regionX, regionZ, subX, subZ);
+        }
 
         int dominoThreshold = calculateDominoThreshold(regionX, regionZ);
         Region targetRegion = regionAt(regionX, regionZ);
@@ -956,9 +1114,14 @@ public final class RegionData extends SavedData {
                 // Defense threshold reached and all base points secured -> DEFENSE SUCCESSFUL!
                 setRegionSiege(regionX, regionZ, false);
                 activeSieges.remove(regionKey);
-                addLog(level, String.format("§aDefense successful: Region (%d, %d), siege cleared.", regionX, regionZ));
-                broadcastTitle(level, Component.literal("§a§lDEFENSE SUCCESSFUL!"), Component.literal(String.format("§7Enemy attack repelled from Region (%d, %d)", regionX, regionZ)));
-                Warfront.LOGGER.info("Defense successful: Region ({}, {}), siege cleared.", regionX, regionZ);
+                String defName = "Defenders";
+                if (level != null && targetRegion.playerFactionId() != null) {
+                    com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(targetRegion.playerFactionId());
+                    if (pf != null) defName = pf.getName();
+                }
+                addLog(level, String.format("§aDefense successful: Region (%d, %d) secured by %s.", regionX, regionZ, defName));
+                broadcastTitle(level, Component.literal("§a§lDEFENSE SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) secured by %s", regionX, regionZ, defName)));
+                Warfront.LOGGER.info("Defense successful: Region ({}, {}), siege cleared by {}.", regionX, regionZ, defName);
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
@@ -989,20 +1152,32 @@ public final class RegionData extends SavedData {
                         clusterId = ChunkPos.asLong(regionX, regionZ);
                     }
                 }
+                float subStab = (faction == Faction.HUMANITY) ? 20.0F : 100.0F;
                 for (int sx = 0; sx <= 1; sx++) {
                     for (int sz = 0; sz <= 1; sz++) {
-                        subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, 100.0F, false, clusterId));
+                        subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, subStab, false, clusterId, effectivePfId));
                     }
                 }
                 BaseType baseType = determineBaseTypeForConqueredRegion(level, regionX, regionZ, faction);
-                com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
-                        com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
-                setRegion(level, regionX, regionZ, faction, strength.stability(), strength.resistance(), baseType, clusterId);
+                float initialStab = 20.0F;
+                float initialRes = 20.0F;
+                if (faction != Faction.HUMANITY) {
+                    com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                            com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(level, regionX, regionZ, faction, baseType, clusterId, worldSeed);
+                    initialStab = strength.stability();
+                    initialRes = strength.resistance();
+                }
+                setRegion(level, regionX, regionZ, faction, initialStab, initialRes, baseType, clusterId, effectivePfId);
                 activeSieges.remove(regionKey);
                 com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, regionX, regionZ);
                 if (faction == Faction.HUMANITY) {
-                    addLog(level, String.format("§aRegion conquered: Region (%d, %d).", regionX, regionZ));
-                    broadcastTitle(level, Component.literal("§a§lATTACK SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) Conquered", regionX, regionZ)));
+                    String attName = "Humanity";
+                    if (level != null && effectivePfId != null) {
+                        com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(effectivePfId);
+                        if (pf != null) attName = pf.getName();
+                    }
+                    addLog(level, String.format("§aRegion conquered: Region (%d, %d) captured by %s.", regionX, regionZ, attName));
+                    broadcastTitle(level, Component.literal("§a§lATTACK SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) captured by %s", regionX, regionZ, attName)));
                 }
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
@@ -1019,7 +1194,12 @@ public final class RegionData extends SavedData {
                             activeCampaign.sources(), activeCampaign.attackValue(), activeCampaign.encircled(),
                             activeCampaign.startTick(), activeCampaign.durationTicks(),
                             newActiveMask,
-                            activeCampaign.attackerClusterId()));
+                            activeCampaign.attackerClusterId(),
+                            activeCampaign.attackerPlayerFactionId(),
+                            activeCampaign.defenderPlayerFactionId(),
+                            activeCampaign.attackerProgress(),
+                            activeCampaign.defenderProgress(),
+                            activeCampaign.isFieldBattle()));
                 }
 
                 if (matchingCount >= dominoThreshold && !allMandatoryCompleted) {
@@ -1038,6 +1218,11 @@ public final class RegionData extends SavedData {
     }
 
     public void setOwner(int regionX, int regionZ, Faction faction) {
+        setOwner(this.level, regionX, regionZ, faction);
+    }
+
+    public void setOwner(ServerLevel level, int regionX, int regionZ, Faction faction) {
+        ServerLevel effectiveLevel = (level != null) ? level : this.level;
         long clusterId = 0L;
         if (faction.isAI()) {
             clusterId = findAdjacentClusterId(regionX, regionZ, faction);
@@ -1045,16 +1230,30 @@ public final class RegionData extends SavedData {
                 clusterId = ChunkPos.asLong(regionX, regionZ);
             }
         }
-        com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
-                com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(this.level, regionX, regionZ, faction, BaseType.NONE, clusterId, worldSeed);
-        setRegion(null, regionX, regionZ, faction, strength.stability(), strength.resistance(), BaseType.NONE, clusterId);
+        float stability = 20.0F;
+        float resistance = 20.0F;
+        if (faction != Faction.HUMANITY) {
+            com.warfront.region.strength.RegionalStrengthCalculator.RegionalStrength strength =
+                    com.warfront.region.strength.RegionalStrengthCalculator.calculateInitialStrength(effectiveLevel, regionX, regionZ, faction, BaseType.NONE, clusterId, worldSeed);
+            stability = strength.stability();
+            resistance = strength.resistance();
+        }
+        setRegion(effectiveLevel, regionX, regionZ, faction, stability, resistance, BaseType.NONE, clusterId);
     }
 
     public void claim(int regionX, int regionZ, Faction faction, float stability, float resistance) {
-        claim(null, regionX, regionZ, faction, stability, resistance, BaseType.NONE);
+        claim(null, regionX, regionZ, faction, stability, resistance, BaseType.NONE, null);
+    }
+
+    public void claim(int regionX, int regionZ, Faction faction, float stability, float resistance, UUID playerFactionId) {
+        claim(null, regionX, regionZ, faction, stability, resistance, BaseType.NONE, playerFactionId);
     }
 
     public void claim(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType) {
+        claim(level, regionX, regionZ, faction, stability, resistance, baseType, null);
+    }
+
+    public void claim(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, UUID playerFactionId) {
         long clusterId = 0L;
         long regionId = ChunkPos.asLong(regionX, regionZ);
         SiegeCampaign campaign = activeSieges.get(regionId);
@@ -1072,44 +1271,70 @@ public final class RegionData extends SavedData {
             stability = strength.stability();
             resistance = strength.resistance();
         }
-        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId);
+        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId, playerFactionId);
     }
 
     public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor) {
+        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId, baseAnchor, null);
+    }
+
+    public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, UUID playerFactionId) {
         long regionId = ChunkPos.asLong(regionX, regionZ);
-        activeSieges.remove(regionId);
+        ServerLevel effectiveLevel = (level != null) ? level : this.level;
+        SiegeCampaign existingSiege = activeSieges.remove(regionId);
+        if (existingSiege != null && effectiveLevel != null) {
+            setRegionSiege(regionX, regionZ, false);
+            com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(effectiveLevel, regionX, regionZ);
+            if (existingSiege.isFieldBattle()) {
+                com.warfront.mission.FieldBattleManager.clearHudForFieldBattle(effectiveLevel, regionX, regionZ, existingSiege.attackerPlayerFactionId(), existingSiege.defenderPlayerFactionId());
+            }
+        }
+
         long finalClusterId = (faction == Faction.HUMANITY) ? 0L : clusterId;
         RegionState existing = regions.get(regionId);
         boolean basePlaced = (existing != null && existing.baseType() == baseType) && existing.basePlaced();
+        float finalStability = (faction == Faction.HUMANITY) ? 20.0F : Math.clamp(stability, 0.0F, 100.0F);
+        float finalResistance = (faction == Faction.HUMANITY) ? 20.0F : Math.clamp(resistance, 0.0F, 100.0F);
         regions.put(regionId, new RegionState(
                 faction,
-                Math.clamp(stability, 0.0F, 100.0F),
-                Math.clamp(resistance, 0.0F, 100.0F),
+                finalStability,
+                finalResistance,
                 baseType,
                 finalClusterId,
                 baseAnchor,
-                basePlaced));
+                basePlaced,
+                playerFactionId));
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
-                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, stability, false, finalClusterId));
+                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, finalStability, false, finalClusterId, playerFactionId));
             }
         }
 
         // Gambit Mechanic: Triggered ONLY on FULL REGION CAPTURE for Humanity!
-        if (faction == Faction.HUMANITY && level != null) {
-            checkAndExecuteGambit(level, regionX, regionZ);
+        if (faction == Faction.HUMANITY && effectiveLevel != null) {
+            checkAndExecuteGambit(effectiveLevel, regionX, regionZ);
+            com.warfront.spawn.SubregionPatrolManager.onRegionCaptured(effectiveLevel, regionX, regionZ);
 
             // Scenario 4: Player won the war on region -> remaining enemy base structure blocks decay
             if (existing != null && existing.baseAnchor() != null) {
-                Region regView = new Region(regionX, regionZ, existing.owner(), existing.stability(), existing.resistance(), existing.baseType(), existing.clusterId(), existing.baseAnchor(), existing.basePlaced());
-                com.warfront.region.base.PersistentBaseProtectionManager.decayBaseRemainsIfPresent(level, regionX, regionZ, regView, existing.baseAnchor(), this);
+                Region regView = new Region(regionX, regionZ, existing.owner(), existing.stability(), existing.resistance(), existing.baseType(), existing.clusterId(), existing.baseAnchor(), existing.basePlaced(), existing.playerFactionId());
+                com.warfront.region.base.PersistentBaseProtectionManager.decayBaseRemainsIfPresent(effectiveLevel, regionX, regionZ, regView, existing.baseAnchor(), this);
             }
+        }
+
+        if (effectiveLevel != null) {
+            reevaluateAllActiveSiegeVectors(effectiveLevel);
+            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(effectiveLevel);
         }
 
         setDirty();
     }
 
     public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId) {
+        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId, (UUID) null);
+    }
+
+    public void setRegion(ServerLevel level, int regionX, int regionZ, Faction faction, float stability, float resistance, BaseType baseType, long clusterId, UUID playerFactionId) {
         BlockPos anchor = null;
         if (baseType != BaseType.NONE) {
             Region existing = regionAt(regionX, regionZ);
@@ -1121,7 +1346,22 @@ public final class RegionData extends SavedData {
                 anchor = ProceduralRegionGenerator.getInstance().findPhysicalBaseAnchor(targetLevel, seed, regionX, regionZ, baseType).orElse(null);
             }
         }
-        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId, anchor);
+        setRegion(level, regionX, regionZ, faction, stability, resistance, baseType, clusterId, anchor, playerFactionId);
+    }
+
+    public void unclaim(ServerLevel level, int regionX, int regionZ) {
+        long regionId = ChunkPos.asLong(regionX, regionZ);
+        activeSieges.remove(regionId);
+        regions.put(regionId, new RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L, null, false, null));
+        for (int sx = 0; sx <= 1; sx++) {
+            for (int sz = 0; sz <= 1; sz++) {
+                subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(Faction.UNCLAIMED, 0.0F, false, 0L, null));
+            }
+        }
+        if (level != null) {
+            reevaluateAllActiveSiegeVectors(level);
+        }
+        setDirty();
     }
 
     /**
@@ -1133,7 +1373,7 @@ public final class RegionData extends SavedData {
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 subRegions.put(subRegionKey(regionX, regionZ, sx, sz),
-                        new SubRegionState(region.owner(), region.stability(), false, clusterId));
+                        new SubRegionState(region.owner(), region.stability(), false, clusterId, region.playerFactionId()));
             }
         }
         setDirty();
@@ -1442,6 +1682,101 @@ public final class RegionData extends SavedData {
         }
     }
 
+    /**
+     * Dynamically re-evaluates all active siege campaigns and their staging sources.
+     * If an attacking faction loses staging regions, flank assaults step down to standard attacks.
+     * If 0 bordering staging regions remain, the attack collapses and cancels cleanly.
+     */
+    public void reevaluateAllActiveSiegeVectors(ServerLevel level) {
+        if (level == null || activeSieges.isEmpty()) {
+            return;
+        }
+
+        List<Long> siegesToCancel = new ArrayList<>();
+        Map<Long, SiegeCampaign> updatedSieges = new HashMap<>();
+
+        for (Map.Entry<Long, SiegeCampaign> entry : activeSieges.entrySet()) {
+            SiegeCampaign campaign = entry.getValue();
+            int trx = campaign.targetRegionX();
+            int trz = campaign.targetRegionZ();
+
+            if (campaign.attacker() == Faction.HUMANITY) {
+                UUID attackerPfId = campaign.attackerPlayerFactionId();
+
+                List<SourcePos> currentValidSources = new ArrayList<>();
+                int[][] offsets = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+                for (int[] off : offsets) {
+                    int nx = trx + off[0];
+                    int nz = trz + off[1];
+                    Region neighbor = regionAt(nx, nz);
+                    if (neighbor.owner() == Faction.HUMANITY && (attackerPfId == null || attackerPfId.equals(neighbor.playerFactionId()))) {
+                        currentValidSources.add(new SourcePos(nx, nz));
+                    }
+                }
+
+                if (currentValidSources.isEmpty()) {
+                    siegesToCancel.add(entry.getKey());
+                } else {
+                    boolean changed = currentValidSources.size() != campaign.sources().size();
+                    if (!changed) {
+                        for (SourcePos s : currentValidSources) {
+                            if (!campaign.sources().contains(s)) {
+                                changed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (changed) {
+                        int newAttackValue = currentValidSources.size();
+                        updatedSieges.put(entry.getKey(), campaign.withSourcesAndAttackValue(currentValidSources, newAttackValue));
+                    }
+                }
+            } else {
+                // AI Attacker: check if sources are still owned by this AI faction
+                List<SourcePos> currentValidSources = new ArrayList<>();
+                for (SourcePos s : campaign.sources()) {
+                    Region srcReg = regionAt(s.x(), s.z());
+                    if (srcReg.owner() == campaign.attacker()) {
+                        currentValidSources.add(s);
+                    }
+                }
+                if (currentValidSources.isEmpty()) {
+                    siegesToCancel.add(entry.getKey());
+                } else if (currentValidSources.size() != campaign.sources().size()) {
+                    int newAttackValue = currentValidSources.size();
+                    updatedSieges.put(entry.getKey(), campaign.withSourcesAndAttackValue(currentValidSources, newAttackValue));
+                }
+            }
+        }
+
+        boolean anyChanges = false;
+        for (long key : siegesToCancel) {
+            SiegeCampaign campaign = activeSieges.remove(key);
+            if (campaign != null) {
+                int trx = campaign.targetRegionX();
+                int trz = campaign.targetRegionZ();
+                setRegionSiege(trx, trz, false);
+                com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, trx, trz);
+                revertRegionSubRegionsToOwner(level, trx, trz);
+                if (campaign.isFieldBattle()) {
+                    com.warfront.mission.FieldBattleManager.clearHudForFieldBattle(level, trx, trz, campaign.attackerPlayerFactionId(), campaign.defenderPlayerFactionId());
+                }
+                addLog(level, String.format("§cAttack on Region (%d, %d) collapsed due to loss of staging territory!", trx, trz));
+                anyChanges = true;
+            }
+        }
+
+        for (Map.Entry<Long, SiegeCampaign> update : updatedSieges.entrySet()) {
+            activeSieges.put(update.getKey(), update.getValue());
+            anyChanges = true;
+        }
+
+        if (anyChanges) {
+            setDirty();
+            com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+        }
+    }
+
     private static long subRegionKey(int regionX, int regionZ, int subX, int subZ) {
         long regionId = ChunkPos.asLong(regionX, regionZ);
         return subRegionKeyFromRegionId(regionId, subX, subZ);
@@ -1463,41 +1798,81 @@ public final class RegionData extends SavedData {
             long startTick,
             long durationTicks,
             int activeSubRegionsMask,
-            long attackerClusterId
+            long attackerClusterId,
+            UUID attackerPlayerFactionId,
+            UUID defenderPlayerFactionId,
+            float attackerProgress,
+            float defenderProgress,
+            boolean isFieldBattle
     ) {
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L, 0xF, 0L);
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L, 0xF, 0L, null, null, 0.0F, 0.0F, false);
         }
 
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, 0xF, 0L);
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, 0xF, 0L, null, null, 0.0F, 0.0F, false);
         }
 
         public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, activeSubRegionsMask, 0L);
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, activeSubRegionsMask, 0L, null, null, 0.0F, 0.0F, false);
+        }
+
+        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask, long attackerClusterId) {
+            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, activeSubRegionsMask, attackerClusterId, null, null, 0.0F, 0.0F, false);
+        }
+
+        public SiegeCampaign withSourcesAndAttackValue(List<SourcePos> newSources, int newAttackValue) {
+            return new SiegeCampaign(
+                    attacker, targetRegionX, targetRegionZ,
+                    newSources, newAttackValue, encircled,
+                    startTick, durationTicks, activeSubRegionsMask, attackerClusterId,
+                    attackerPlayerFactionId, defenderPlayerFactionId,
+                    attackerProgress, defenderProgress, isFieldBattle
+            );
+        }
+
+        public SiegeCampaign withActiveSubRegionsMask(int newActiveMask) {
+            return new SiegeCampaign(
+                    attacker, targetRegionX, targetRegionZ,
+                    sources, attackValue, encircled,
+                    startTick, durationTicks, newActiveMask, attackerClusterId,
+                    attackerPlayerFactionId, defenderPlayerFactionId,
+                    attackerProgress, defenderProgress, isFieldBattle
+            );
         }
     }
 
-    public record RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced) {
+    public record RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced, UUID playerFactionId) {
         public RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
-            this(owner, stability, resistance, baseType, clusterId, null, false);
+            this(owner, stability, resistance, baseType, clusterId, null, false, null);
         }
 
         public RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor) {
-            this(owner, stability, resistance, baseType, clusterId, baseAnchor, false);
+            this(owner, stability, resistance, baseType, clusterId, baseAnchor, false, null);
+        }
+
+        public RegionState(Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced) {
+            this(owner, stability, resistance, baseType, clusterId, baseAnchor, basePlaced, null);
         }
     }
 
-    public record SubRegionState(Faction owner, float stability, boolean underSiege, long clusterId) {
+    public record SubRegionState(Faction owner, float stability, boolean underSiege, long clusterId, UUID playerFactionId) {
+        public SubRegionState(Faction owner, float stability, boolean underSiege, long clusterId) {
+            this(owner, stability, underSiege, clusterId, null);
+        }
     }
 
-    public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced) {
+    public record Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced, UUID playerFactionId) {
         public Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId) {
-            this(x, z, owner, stability, resistance, baseType, clusterId, null, false);
+            this(x, z, owner, stability, resistance, baseType, clusterId, null, false, null);
         }
 
         public Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor) {
-            this(x, z, owner, stability, resistance, baseType, clusterId, baseAnchor, false);
+            this(x, z, owner, stability, resistance, baseType, clusterId, baseAnchor, false, null);
+        }
+
+        public Region(int x, int z, Faction owner, float stability, float resistance, BaseType baseType, long clusterId, BlockPos baseAnchor, boolean basePlaced) {
+            this(x, z, owner, stability, resistance, baseType, clusterId, baseAnchor, basePlaced, null);
         }
     }
 

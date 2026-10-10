@@ -23,11 +23,17 @@ public record RegionDetailsPayload(
         long reinforcementRemainingTicks,
         boolean isEncircled,
         BlockPos baseAnchor,
-        long missionSeed
+        long missionSeed,
+        String playerFactionName,
+        String attackerFactionName,
+        boolean isFieldBattle,
+        float attackerProgress,
+        float defenderProgress,
+        boolean playerInFactionRegion
 ) implements CustomPacketPayload {
 
     public RegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, int factionId, float stability, float resistance, int baseTypeId, boolean underSiege, boolean isVisited) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L);
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L, "", "", false, 0.0F, 0.0F, false);
     }
 
     public RegionDetailsPayload(
@@ -40,9 +46,11 @@ public record RegionDetailsPayload(
             int attackerFactionId,
             boolean isAwaitingReinforcements,
             long reinforcementRemainingTicks,
-            boolean isEncircled
+            boolean isEncircled,
+            BlockPos baseAnchor,
+            long missionSeed
     ) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, null, 0L);
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false);
     }
 
     public static final Type<RegionDetailsPayload> TYPE = new Type<>(
@@ -76,6 +84,13 @@ public record RegionDetailsPayload(
             BlockPos baseAnchor = hasAnchor ? buf.readBlockPos() : null;
             long missionSeed = ByteBufCodecs.VAR_LONG.decode(buf);
 
+            String playerFactionName = ByteBufCodecs.STRING_UTF8.decode(buf);
+            String attackerFactionName = ByteBufCodecs.STRING_UTF8.decode(buf);
+            boolean isFieldBattle = ByteBufCodecs.BOOL.decode(buf);
+            float attackerProgress = ByteBufCodecs.FLOAT.decode(buf);
+            float defenderProgress = ByteBufCodecs.FLOAT.decode(buf);
+            boolean playerInFactionRegion = ByteBufCodecs.BOOL.decode(buf);
+
             return new RegionDetailsPayload(
                     rx, rz, sx, sz,
                     factionId, stability, resistance,
@@ -88,7 +103,13 @@ public record RegionDetailsPayload(
                     reinforcementRemainingTicks,
                     isEncircled,
                     baseAnchor,
-                    missionSeed
+                    missionSeed,
+                    playerFactionName,
+                    attackerFactionName,
+                    isFieldBattle,
+                    attackerProgress,
+                    defenderProgress,
+                    playerInFactionRegion
             );
         }
 
@@ -120,6 +141,13 @@ public record RegionDetailsPayload(
                 buf.writeBlockPos(payload.baseAnchor());
             }
             ByteBufCodecs.VAR_LONG.encode(buf, payload.missionSeed());
+
+            ByteBufCodecs.STRING_UTF8.encode(buf, payload.playerFactionName() != null ? payload.playerFactionName() : "");
+            ByteBufCodecs.STRING_UTF8.encode(buf, payload.attackerFactionName() != null ? payload.attackerFactionName() : "");
+            ByteBufCodecs.BOOL.encode(buf, payload.isFieldBattle());
+            ByteBufCodecs.FLOAT.encode(buf, payload.attackerProgress());
+            ByteBufCodecs.FLOAT.encode(buf, payload.defenderProgress());
+            ByteBufCodecs.BOOL.encode(buf, payload.playerInFactionRegion());
         }
     };
 

@@ -138,14 +138,18 @@ public class SupplyWagonCartEntity extends PathfinderMob implements GeoEntity {
     public int getOriginSubZ() { return originSubZ; }
 
     @Override
+    public boolean isPushable() {
+        return false;
+    }
+
+    @Override
+    public boolean isPushedByFluid() {
+        return false;
+    }
+
+    @Override
     public void push(Entity other) {
-        if (other == null) return;
-        UUID otherId = other.getUUID();
-        // Do not push against hitched horses or rear trailer wagon
-        if (otherId.equals(leftHorseUuid) || otherId.equals(rightHorseUuid) || otherId.equals(extensionWagonUuid)) {
-            return;
-        }
-        super.push(other);
+        // Wagons are heavy and immune to collision pushes
     }
 
     @Override
@@ -206,6 +210,7 @@ public class SupplyWagonCartEntity extends PathfinderMob implements GeoEntity {
 
         // Lock position and rotations to prevent violent spinning
         horse.setPos(targetX, targetY, targetZ);
+        horse.resetFallDistance();
         horse.setYRot(yaw);
         horse.setYHeadRot(yaw);
         horse.yBodyRot = yaw;
@@ -222,6 +227,11 @@ public class SupplyWagonCartEntity extends PathfinderMob implements GeoEntity {
             currentTargetWaypoint = SubregionPatrolManager.pickNextBorderWaypoint(
                     serverLevel, originRegionX, originRegionZ, originSubX, originSubZ, this.blockPosition()
             );
+            if (currentTargetWaypoint == null) {
+                com.warfront.Warfront.LOGGER.error("[Warfront Convoy] Cart {} can't find next waypoint from initial border position {} in Region ({}, {}) Sub ({}, {})!",
+                        this.getUUID(), this.blockPosition(), originRegionX, originRegionZ, originSubX, originSubZ);
+                return;
+            }
         }
 
         if (currentTargetWaypoint == null) {
@@ -238,9 +248,14 @@ public class SupplyWagonCartEntity extends PathfinderMob implements GeoEntity {
             waitTicksRemaining--;
             if (waitTicksRemaining <= 0) {
                 isWaitingAtWaypoint = false;
+                BlockPos prevGoal = currentTargetWaypoint;
                 currentTargetWaypoint = SubregionPatrolManager.pickNextBorderWaypoint(
-                        serverLevel, originRegionX, originRegionZ, originSubX, originSubZ, currentTargetWaypoint
+                        serverLevel, originRegionX, originRegionZ, originSubX, originSubZ, prevGoal
                 );
+                if (currentTargetWaypoint == null) {
+                    com.warfront.Warfront.LOGGER.error("[Warfront Convoy] Cart {} can't find next waypoint after goal {} from {} in Region ({}, {}) Sub ({}, {})!",
+                            this.getUUID(), borderGoalsReached, prevGoal, originRegionX, originRegionZ, originSubX, originSubZ);
+                }
                 repathCooldown = 0;
             }
         } else {
@@ -250,6 +265,18 @@ public class SupplyWagonCartEntity extends PathfinderMob implements GeoEntity {
                 if (borderGoalsReached >= 3) {
                     // Reached 3rd border goal -> Convoy escaped! Mission failed!
                     SupplyConvoyMissionHandler.getInstance().onConvoyEscaped(serverLevel, this);
+                    if (extensionWagonUuid != null) {
+                        Entity ext = serverLevel.getEntity(extensionWagonUuid);
+                        if (ext != null) ext.discard();
+                    }
+                    if (leftHorseUuid != null) {
+                        Entity lh = serverLevel.getEntity(leftHorseUuid);
+                        if (lh != null) lh.discard();
+                    }
+                    if (rightHorseUuid != null) {
+                        Entity rh = serverLevel.getEntity(rightHorseUuid);
+                        if (rh != null) rh.discard();
+                    }
                     this.discard();
                     return;
                 }

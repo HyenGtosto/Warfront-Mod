@@ -47,7 +47,7 @@ public final class RegionTriggerEvents {
         // 1. Chunk entry trigger for unlocking map regions
         if (previousChunkLong == null || !previousChunkLong.equals(currentChunkLong)) {
             RegionData regions = RegionData.get(level);
-            regions.unlock3x3Around(rx, rz);
+            regions.unlock3x3AroundForPlayer(playerUUID, rx, rz);
         }
 
         // 2. Periodic in-war mission sync & spawning (every 20 ticks / 1 second)
@@ -73,8 +73,10 @@ public final class RegionTriggerEvents {
             }
 
             if (progress != null && !progress.isCompleted()) {
-                // Handle in-world reinforcement spawning
-                ActiveCampaignMissionManager.onPlayerInSubregion(level, rx, rz, sx, sz, player);
+                // Handle in-world reinforcement spawning only if attacking faction player is present in region
+                if (ActiveCampaignMissionManager.isAttackingPlayerPresentInRegion(level, rx, rz)) {
+                    ActiveCampaignMissionManager.onPlayerInSubregion(level, rx, rz, sx, sz, player);
+                }
 
                 // Send HUD synchronization packet
                 RegionData regions = RegionData.get(level);
@@ -109,7 +111,19 @@ public final class RegionTriggerEvents {
     }
 
     public static void onEntityJoin(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
-        if (event.getLevel().isClientSide()) return;
+        if (event.getEntity() instanceof net.minecraft.world.entity.Mob mob && mob.getPersistentData().getBoolean("isMissionMob")) {
+            java.util.UUID missionId = mob.getPersistentData().getUUID("missionInstanceId");
+            int rx = mob.getPersistentData().getInt("originRegionX");
+            int rz = mob.getPersistentData().getInt("originRegionZ");
+            int sx = mob.getPersistentData().getInt("originSubX");
+            int sz = mob.getPersistentData().getInt("originSubZ");
+            if (!com.warfront.mission.ActiveCampaignMissionManager.isMissionInstanceActive(missionId, rx, rz, sx, sz)) {
+                int factionId = mob.getPersistentData().getInt("faction");
+                com.warfront.region.Faction faction = com.warfront.region.Faction.byId(factionId);
+                com.warfront.spawn.MissionEntityTracker.registerMissionEntity(mob, missionId, rx, rz, sx, sz, faction);
+            }
+        }
+
         if (event.getEntity() instanceof net.minecraft.world.entity.projectile.Projectile projectile) {
             if (projectile.getOwner() instanceof net.minecraft.world.entity.player.Player player) {
                 java.util.List<com.warfront.entity.PillagerWarriorEntity> warriors = event.getLevel().getEntitiesOfClass(
@@ -124,6 +138,21 @@ public final class RegionTriggerEvents {
                     }
                     warrior.getLookControl().setLookAt(player, 60.0F, 60.0F);
                 }
+            }
+        }
+    }
+
+    public static void onLivingIncomingDamage(net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent event) {
+        if (event.getEntity().getTags().contains("warfront_convoy_horse")
+                || event.getEntity() instanceof com.warfront.entity.SupplyWagonCartEntity
+                || event.getEntity() instanceof com.warfront.entity.SupplyWagonExtensionEntity) {
+            net.minecraft.world.damagesource.DamageSource source = event.getSource();
+            if (source.is(net.minecraft.world.damagesource.DamageTypes.FALL)
+                    || source.is(net.minecraft.world.damagesource.DamageTypes.IN_WALL)
+                    || source.is(net.minecraft.world.damagesource.DamageTypes.CRAMMING)
+                    || source.is(net.minecraft.world.damagesource.DamageTypes.FLY_INTO_WALL)
+                    || source.is(net.minecraft.world.damagesource.DamageTypes.FALLING_BLOCK)) {
+                event.setCanceled(true);
             }
         }
     }

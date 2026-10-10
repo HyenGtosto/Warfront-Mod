@@ -278,6 +278,16 @@ When a region houses a physical base, the subregions containing the base footpri
   - Pulsating red frontline combat borders around $8 \times 8$ regions at war.
   - Transparent central war status badges (`war_attack.png`, `war_defense.png`) with contextual auto-hiding during mission selection and auto-display when unselected.
   - Network synchronization of active war campaigns via `ActiveWarData` in `RegionMapPayload`.
+- [x] **Player Group & Faction System:**
+  - Server-side persistent storage (`PlayerFactionData`) saving to `warfront_player_factions.dat`.
+  - Player lifecycle management: faction creation (automatic Leader status), join approval workflow, invitations, member kicking (owner-only), self-leaving, owner disbanding, and settings updates.
+  - FTB-Teams-inspired GUI housed in strategic map terminal under dedicated `FACTION` tab.
+  - Left column scrollable member list with player skin avatars (`PlayerFaceRenderer`), rank indicators, contextual popup actions (Kick for owner, Leave for self).
+  - Bottom-left invite section (text input with `[Invite Player]` button on top).
+  - Custom scrollable faction chat history with purple system messages and interactive clickable text for join approval requests (`[ACCEPT]`).
+  - Top-right owner-only settings screen with name, description, color picker, and disband button.
+  - Gameplay enforcement: players without a faction are strictly forbidden from placing Claim Cores or engaging in regional war campaigns.
+  - World/map faction color representation: Humanity territory chunks dynamically reflect the player faction's chosen color.
 
 ---
 
@@ -448,6 +458,105 @@ When a region houses a physical base, the subregions containing the base footpri
   - The Cobblestone Monolith is strictly a **placeholder** for tiers and factions not yet implemented (e.g. Mega Bases, Spires), **never** a fallback for implemented structures. If an implemented template encounters an issue, it logs an error rather than silently generating a monolith.
 * **Visual & Audio Effects Separation:**
   - `POOF` particle effects are strictly reserved for structural decay, demolition, and mob despawns. Self-repair produces only `HAPPY_VILLAGER` green sparkles and `ANVIL_USE` sound effects.
+
+### 10.10. Player Group & Faction System Architecture
+* **Server-Side Data Storage (`com.warfront.faction`):**
+  - `PlayerFactionData.java`: Extends `SavedData` with storage ID `"warfront_player_factions"`. Maintains authoritative `factionsById`, `factionIdByName`, and `playerToFactionMap`. Manages lifecycle operations: `createFaction`, `requestJoin`, `acceptJoinRequest`, `invitePlayer`, `kickPlayer`, `leaveFaction`, `disbandFaction`, `updateFactionSettings`, `sendChatMessage`, and network synchronization.
+  - `PlayerFaction.java`: Encapsulates faction state: UUID, name, description, integer color, owner UUID, members map, chat history list (capped to 100 entries), pending join requests, and pending invites with full NBT serialization.
+  - `FactionMember.java`, `FactionRole.java`: Data records tracking member UUID, username, and role (`LEADER`, `MEMBER`).
+  - `FactionChatMessage.java`, `FactionMessageType.java`: Models normal chat, system messages, and interactive join approval requests carrying requester UUID and username.
+* **Network Payloads (`com.warfront.network.faction`):**
+  - 10 Client-to-Server packets: `CreateFactionPayload`, `JoinFactionRequestPayload`, `AcceptJoinRequestPayload`, `InvitePlayerPayload`, `KickPlayerPayload`, `LeaveFactionPayload`, `DisbandFactionPayload`, `UpdateFactionSettingsPayload`, `SendFactionChatPayload`, and `RequestFactionDataPayload`.
+  - 2 Server-to-Client packets: `SyncFactionDataPayload` (full faction snapshot) and `FactionActionFeedbackPayload` (status message dispatch).
+  - Registered in `WarfrontPayloads.java`.
+* **Gameplay Enforcement & Restrictions:**
+  - `ClaimCoreEvents.java`: Blocks placement of `CLAIM_CORE` blocks if the player is not in a faction, notifying them with `§c[Warfront] You must be in a faction to claim territory!`.
+  - `LaunchAttackPayload.java` & `CancelAttackPayload.java`: Rejects campaign launch, defense confirmation, or cancel actions for unaffiliated players.
+  - `Warfront.java`: Registered `PlayerLoggedInEvent` listener automatically synchronizing faction data upon login.
+* **Strategic Map Integration & FTB-Teams GUI (`com.warfront.client.faction`):**
+  - `RegionMapScreen.java`: Added top-header `FACTION` tab right-aligned to the top frame edge (`viewport.frameLeft() + viewport.frameWidth() - tabWidth - 6`), added `ActiveTab.FACTION` state, and forwarded mouse clicks, drags, wheel scrolling, and key input to `FactionPanel`. Action buttons in map view are disabled with tooltips for unaffiliated players.
+  - `FactionPanel.java`:
+    - Not in Faction View: 2 centered vertical buttons (`Create a faction` and `Join a Faction`).
+    - Create Faction Screen: Name, optional description, color picker (preset military swatches + hex input + live color preview box).
+    - Join Faction Dialog: Centered modal popup text box with horizontally aligned `Send` and `Cancel` buttons.
+    - In Faction View (FTB Teams layout): Top header with color swatch, faction title, and owner-only `[⚙ Settings]` button.
+    - Left Column: Scrollable member list with player skin avatars (`PlayerFaceRenderer`), usernames, and role badges. Clicking another member opens a `[Kick]` button (strictly owner-only); clicking self opens a `[Leave]` button (both disappear on outside click). Bottom left text box with `[Invite Player]` button on top.
+    - Right Column: Scrollable custom chatbox with player messages, purple system notices, and interactive join requests with clickable `§a§l[ACCEPT]` text. Bottom chat input field with send button and Enter key dispatch.
+    - Settings Screen (Owner Only): Fields to update name, description, and color, along with a prominent red `[DISBAND FACTION]` button.
+  - `RegionMapRenderer.java`:
+    - Dynamically applies the player faction's chosen color to claimed Humanity territory on the strategic map.
+    - Scaled central war status emblems (`war_attack.png` and `war_defense.png`) from 3.5 chunks to `7.0D` chunks, cleanly filling the $8 \times 8$ region boundary.
+
+### 10.11. Humanity vs. Humanity Warfare & "Field Battle" (King of the Hill)
+* **PvP Warfare Paradigm:**
+  - Player factions (Humanity) can launch strategic warfare campaigns directly against rival Humanity factions.
+  - Unlike NPC campaigns (which are partitioned into 4 subregions with tactical base destruction/assassination objectives), Humanity vs. Humanity warfare is **NOT subregion-based**.
+  - A Humanity vs. Humanity battle is a single unified region-wide King of the Hill mission named **"Field battle"** encompassing the full $128 \times 128$ block territory (`mask = 0xF`).
+* **Field Battle King of the Hill Mechanics (`FieldBattleManager.java`):**
+  - Evaluated server-side every 20 ticks (1 second) across active levels.
+  - Dynamically counts alive, non-spectator players of the Attacking Faction vs. Defending Faction within the region's $128 \times 128$ block boundaries.
+  - **Differential Scaling Rate:** The faction with more players within the region advances their capture progress bar. Each extra player accelerates the progress rate proportionally (`rate = diff * 1.0F%` per second).
+  - **Stalemate Detection:** When player counts are equal (`attackerCount == defenderCount`, including 0 vs 0), capture progress strictly freezes with zero gain for both factions.
+  - **Attacker Victory:** When Attacker progress reaches $100\%$, the Attacking Faction captures the region. Ownership, subregions, and `playerFactionId` transfer completely to the attacker with $100\%$ stability. Victory announcements and titles are broadcast to the server.
+  - **Defender Victory:** When Defender progress reaches $100\%$ or the campaign duration expires, the Defending Faction successfully retains the region.
+* **Dual Progress Bar HUD (`ActiveMissionHudOverlay.java` & `ActiveMissionHudPayload.java`):**
+  - Displays dynamic Field Battle HUD with dual progress bars:
+    - Attacking Faction Progress bar (Red/Orange fill, 0–100%)
+    - Defending Faction Progress bar (Blue/Cyan fill, 0–100%)
+  - Live status line indicating current field conditions: `Stalemate: No forces present`, `Stalemate: Contested (X vs Y)`, `<Attacker> capturing (+N)`, or `<Defender> holding (+N)`.
+  - Displayed for players inside the region or affiliated with the involved factions; automatically cleared upon region exit or battle resolution.
+* **Map & Intelligence Tab Integration:**
+  - Region ownership in the strategic map left-sidebar card dynamically renders the custom player faction's name instead of generic "Humanity".
+  - Attack and defense announcements in logs and title banners use player faction names (e.g. `⚔ Attack launched: <Attacker> → Region (X, Z) [<Defender>] - Field battle commenced!`).
+  - Selecting a rival player faction region allows launching an attack immediately without subregion toggling.
+* **Disband Faction Region Cleanup:**
+  - When a faction is disbanded via the settings panel, `PlayerFactionData.disbandFaction` iterates through all regions owned by that faction and calls `RegionData.unclaim(...)`.
+  - All owned regions and their 4 subregions revert to `Faction.UNCLAIMED` with zero stability/resistance, active sieges are cancelled, Intel log entries are added, and active map terminals are notified in real-time.
+
+### 10.12. Capture Patrol Despawn, Victory Cleanup Pacing, Attacker Presence & War Protection
+* **Patrol Despawning on Territory Capture (`SubregionPatrolManager.java` & `RegionData.java`):**
+  - When a player faction secures a subregion or captures a whole region, active NPC patrol squads belonging to that subregion or region enter a terminal dispersal state.
+  - Squads are removed from active patrol mapping and enrolled into `TERMINAL_PATROL_MOBS`.
+  - Despawns at a strict cadence of **2.5 seconds per mob** (50 server ticks) with `ParticleTypes.POOF` and `SoundEvents.CHICKEN_EGG` effects.
+  - Wired into `RegionData.claimSubRegion` and `RegionData.setRegion` upon transition to `Faction.HUMANITY`.
+* **Victory Cleanup Delay Adjustment (`MissionEntityTracker.java` & `AttackRoamerManager.java`):**
+  - Paced mission victory mob cleanup to **2.5 seconds per mob** (50 server ticks: `gameTime % 50 == 0`), fixing issues where mobs disappeared unnaturally fast (previously 10 ticks / 0.5s).
+  - Terminal dispersal in `AttackRoamerManager` similarly synchronized to a 50-tick cadence.
+* **Attacking Faction Presence Requirement (`ActiveCampaignMissionManager.java` & `RegionTriggerEvents.java`):**
+  - All active campaign missions strictly require an alive, non-spectator player belonging to the attacking player faction (or territory owner for defense campaigns) to be physically present within the $64 \times 64$ subregion or within 80 blocks of the mission anchor site.
+  - Guarded `ActiveCampaignMissionManager.onPlayerInSubregion`, `onEntityKilled`, `onBlockBroken`, and `SubregionPatrolManager.tick` to prevent wave spawning and objective advancement when no attacking faction member is on site.
+* **War & Siege Anti-Hijack Protection (`LaunchAttackPayload.java`, `CancelAttackPayload.java`, & `RegionMapScreen.java`):**
+  - **Server-side Siege Lock:** Regions currently engaged in war or under siege by one player faction are strictly protected from rival attacks. `LaunchAttackPayload` rejects incoming attack requests from other factions with clear notifications (`§c[Warfront] This region is already under siege by <Faction>! You cannot intervene until their campaign concludes.`).
+  - **Defense Authorization:** Defense mission confirmations are restricted strictly to the player faction owning the territory.
+  - **Cancel Authorization:** `CancelAttackPayload` validates player faction ownership: only the participating attacking faction can cancel an attack campaign or field battle, and only the defending faction can cancel defense missions.
+  - **Client UI War Lock:** `RegionMapScreen.java` displays a disabled "LAUNCH ATTACK" button with tooltip `§cRegion is currently in war.` when a region is under siege by other factions, while hiding confirm, cancel, and subregion buttons from non-participating observers.
+
+### 10.13. Bordering Attack Requirement, Flank Assault Arrows, 20/20 Initial Stats & Multi-Player Fixes
+* **Bug 1: Subregion Mission Re-Selection in War Zones (`RegionMapScreen.java`):**
+  - Resolved an issue where ongoing attackers could not select and confirm subsequent subregion missions after completing one.
+  - Allowed ongoing attackers (`isAttacker`) to continue selecting and attacking subregions while `underSiege()` is true.
+  - Guarded campaign confirmation with `if (!isDefense && !isAttack && !isAttacker) return;`.
+* **Bug 2: Attack Campaign Cleanup on Faction Disband (`PlayerFactionData.java`):**
+  - Fixed orphaned subregions and stuck region states when a faction was disbanded while having captured subregions in an ongoing campaign.
+  - `PlayerFactionData.disbandFaction` now iterates over all active campaigns, cleans up any campaigns where the disbanded faction was the attacker (or involved in Field Battle), calls `ActiveCampaignMissionManager.clearCampaign`, clears Field Battle HUDs, and invokes `RegionData.revertRegionSubRegionsToOwner` to immediately restore subregions to the territory owner.
+* **Bug 3: Field Battle HUD Scoped to Region (`FieldBattleManager.java`):**
+  - Restricted the Field Battle King of the Hill HUD broadcast strictly to players physically inside the contested $128 \times 128$ block region boundary.
+* **Bug 4: Intercept Supply Convoy Border-to-Border Navigation (`SubregionPatrolManager.java`, `SupplyConvoyMissionHandler.java`, `SupplyWagonCartEntity.java`):**
+  - Fixed convoy generation failures in water/crater regions by enforcing strictly **border-to-border** movement (no inner fallback coordinate).
+  - Implemented `isValidHarshBorderPoint`: requires solid ground, open sky, 3-block clear headroom, and checks adjacent blocks to reject crater edges (>2-block sheer drops or water).
+  - Added explicit console error logging (`Warfront.LOGGER.error("[Warfront Convoy] Can't find next waypoint...")`) whenever waypoint checks fail.
+* **Feature 1: Bordering Attack Requirement & Flank Assault Arrows (`LaunchAttackPayload.java`, `RegionData.java`, `RequestRegionDetailsPayload.java`, `RequestRegionMapPayload.java`, `CancelAttackPayload.java`, `RegionMapScreen.java`):**
+  - **Bordering Region Requirement:** Attacking factions must own at least one cardinal bordering region (North, South, East, West) to attack an enemy or rival region (applies to both PvE campaigns and PvP Field Battles).
+  - **Flank Assault Multi-Axis Support:** If a player faction owns multiple bordering regions adjacent to the target, the attack is categorized as a flank assault (`attackValue = sources.size()`), broadcasting special Flank Assault title banners and logs.
+  - **Converging Attack Arrows:** Removed the Humanity campaign arrow filter in `RequestRegionMapPayload.java`. Attack arrows originate from each bordering owned region and converge onto the target region on the strategic map for both PvE and PvP warfare.
+  - **Dynamic Reachability & Masking:** `RegionData.isRegionReachable`, `computeReachableMask`, and `computeSecuredMask` now evaluate reachability relative to the querying player's faction ID.
+* **Feature 2: Universal 20 Resistance & 20 Stability Territory Initialization:**
+  - Enforced that all player territory captures across **every source** begin at flat **20 resistance and 20 stability** (and subregions at 20 stability):
+    - Claim Core block placement (`ClaimCoreEvents.java`).
+    - Campaign domino conquest & campaign expiration (`RegionData.java`, `AIAttackManager.java`).
+    - Field Battle King of the Hill victory (`FieldBattleManager.java`).
+    - Admin commands (`/warfront region set-owner humanity` in `RegionCommands.java`).
+    - Core data methods `RegionData.setRegion`, `setOwner`, and `claimSubRegion`.
 
 ---
 

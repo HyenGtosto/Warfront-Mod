@@ -152,6 +152,9 @@ public final class RegionMapRenderer {
                         if (chunk.factionId() != Faction.UNCLAIMED.id()) {
                             Faction faction = Faction.byId(chunk.factionId());
                             int fColor = faction.color();
+                            if (faction == Faction.HUMANITY && com.warfront.client.faction.FactionClientState.get().isInFaction()) {
+                                fColor = com.warfront.client.faction.FactionClientState.get().getColor();
+                            }
                             int fr = (fColor >> 16) & 0xFF;
                             int fg = (fColor >> 8) & 0xFF;
                             int fb = fColor & 0xFF;
@@ -333,7 +336,7 @@ public final class RegionMapRenderer {
 
             double centerCX = rx * 8 + 4.0D;
             double centerCZ = rz * 8 + 4.0D;
-            double iconChunks = 3.5D;
+            double iconChunks = 7.0D;
             double startCX = centerCX - (iconChunks / 2.0D);
             double startCZ = centerCZ - (iconChunks / 2.0D);
 
@@ -806,7 +809,9 @@ public final class RegionMapRenderer {
         }
 
         Component ownerDisplayName = selectedRegion.owner().displayName();
-        if (selectedRegion.baseType() != BaseType.NONE) {
+        if (selectedRegion.playerFactionName() != null && !selectedRegion.playerFactionName().isEmpty()) {
+            ownerDisplayName = Component.literal(selectedRegion.playerFactionName());
+        } else if (selectedRegion.baseType() != BaseType.NONE) {
             ownerDisplayName = selectedRegion.baseType().getDisplayName(selectedRegion.owner());
         }
 
@@ -822,7 +827,14 @@ public final class RegionMapRenderer {
                 Component.translatable("screen.warfront.resistance"),
                 Component.literal(formatMetric(selectedRegion.resistance())));
 
-        if (selectedRegion.remainingSiegeTicks() > 0 || selectedRegion.underSiege()) {
+        if (selectedRegion.isFieldBattle()) {
+            long totalSeconds = selectedRegion.remainingSiegeTicks() / 20L;
+            long mins = totalSeconds / 60L;
+            long secs = totalSeconds % 60L;
+            renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
+                    Component.literal("§6§lFIELD BATTLE"),
+                    Component.literal(String.format("§fTime Left: §e%02d:%02d", mins, secs)));
+        } else if (selectedRegion.remainingSiegeTicks() > 0 || selectedRegion.underSiege()) {
             long totalSeconds = selectedRegion.remainingSiegeTicks() / 20L;
             long mins = totalSeconds / 60L;
             long secs = totalSeconds % 60L;
@@ -850,6 +862,13 @@ public final class RegionMapRenderer {
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
                     Component.literal("§c§lATTACK TARGET"),
                     Component.literal(reqText));
+        } else if (selectedRegion.owner() == Faction.HUMANITY && selectedRegion.playerFactionName() != null && !selectedRegion.playerFactionName().isEmpty()) {
+            String myFaction = com.warfront.client.faction.FactionClientState.get().getFactionName();
+            if (myFaction != null && !myFaction.equalsIgnoreCase(selectedRegion.playerFactionName())) {
+                renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
+                        Component.literal("§c§lRIVAL TERRITORY"),
+                        Component.literal("§fField Battle (KotH)"));
+            }
         }
     }
 

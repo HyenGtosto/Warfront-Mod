@@ -206,15 +206,93 @@ public final class SubregionPatrolManager {
         return (ChunkPos.asLong(rx, rz) << 2) | ((sz & 1) << 1) | (sx & 1);
     }
 
+    /** Despawn interval for captured sector patrols: 50 ticks = 2.5 seconds per mob. */
+    public static final int TERMINAL_DESPAWN_INTERVAL_TICKS = 50;
+    public static final double TERMINAL_DESPAWN_RADIUS_SQ = 64.0D * 64.0D;
+
+    /** Mobs belonging to captured subregions pending terminal dispersal: Mob UUIDs */
+    private static final List<UUID> TERMINAL_PATROL_MOBS = new CopyOnWriteArrayList<>();
+    private static long lastTerminalDespawnTick = 0L;
+
+    public static void onSubregionCaptured(ServerLevel level, int rx, int rz, int sx, int sz) {
+        long subKey = makeSubKey(rx, rz, sx, sz);
+        List<PatrolSquad> squads = ACTIVE_PATROLS.remove(subKey);
+        LAST_SPAWN_TIME.remove(subKey);
+        if (squads != null) {
+            for (PatrolSquad squad : squads) {
+                for (UUID id : squad.memberUuids) {
+                    if (!TERMINAL_PATROL_MOBS.contains(id)) {
+                        TERMINAL_PATROL_MOBS.add(id);
+                    }
+                }
+            }
+        }
+    }
+
+    public static void onRegionCaptured(ServerLevel level, int rx, int rz) {
+        for (int sx = 0; sx <= 1; sx++) {
+            for (int sz = 0; sz <= 1; sz++) {
+                onSubregionCaptured(level, rx, rz, sx, sz);
+            }
+        }
+    }
+
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerLevel level = event.getServer().overworld();
         if (level == null) return;
 
         long gameTime = level.getGameTime();
-        if (gameTime % EVAL_INTERVAL_TICKS != 0) return;
 
         List<ServerPlayer> players = level.players();
         if (players.isEmpty()) return;
+
+        // Process terminal patrol dispersal: exactly 1 nearby mob every 50 ticks (2.5 seconds)
+        if (!TERMINAL_PATROL_MOBS.isEmpty() && (gameTime - lastTerminalDespawnTick >= TERMINAL_DESPAWN_INTERVAL_TICKS)) {
+            lastTerminalDespawnTick = gameTime;
+            while (!TERMINAL_PATROL_MOBS.isEmpty()) {
+                UUID mobId = TERMINAL_PATROL_MOBS.remove(0);
+                Entity e = level.getEntity(mobId);
+                if (!(e instanceof Mob mob) || !mob.isAlive()) {
+                    continue;
+                }
+
+                double minDistSq = Double.MAX_VALUE;
+                for (ServerPlayer player : players) {
+                    double dSq = mob.distanceToSqr(player);
+                    if (dSq < minDistSq) {
+                        minDistSq = dSq;
+                    }
+                }
+
+                if (minDistSq > TERMINAL_DESPAWN_RADIUS_SQ) {
+                    // Distant leftover mob despawns immediately
+                    mob.discard();
+                    continue;
+                } else {
+                    // Nearby leftover mob: despawn 1 mob with POOF particles and sound
+                    level.sendParticles(
+                            net.minecraft.core.particles.ParticleTypes.POOF,
+                            mob.getX(),
+                            mob.getY() + Math.max(0.5D, mob.getBbHeight() / 2.0D),
+                            mob.getZ(),
+                            12,
+                            0.35D, 0.45D, 0.35D, 0.05D
+                    );
+                    level.playSound(
+                            null,
+                            mob.blockPosition(),
+                            net.minecraft.sounds.SoundEvents.CHICKEN_EGG,
+                            net.minecraft.sounds.SoundSource.HOSTILE,
+                            0.8F,
+                            1.2F
+                    );
+                    mob.discard();
+                    break; // 1 mob per 2.5 seconds
+                }
+            }
+        }
+
+        if (gameTime % EVAL_INTERVAL_TICKS != 0) return;
 
         RegionData regions = RegionData.get(level);
 
@@ -280,6 +358,9 @@ public final class SubregionPatrolManager {
                 targetFaction = progress.targetFaction();
                 if (!targetFaction.isAI()) {
                     continue;
+                }
+                if (!com.warfront.mission.ActiveCampaignMissionManager.isAttackingPlayerPresentInRegion(level, rx, rz)) {
+                    continue; // Skip spawning war patrols if attacking faction player is not present in region
                 }
                 if (progress.missionType() == com.warfront.mission.MissionType.KILL_COUNT) {
                     maxSquads = 4;
@@ -468,7 +549,41 @@ public final class SubregionPatrolManager {
     }
 
     /**
-     * Picks a random surface point on one of the 4 borders of a subregion.
+     * Checks if a border coordinate has stable, flat, open-air dry land suitable for large convoy wagons.
+     * Rejects caves, crater edges, cliffs, overhangs, and water.
+     */
+    public static boolean isValidHarshBorderPoint(ServerLevel level, int x, int z) {
+        int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
+        if (y == Integer.MIN_VALUE) return false;
+
+        BlockPos pos = new BlockPos(x, y, z);
+        // Must have direct view of the sky (not underground in a mine or cave)
+        if (!level.canSeeSky(pos)) return false;
+
+        // Check clear 3-block headroom for wagons and horses
+        for (int dy = 0; dy <= 2; dy++) {
+            BlockPos head = pos.above(dy);
+            if (!level.getFluidState(head).isEmpty() || level.getBlockState(head).blocksMotion()) {
+                return false;
+            }
+        }
+
+        // Harsh slope / crater drop check: adjacent cardinal blocks must not be a sheer drop (>2 blocks) or water
+        int[][] neighbors = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        for (int[] offset : neighbors) {
+            int nx = x + offset[0];
+            int nz = z + offset[1];
+            int ny = EnemyEncounterSpawner.findDryLandSurfaceY(level, nx, nz);
+            if (ny == Integer.MIN_VALUE || Math.abs(ny - y) > 2) {
+                return false; // Drop into crater, cliff ledge, or water boundary
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Picks a random surface point on one of the 4 borders of a subregion using harsh border validation.
      */
     public static BlockPos pickRandomBorderPoint(ServerLevel level, int rx, int rz, int sx, int sz) {
         int subMinX = rx * RegionData.REGION_SIZE_BLOCKS + sx * SUBREGION_SIZE_BLOCKS;
@@ -476,33 +591,42 @@ public final class SubregionPatrolManager {
         int subMinZ = rz * RegionData.REGION_SIZE_BLOCKS + sz * SUBREGION_SIZE_BLOCKS;
         int subMaxZ = subMinZ + SUBREGION_SIZE_BLOCKS - 1;
 
-        for (int attempt = 0; attempt < 16; attempt++) {
+        // 1. Randomized harsh search across 4 perimeter edges
+        for (int attempt = 0; attempt < 80; attempt++) {
             int edge = level.getRandom().nextInt(4);
+            int inset = level.getRandom().nextInt(2); // 0 or 1 block inset
             int x, z;
             switch (edge) {
-                case 0 -> { // North
-                    x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                    z = subMinZ;
-                }
-                case 1 -> { // South
-                    x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                    z = subMaxZ;
-                }
-                case 2 -> { // West
-                    x = subMinX;
-                    z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                }
-                default -> { // East
-                    x = subMaxX;
-                    z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                }
+                case 0 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMinZ + inset; }
+                case 1 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMaxZ - inset; }
+                case 2 -> { x = subMinX + inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
+                default -> { x = subMaxX - inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
             }
 
-            int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
-            if (y != Integer.MIN_VALUE) {
+            if (isValidHarshBorderPoint(level, x, z)) {
+                int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
                 return new BlockPos(x, y, z);
             }
         }
+
+        // 2. Systematic perimeter sweep along borders
+        for (int edge = 0; edge < 4; edge++) {
+            for (int offset = 1; offset < SUBREGION_SIZE_BLOCKS - 1; offset += 2) {
+                int x, z;
+                switch (edge) {
+                    case 0 -> { x = subMinX + offset; z = subMinZ; }
+                    case 1 -> { x = subMinX + offset; z = subMaxZ; }
+                    case 2 -> { x = subMinX; z = subMinZ + offset; }
+                    default -> { x = subMaxX; z = subMinZ + offset; }
+                }
+                if (isValidHarshBorderPoint(level, x, z)) {
+                    int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
+                    return new BlockPos(x, y, z);
+                }
+            }
+        }
+
+        Warfront.LOGGER.error("[Warfront Convoy] Can't find next waypoint (failed to find valid border starting point) in Region ({}, {}) Sub ({}, {})!", rx, rz, sx, sz);
         return null;
     }
 
@@ -518,32 +642,20 @@ public final class SubregionPatrolManager {
         BlockPos bestFallback = null;
         double bestDist = 0.0D;
 
-        for (int attempt = 0; attempt < 50; attempt++) {
+        for (int attempt = 0; attempt < 120; attempt++) {
             int edge = level.getRandom().nextInt(4);
-            int inset = level.getRandom().nextInt(3); // 0 to 2 blocks inset from border to avoid single-block water edges
+            int inset = level.getRandom().nextInt(2);
             int x, z;
             switch (edge) {
-                case 0 -> { // North
-                    x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                    z = subMinZ + inset;
-                }
-                case 1 -> { // South
-                    x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                    z = subMaxZ - inset;
-                }
-                case 2 -> { // West
-                    x = subMinX + inset;
-                    z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                }
-                default -> { // East
-                    x = subMaxX - inset;
-                    z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS);
-                }
+                case 0 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMinZ + inset; }
+                case 1 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMaxZ - inset; }
+                case 2 -> { x = subMinX + inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
+                default -> { x = subMaxX - inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
             }
 
-            int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
-            if (y == Integer.MIN_VALUE) continue;
+            if (!isValidHarshBorderPoint(level, x, z)) continue;
 
+            int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
             BlockPos candidate = new BlockPos(x, y, z);
             if (fromPos == null) return candidate;
 
@@ -558,20 +670,12 @@ public final class SubregionPatrolManager {
             }
         }
 
-        if (bestFallback != null && bestDist >= 24.0D) {
+        if (bestFallback != null && bestDist >= 32.0D) {
             return bestFallback;
         }
 
-        // Guaranteed fallback: pick opposite side of subregion from fromPos
-        if (fromPos != null) {
-            int oppX = (fromPos.getX() - subMinX < SUBREGION_SIZE_BLOCKS / 2) ? subMaxX - 3 : subMinX + 3;
-            int oppZ = (fromPos.getZ() - subMinZ < SUBREGION_SIZE_BLOCKS / 2) ? subMaxZ - 3 : subMinZ + 3;
-            int oppY = EnemyEncounterSpawner.findDryLandSurfaceY(level, oppX, oppZ);
-            if (oppY != Integer.MIN_VALUE) {
-                return new BlockPos(oppX, oppY, oppZ);
-            }
-        }
-
-        return bestFallback != null ? bestFallback : fromPos;
+        // Console error logging when the check fails
+        Warfront.LOGGER.error("[Warfront Convoy] Can't find next waypoint for convoy in Region ({}, {}) Sub ({}, {}) from Pos {}!", rx, rz, sx, sz, fromPos);
+        return null;
     }
 }

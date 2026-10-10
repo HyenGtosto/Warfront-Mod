@@ -84,6 +84,20 @@ public final class KillCountMissionHandler implements WarMissionHandler {
             return false;
         }
 
+        // Force the killed target to be physically inside this subregion (not player)
+        if (mob != null) {
+            int blockX = mob.getBlockX();
+            int blockZ = mob.getBlockZ();
+            int mobRegX = Math.floorDiv(blockX, RegionData.REGION_SIZE_BLOCKS);
+            int mobRegZ = Math.floorDiv(blockZ, RegionData.REGION_SIZE_BLOCKS);
+            int mobSubX = Math.floorMod(Math.floorDiv(blockX, ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+            int mobSubZ = Math.floorMod(Math.floorDiv(blockZ, ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS), 2);
+
+            if (mobRegX != regionX || mobRegZ != regionZ || mobSubX != subX || mobSubZ != subZ) {
+                return false;
+            }
+        }
+
         progress.incrementKills();
         RegionData regions = RegionData.get(level);
         if (regions != null) {

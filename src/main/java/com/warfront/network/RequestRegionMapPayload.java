@@ -129,7 +129,7 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
                 }
 
                 // Fog-of-war rule: DEBUG view is always visited; COMMAND view checks persistent visited state; SCOUT view is local
-                boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisited(rx, rz);
+                boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisitedForPlayer(level, player.getUUID(), rx, rz);
 
                 RegionData.SubRegionState s00 = regions.subRegionAt(rx, rz, 0, 0);
                 RegionData.SubRegionState s10 = regions.subRegionAt(rx, rz, 1, 0);
@@ -173,19 +173,16 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
             int trx = campaign.targetRegionX();
             int trz = campaign.targetRegionZ();
 
-            boolean warPermitted = !viewType.hasFogOfWar() || regions.isRegionVisited(trx, trz);
+            boolean warPermitted = !viewType.hasFogOfWar() || regions.isRegionVisitedForPlayer(level, player.getUUID(), trx, trz);
             if (warPermitted) {
                 boolean isDefense = (campaign.attacker() != com.warfront.region.Faction.HUMANITY);
                 activeWars.add(new RegionMapPayload.ActiveWarData(trx, trz, campaign.attacker().id(), isDefense));
             }
 
-            if (campaign.attacker() == com.warfront.region.Faction.HUMANITY) {
-                continue; // Only enemy AI arrows render
-            }
-
             for (RegionData.SourcePos src : campaign.sources()) {
-                // Fog-of-war rule: Siege arrows ONLY included if DEBUG view OR if source or target region is VISITED by player
-                boolean arrowPermitted = !viewType.hasFogOfWar() || regions.isRegionVisited(src.x(), src.z()) || regions.isRegionVisited(trx, trz);
+                // Fog-of-war rule: Siege arrows ONLY included if DEBUG view OR if source or target region is VISITED by player (or player attack)
+                boolean arrowPermitted = !viewType.hasFogOfWar() || regions.isRegionVisitedForPlayer(level, player.getUUID(), src.x(), src.z()) || regions.isRegionVisitedForPlayer(level, player.getUUID(), trx, trz)
+                        || (campaign.attacker() == com.warfront.region.Faction.HUMANITY);
                 if (arrowPermitted) {
                     siegeArrows.add(new RegionMapPayload.SiegeArrowData(
                             src.x(), src.z(),

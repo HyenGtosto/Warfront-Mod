@@ -74,14 +74,12 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
 
         UUID instanceId = progress.missionInstanceId();
 
-        // 1. Pick starting point on a subregion border
+        // 1. Pick starting point strictly on a subregion border with harsh checks
         BlockPos startPos = SubregionPatrolManager.pickRandomBorderPoint(level, regionX, regionZ, subX, subZ);
         if (startPos == null) {
-            int subMinX = regionX * RegionData.REGION_SIZE_BLOCKS + subX * ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS;
-            int subMinZ = regionZ * RegionData.REGION_SIZE_BLOCKS + subZ * ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS;
-            int sy = EnemyEncounterSpawner.findDryLandSurfaceY(level, subMinX + 16, subMinZ + 16);
-            if (sy == Integer.MIN_VALUE) sy = level.getSeaLevel() + 2;
-            startPos = new BlockPos(subMinX + 16, sy, subMinZ + 16);
+            com.warfront.Warfront.LOGGER.error("[Warfront Convoy] Failed to stage supply convoy: no valid dry surface border point found in Region ({}, {}) Sub ({}, {}). Retrying on next check.",
+                    regionX, regionZ, subX, subZ);
+            return;
         }
 
         // Calculate initial facing towards subregion center
@@ -100,7 +98,6 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
         cart.setYHeadRot(startYaw);
         cart.yBodyRot = startYaw;
         cart.setConvoySubregion(regionX, regionZ, subX, subZ);
-        net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(cart, level, level.getCurrentDifficultyAt(startPos), MobSpawnType.EVENT, null);
         if (!level.addFreshEntity(cart)) {
             return;
         }
@@ -123,8 +120,8 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
             leftHorse.equipSaddle(new ItemStack(Items.SADDLE), null);
             leftHorse.goalSelector.getAvailableGoals().clear();
             leftHorse.targetSelector.getAvailableGoals().clear();
-            net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(leftHorse, level, level.getCurrentDifficultyAt(new BlockPos((int) lx, ly, (int) lz)), MobSpawnType.EVENT, null);
             if (level.addFreshEntity(leftHorse)) {
+                leftHorse.addTag("warfront_convoy_horse");
                 setupMob(leftHorse, instanceId, regionX, regionZ, subX, subZ, progress);
             }
         }
@@ -139,8 +136,8 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
             rightHorse.equipSaddle(new ItemStack(Items.SADDLE), null);
             rightHorse.goalSelector.getAvailableGoals().clear();
             rightHorse.targetSelector.getAvailableGoals().clear();
-            net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(rightHorse, level, level.getCurrentDifficultyAt(new BlockPos((int) rx, ry, (int) rz)), MobSpawnType.EVENT, null);
             if (level.addFreshEntity(rightHorse)) {
+                rightHorse.addTag("warfront_convoy_horse");
                 setupMob(rightHorse, instanceId, regionX, regionZ, subX, subZ, progress);
             }
         }
@@ -150,19 +147,31 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
         // 4. Spawn Rear Extension Wagon (Trailer - 4.4 blocks behind cart)
         double extX = cart.getX() - fwdX * 4.4D;
         double extZ = cart.getZ() - fwdZ * 4.4D;
-        int extY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, (int) Math.round(extX), (int) Math.round(extZ));
+        int extChunkX = (int) Math.round(extX) >> 4;
+        int extChunkZ = (int) Math.round(extZ) >> 4;
+        level.getChunkSource().getChunk(extChunkX, extChunkZ, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, true);
+
+        int dryY = EnemyEncounterSpawner.findDryLandSurfaceY(level, (int) Math.round(extX), (int) Math.round(extZ));
+        int extY = (dryY != Integer.MIN_VALUE && Math.abs(dryY - cart.getBlockY()) <= 5) ? dryY : cart.getBlockY();
+        BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos((int) Math.round(extX), extY, (int) Math.round(extZ));
+        while (extY < level.getMaxBuildHeight() - 5 && level.getBlockState(mpos).isSolid()) {
+            extY++;
+            mpos.setY(extY);
+        }
+
         SupplyWagonExtensionEntity extension = ModEntities.SUPPLY_WAGON_EXTENSION.get().create(level);
         if (extension != null) {
-            extension.moveTo(extX, extY, extZ, startYaw, 0.0F);
+            extension.moveTo(extX, extY + 0.1D, extZ, startYaw, 0.0F);
             extension.setYRot(startYaw);
             extension.setYHeadRot(startYaw);
             extension.yBodyRot = startYaw;
             extension.setCartWagonUuid(cart.getUUID());
             extension.initRandomLoot();
-            net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(extension, level, level.getCurrentDifficultyAt(new BlockPos((int) extX, extY, (int) extZ)), MobSpawnType.EVENT, null);
             if (level.addFreshEntity(extension)) {
                 cart.setExtensionWagon(extension.getUUID());
                 setupMob(extension, instanceId, regionX, regionZ, subX, subZ, progress);
+            } else {
+                com.warfront.Warfront.LOGGER.warn("[Warfront Convoy] Failed to add extension wagon entity to world at ({}, {}, {})", extX, extY, extZ);
             }
         }
 
@@ -171,12 +180,13 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
         spawnEscortSquad(level, cart, startYaw, fwdX, fwdZ, rightX, rightZ, instanceId, regionX, regionZ, subX, subZ, progress);
 
         // Squad 2: 2 Warriors, 4 Marksmen guarding Rear Extension Wagon
-        if (extension != null) {
+        if (extension != null && extension.isAlive()) {
             spawnEscortSquad(level, extension, startYaw, fwdX, fwdZ, rightX, rightZ, instanceId, regionX, regionZ, subX, subZ, progress);
         }
 
-        // Set target progress to 2 (Both wagons must be destroyed to claim victory)
-        progress.setTargetProgress(2);
+        // Set target progress to the actual number of living wagons spawned (1 or 2)
+        int targetWagons = 1 + (extension != null && extension.isAlive() ? 1 : 0);
+        progress.setTargetProgress(targetWagons);
         RegionData regions = RegionData.get(level);
         if (regions != null) {
             regions.setDirty();

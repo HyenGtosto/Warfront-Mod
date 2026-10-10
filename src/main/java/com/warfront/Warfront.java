@@ -24,15 +24,23 @@ public final class Warfront {
         WarfrontBlocks.ITEMS.register(modEventBus);
         com.warfront.entity.ModEntities.register(modEventBus);
         NeoForge.EVENT_BUS.addListener(ClaimCoreEvents::onBlockPlaced);
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {
+            if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+                com.warfront.faction.PlayerFactionData.get(player.serverLevel()).syncToPlayer(player);
+            }
+        });
         NeoForge.EVENT_BUS.addListener(BiomeMapColorReloadListener::register);
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onEntityJoin);
+        NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onLivingIncomingDamage);
         NeoForge.EVENT_BUS.addListener(com.warfront.region.base.BasePlacementManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.region.base.PersistentBaseProtectionManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.event.MissionDeathEventHandler::onLivingDeath);
         NeoForge.EVENT_BUS.addListener(com.warfront.event.MissionBlockEventHandler::onBlockBreak);
         NeoForge.EVENT_BUS.addListener(com.warfront.event.MissionBlockEventHandler::onExplosionDetonate);
         NeoForge.EVENT_BUS.addListener(com.warfront.ai.AIAttackManager::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.mission.FieldBattleManager::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.mission.ActiveCampaignMissionManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.RoamingEntityTracker::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.MissionEntityTracker::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.mission.site.MissionSiteSnapshotManager::onServerTick);
