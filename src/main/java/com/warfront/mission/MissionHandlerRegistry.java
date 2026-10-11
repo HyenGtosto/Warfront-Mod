@@ -27,6 +27,13 @@ public final class MissionHandlerRegistry {
 
         // Base Outpost Mission Handler
         HANDLERS.put(MissionType.OUTPOST_DESTROY_BUILDING, com.warfront.mission.base.OutpostDestructionMissionHandler.getInstance());
+
+        // Hard Tier Mission Handlers (Iteration 3)
+        HANDLERS.put(MissionType.STRONGPOINT_ASSAULT, com.warfront.mission.hard.StrongpointAssaultMissionHandler.getInstance());
+        HANDLERS.put(MissionType.OFFICER_HUNT, com.warfront.mission.hard.OfficerHuntMissionHandler.getInstance());
+        HANDLERS.put(MissionType.ARTILLERY_BATTERY, com.warfront.mission.hard.ArtilleryBatteryMissionHandler.getInstance());
+        HANDLERS.put(MissionType.WAR_HORN_RELAY, com.warfront.mission.hard.WarHornRelayMissionHandler.getInstance());
+        HANDLERS.put(MissionType.CUT_THE_SUPPLY_LINE, com.warfront.mission.hard.WarHornRelayMissionHandler.getInstance());
     }
 
     private MissionHandlerRegistry() {

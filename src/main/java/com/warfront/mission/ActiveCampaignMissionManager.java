@@ -163,6 +163,28 @@ public final class ActiveCampaignMissionManager {
                 int pct = totalBlocks > 0 ? Math.min(100, (currentProgress * 100) / totalBlocks) : 0;
                 return pct + "% / 50%";
             }
+            if (missionType == MissionType.STRONGPOINT_ASSAULT) {
+                int totalBlocks = trackedBlockPositions.size() + currentProgress;
+                int pct = totalBlocks > 0 ? Math.min(100, (currentProgress * 100) / totalBlocks) : 0;
+                return pct + "% Demolished (or Sabotage Relays)";
+            }
+            if (missionType == MissionType.ARTILLERY_BATTERY) {
+                return currentProgress + " / " + targetProgress + " Mortars Destroyed";
+            }
+            if (missionType == MissionType.OFFICER_HUNT) {
+                if (phaseIndex == 0) {
+                    return "Assassinate Commander";
+                } else {
+                    return "Survive: " + currentProgress + "s / " + targetProgress + "s";
+                }
+            }
+            if (missionType == MissionType.WAR_HORN_RELAY || missionType == MissionType.CUT_THE_SUPPLY_LINE) {
+                if (phaseIndex == 0) {
+                    return "Sabotage Fuse: " + currentProgress + "s / " + targetProgress + "s";
+                } else {
+                    return "Eliminate Battalion: " + currentProgress + " / " + targetProgress;
+                }
+            }
             return currentProgress + " / " + targetProgress;
         }
 

@@ -45,6 +45,9 @@ public enum MissionType {
     /** Cut the Supply Line: Sever a distributed logistics route by striking multiple supply targets. */
     CUT_THE_SUPPLY_LINE(ObjectiveType.MULTI_OBJECTIVE),
 
+    /** War Horn Relay / Signal Tower: Scale a fortified mast and sabotage the signal fuse before response battalions arrive. */
+    WAR_HORN_RELAY(ObjectiveType.MULTI_PHASE),
+
     // ==========================================
     // Outpost Base Mission (1 variant: 1 subregion)
     // ==========================================
@@ -146,7 +149,7 @@ public enum MissionType {
      */
     public boolean isHard() {
         return switch (this) {
-            case STRONGPOINT_ASSAULT, OFFICER_HUNT, ARTILLERY_BATTERY, CUT_THE_SUPPLY_LINE -> true;
+            case STRONGPOINT_ASSAULT, OFFICER_HUNT, ARTILLERY_BATTERY, CUT_THE_SUPPLY_LINE, WAR_HORN_RELAY -> true;
             default -> false;
         };
     }

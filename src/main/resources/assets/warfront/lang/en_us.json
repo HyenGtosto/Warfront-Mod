@@ -52,5 +52,16 @@
   "item.warfront.pillager_commander_spawn_egg": "Pillager Commander Spawn Egg",
   "entity.warfront.supply_wagon_cart": "Supply Wagon Cart",
   "entity.warfront.supply_wagon_extension": "Supply Wagon Extension",
-  "container.warfront.supply_wagon_chest": "Supply Wagon Chest"
+  "container.warfront.supply_wagon_chest": "Supply Wagon Chest",
+  "block.warfront.mortar": "Pillager Heavy Mortar",
+  "item.warfront.mortar": "Pillager Heavy Mortar",
+  "entity.warfront.artillery_shell": "Artillery Shell",
+  "block.warfront.mortar_cannon_mount": "Damaged Mortar Mount",
+  "item.warfront.mortar_cannon_mount": "Damaged Mortar Mount",
+  "block.warfront.salvaged_mortar_core": "Pristine Mortar Core",
+  "item.warfront.salvaged_mortar_core": "Pristine Mortar Core",
+  "block.warfront.heavy_pivot_bearing": "Heavy Pivot Bearing",
+  "item.warfront.heavy_pivot_bearing": "Heavy Pivot Bearing",
+  "block.warfront.ammo_rack": "Artillery Ammo Rack",
+  "item.warfront.ammo_rack": "Artillery Ammo Rack"
 }

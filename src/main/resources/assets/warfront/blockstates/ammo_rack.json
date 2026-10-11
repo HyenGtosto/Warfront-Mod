@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "warfront:block/ammo_rack" },
+    "facing=south": { "model": "warfront:block/ammo_rack" },
+    "facing=west":  { "model": "warfront:block/ammo_rack" },
+    "facing=east":  { "model": "warfront:block/ammo_rack" }
+  }
+}

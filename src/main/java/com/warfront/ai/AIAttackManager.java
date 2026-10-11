@@ -154,11 +154,17 @@ public final class AIAttackManager {
                             Warfront.LOGGER.info("Campaign partial victory: Region ({}, {}), {} sectors. New stats: stab={}, res={}. {}",
                                     trx, trz, heldSectors, newStab, newRes, statusStr);
                         } else {
-                            // Complete failure: Enemy retains full control without stat penalties
+                            // Complete failure: Enemy repels invasion and digs in (+10 Resistance, +10 Stability defensive hardening)
                             regions.revertRegionSubRegionsToOwner(level, trx, trz);
-                            String outcome = String.format("§cCampaign expired: Region (%d, %d). Attack failed.", trx, trz);
+                            float curStab = regions.calculateEffectiveStability(trx, trz);
+                            float curRes = regions.calculateEffectiveResistance(trx, trz);
+                            float hardenedStab = Math.min(100.0F, curStab + 10.0F);
+                            float hardenedRes = Math.min(100.0F, curRes + 10.0F);
+                            regions.setRegion(level, trx, trz, enemyFaction, hardenedStab, hardenedRes, targetRegion.baseType(), targetRegion.clusterId());
+
+                            String outcome = String.format("§cCampaign expired: Region (%d, %d). Assault repelled! Enemy reinforced positions (+10%% Stability, +10%% Resistance).", trx, trz);
                             regions.addLog(level, outcome);
-                            Warfront.LOGGER.info("Campaign expired with defeat: Region ({}, {}).", trx, trz);
+                            Warfront.LOGGER.info("Campaign expired with defeat: Region ({}, {}). Hardened to stab={}, res={}.", trx, trz, hardenedStab, hardenedRes);
                         }
                     }
 

@@ -463,11 +463,7 @@ public final class RegionMapScreen extends Screen {
             }
 
             if (cancelAttackButton != null) {
-                String myFaction = com.warfront.client.faction.FactionClientState.get().getFactionName();
-                boolean isAttacker = !myFaction.isEmpty() && myFaction.equalsIgnoreCase(selectedRegion.attackerFactionName());
-                cancelAttackButton.visible = isAttacker;
-                cancelAttackButton.active = inFaction;
-                cancelAttackButton.setMessage(Component.literal("§c§lCANCEL ATTACK"));
+                cancelAttackButton.visible = false;
             }
             return;
         }
@@ -569,12 +565,10 @@ public final class RegionMapScreen extends Screen {
             }
 
             if (cancelAttackButton != null) {
-                cancelAttackButton.visible = selectedRegion.underSiege() && (isAttacker || isDefense);
+                cancelAttackButton.visible = selectedRegion.underSiege() && isDefense;
                 cancelAttackButton.active = inFaction;
                 if (isDefense) {
                     cancelAttackButton.setMessage(Component.literal("§c§lCANCEL DEFENSE"));
-                } else {
-                    cancelAttackButton.setMessage(Component.literal("§c§lCANCEL ATTACK"));
                 }
             }
         }

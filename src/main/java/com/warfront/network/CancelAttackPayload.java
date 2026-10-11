@@ -65,19 +65,8 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                         player.getName().getString(), payload.regionX(), payload.regionZ());
             } else {
                 if (!isDefense) {
-                    if (existingSiege.attackerPlayerFactionId() != null && !existingSiege.attackerPlayerFactionId().equals(playerFaction.getId())) {
-                        player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot cancel another faction's campaign!"));
-                        return;
-                    }
-                    // Cancel player attack campaign on server
-                    regions.setRegionSiege(payload.regionX(), payload.regionZ(), false);
-                    regions.getActiveSieges().remove(regionKey);
-                    ActiveCampaignMissionManager.clearCampaign(level, payload.regionX(), payload.regionZ());
-                    regions.revertRegionSubRegionsToOwner(level, payload.regionX(), payload.regionZ());
-
-                    regions.addLog(level, String.format("§eCampaign cancelled: Region (%d, %d).", payload.regionX(), payload.regionZ()));
-                    Warfront.LOGGER.info("Campaign cancelled by player {} for Region ({}, {}).",
-                            player.getName().getString(), payload.regionX(), payload.regionZ());
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Commitment to War: Attack campaigns cannot be voluntarily cancelled! You must achieve victory or await campaign timeout."));
+                    return;
                 } else {
                     java.util.UUID defenderId = existingSiege.defenderPlayerFactionId();
                     if (defenderId == null) {

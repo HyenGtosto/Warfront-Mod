@@ -174,22 +174,22 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
         );
         HARD_DEFINITIONS.add(artilleryBattery);
 
-        MissionDefinition cutTheSupplyLine = new MissionDefinition(
-                "pillager_cut_the_supply_line",
-                MissionType.CUT_THE_SUPPLY_LINE,
-                ObjectiveType.MULTI_OBJECTIVE,
+        MissionDefinition warHornRelay = new MissionDefinition(
+                "pillager_war_horn_relay",
+                MissionType.WAR_HORN_RELAY,
+                ObjectiveType.MULTI_PHASE,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
                 50.0f, 100.0f,
                 100,
                 Map.of(),
-                3, 3,
+                1, 1,
                 0.02f,
-                List.of("WARRIOR", "SCOUT", "ARMORED_ELITE"),
-                "Cut the Supply Line",
-                "Sever a distributed logistics route by striking multiple supply targets."
+                List.of("WARRIOR", "MARKSMAN", "ARMORED_ELITE"),
+                "War Horn Signal Tower",
+                "Scale the fortified signal mast and sabotage the summit fuse before response battalions arrive."
         );
-        HARD_DEFINITIONS.add(cutTheSupplyLine);
+        HARD_DEFINITIONS.add(warHornRelay);
 
         // ==========================================
         // Mandatory Base Missions

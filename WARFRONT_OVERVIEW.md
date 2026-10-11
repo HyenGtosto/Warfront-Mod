@@ -295,23 +295,42 @@ When a region houses a physical base, the subregions containing the base footpri
 
 - [ ] **Headquarters & Mega Base NBT Blueprints:**
   - Designing, building, and exporting native `.nbt` templates for Big Base (HQ) and Mega Base tiers.
-- [ ] **Dedicated Mission Gameplay Logic:**
+- [ ] **Dedicated Mission Gameplay Logic (Hard-Tier Objectives):**
   - Replacing the temporary kill-count testing logic with specialized mission objectives:
     - Block destruction (Intel Network, Supply Cache, Power Grid coils, Munitions barrels).
     - Specific entity assassinations (High Commander boss fight, Anti-Air gunners).
     - Gate breaching with siege charges.
+- [ ] **Territorial Salvage & Secure-to-Salvage Protocol:**
+  - Implementing the "Rigged Core" invariant: mission installation cores (`MISSION_TARGET_CORE`) drop pristine components only upon region conquest by Humanity; dropping inert scrap otherwise.
+  - Adding tiered military component drops to eradication mobs (Warrior rivets, Scout fletchings, Marksman prisms, Commander ciphers).
+  - Designing bulk engineering logistics loot tables for Supply Wagons.
+- [ ] **Commitment to War & Failed Assault Consequences:**
+  - Removing the voluntary zero-consequence `Cancel Attack` button to prevent mission-reset farming.
+  - Implementing timeout/retreat consequences: defending enemy sector gains +Resistance & +Stability, with elevated dynamic retaliation roll against player borders.
 
 ---
 
 ## 9. Forward Roadmap & Planned Milestones
 
-### 9.1. Regenerating / Indestructible Base Buildings (Grief Prevention)
+### 9.1. Physical Player Fortifications (Boosting Territory Beyond 20/20)
+* Transforming baseline 20.0 Resistance / 20.0 Stability player land into impenetrable strongholds using salvaged cores:
+  - **Defensive Combat Emplacements (Watchtowers, Mounted Ballistas):** $+15$ to $+20$ Resistance, sounds early warnings, shreds enemy shields, and slows siege advance timers.
+  - **Cross-Border Support Artillery (Counter-Battery Mortars / Trebuchets):** $+25$ Stability, shells enemy staging areas during defenses and provides indirect bombardment during attacks into adjacent enemy sectors.
+  - **Garrison Encampments / War Tents:** $+20$ Stability, deploys permanent 4-man allied patrol squads to contest borders.
+
+### 9.2. Create Mod Expansion Integration (Kinetic Military Automation)
+* Mechanical automation hooks designed directly for player fortifications:
+  - Kinetic conveyor belts feeding ballista bolts into hoppers.
+  - Mechanical arm shell loaders feeding heavy stones and explosive kegs into trebuchet buckets.
+  - Logistical train routes hauling supply wagon crates between regional Headquarters.
+
+### 9.3. Regenerating / Indestructible Base Buildings (Grief Prevention)
 * **Problem:** Players could use explosives, flint and steel, or mining to obliterate enemy fortresses before starting a mission.
 * **Planned Solution:** 
   - Dynamic structure protection or snapshot-based state regeneration.
   - When a base mission initiates, structures reset to their pristine blueprint state, or fortress blocks gain temporary blast/break immunity outside active capture windows.
 
-### 9.2. Zombie Horde Custom GeckoLib Roster
+### 9.4. Zombie Horde Custom GeckoLib Roster
 * Replacing vanilla placeholder zombies with complete custom GeckoLib 4.7.4 models and animations:
   1. **Fodder:** Fast, low-health shambler.
   2. **Chaser:** Quadrupedal sprinting stalker.
@@ -319,7 +338,7 @@ When a region houses a physical base, the subregions containing the base footpri
   4. **Tank:** Massive brute capable of smashing through player defenses.
   5. **Hivemind Controller:** Backline summoner that buffs surrounding undead.
 
-### 9.3. Catapult / Stationary Artillery Units
+### 9.5. Catapult / Stationary Artillery Units
 * Heavy siege engines spawned during Mega Base defense sieges to shell attacking enemies from distance.
 
 ---
@@ -557,10 +576,174 @@ When a region houses a physical base, the subregions containing the base footpri
     - Field Battle King of the Hill victory (`FieldBattleManager.java`).
     - Admin commands (`/warfront region set-owner humanity` in `RegionCommands.java`).
     - Core data methods `RegionData.setRegion`, `setOwner`, and `claimSubRegion`.
+### 10.14. Hard-Tier Mission Objectives, Decoupled Salvage & War Commitment Implementation
+* **1. Strongpoint Assault (`StrongpointAssaultMissionHandler.java`, `TemporaryStructureBuilder.java`):**
+  - Generates a 20x20 WWII-style concrete & deepslate pillbox redoubt with narrow embrasure firing slits, low-profile roof, and an angled entrance blast chicane baffle wall.
+  - Dual-path victory conditions: Sabotage both volatile Defense Shield Relays (0/2) OR demolish $\ge 50\%$ of physical structure blocks.
+  - Houses the armored Heavy Machinery Vault block which disarms on victory to drop Reinforced Redoubt Plates and Heavy Pivot Bearings.
+* **2. Officer Hunt (`OfficerHuntMissionHandler.java`, `TemporaryStructureBuilder.java`):**
+  - Generates a 32x32 procedural military encampment featuring outer tents, weapon racks, campfire, and a prominent 10x8 Command Pavilion Tent.
+  - Phase 1: Infiltrate and assassinate the Pillager Commander inside the Command Pavilion.
+  - Phase 2: Commander death triggers camp alarm horn (`SoundEvents.RAID_HORN`), starting a 45-second counter-assault survival phase against an aggressive response squad (active kills accelerate completion).
+  - Unlocks Commander's War Desk upon victory to drop the Commander's Battle Standard.
+* **3. Artillery Battery (`ArtilleryBatteryMissionHandler.java`, `TemporaryStructureBuilder.java`):**
+  - Spawns 3 fortified mortar revetment pits actively shelling sky-exposed players across the $128 \times 128$ region every 10–15s.
+  - Completely eliminates fake ground telegraph markers; replaces them with a loud audible firing report (`SoundEvents.GENERIC_EXPLODE` pitch 0.5F) and a visible falling shell trajectory with smoke trail descending from the sky over 2.5s.
+  - Mortar detonations deal friendly fire damage to hostile mobs as well as players.
+  - Sabotaging volatile ammunition crates permanently silences each pit's gun; silencing all 3 disarms intact Mortar Cannon Mounts to yield Salvaged Mortar Cores.
+* **4. War Horn Signal Tower (`WarHornRelayMissionHandler.java`, `TemporaryStructureBuilder.java`):**
+  - Spawns a 14-block tall Dark Oak signal mast topped with a crow's nest.
+  - Phase 1: 45-second scramble countdown to scale the mast and sabotage the summit Signal Fuse Relay before escalation horn blasts sound.
+  - Phase 2: Eliminate response battalion. Includes lenient anti-sky-camping logic that only warns and shells players if stationary in the sky for $>15$s.
+  - Summit Acoustic Horn Bell disarms on victory to yield the Acoustic War Horn Relay.
+* **5. Decoupled Sabotage vs. Salvage Blocks (`SabotageTargetBlock.java`, `SalvageMachineryBlock.java`):**
+  - **Sabotage Blocks:** Volatile hazard blocks (Ammo Crates, Shield Relays, Signal Fuse) with low blast resistance (0.5F) that trigger explosions/sparks and advance combat objectives.
+  - **Salvage Blocks:** Armored machinery prize blocks (Mortar Mount, Machinery Vault, War Desk, Horn Bell) that are blast-proof and unbreakable during combat (`DISARMED = false`), playing metallic shield ricochet clangs with actionbar warnings. Disarms upon victory (`DISARMED = true`) with green villager sparkles and latch sounds, dropping Pristine Machinery Cores.
+* **6. Commitment to War Enforcement (`RegionMapScreen.java`, `CancelAttackPayload.java`, `AIAttackManager.java`):**
+  - Voluntary `Cancel Attack` button removed from the strategic map interface.
+  - `CancelAttackPayload` server-side strictly rejects voluntary cancellation for attack campaigns and field battles.
+  - Assault timeout failure triggers defensive hardening: the defending sector gains $+10$ Resistance and $+10$ Stability.
 
 ---
 
-## 11. Developer Rules for Future Iterations
+## 11. Territorial Salvage, Fortification & War Commitment Architecture ("Better War" Paradigm)
+
+### 11.1. Core Philosophy: "Reward War With Better War"
+* **No Superficial Economies:** Zero arbitrary coin shops, generic dungeon loot chests, or passive clicker currencies that detract from the warfare atmosphere.
+* **Direct Tactical Value:** Conquering enemy sectors rewards tangible military assets: engineering blueprints, heavy machinery cores, battlefield hardware, and tactical logistics that directly enhance the player's capacity to wage war.
+
+### 11.2. Two-Tier Progression & Economy Loop
+* **Tier 1: Non-Base / Frontier Regions (Accessible Skirmishes):**
+  - **Low Commitment & Low Difficulty:** Early-game players can assault rural frontier subregions without massive gear investments.
+  - **The "Resource Deadlock" Breaker:** Solves the circular trap (*"cannot attack because no resources $\leftrightarrow$ no resources because cannot attack"*). Frontier sweeps and supply wagons yield foundational logistics: bulk timber, fletchings, iron scraps, field sandbags, and ammunition.
+  - **Establishing the Beachhead:** Secures initial Humanity territory at the universal baseline of 20.0 Resistance / 20.0 Stability.
+* **Tier 2: Fortified Base Regions (Outposts, HQs, Mega Fortresses):**
+  - **High-Commitment Strategic Assaults:** Require careful preparation, fortified launchpads, and tactical siege planning.
+  - **Yields Pristine Cores:** Conquering these fortresses permanently breaks enemy clusters and yields rare, uncraftable installation machinery cores.
+
+### 11.3. The "Commitment to War" System (Anti-Farming Exploit Fix)
+* **Problem Addressed:** The legacy voluntary `Cancel Attack` button allowed players to launch missions, loot wagons and high-tier mob drops, and immediately cancel scot-free without risk.
+* **Removal of Voluntary Cancel:**
+  - The voluntary `Cancel Attack` button is completely eliminated. Launching a campaign is a binding military declaration.
+  - The player must either achieve **Victory** (capturing the sector) or face an **Operational Timeout / Strategic Retreat**.
+
+### 11.4. Failed Assault Consequences: Defensive Reinforcement & Dynamic Retaliation
+* **Defensive Victory Hardening (The Inverse of Player Half-Victory):**
+  - When an assault times out, fails, or the player retreats, the defending enemy sector successfully repelled an invasion.
+  - The target region gains **+Resistance & +Stability** (the sector digs in, repairs barricades, and reinforces lines).
+  - Acts as a natural *"Did you prepare enough?"* check. Recklessly charging into a high-tier fortress without proper emplacements makes subsequent assaults harder, not easier.
+* **Elevated Retaliation Priority:**
+  - A repelled invasion multiplies the AI's siege prioritization score against the bordering player launchpad sector.
+  - Because Warfront's AI naturally prioritizes bordering player regions over random expansion, this elevated score dynamically increases the likelihood of a retaliatory enemy counter-siege.
+  - Turns the war into a dynamic, back-and-forth struggle rather than one-sided player steamrolling.
+
+### 11.5. The "Secure-to-Salvage" Base Protocol
+* **The "Rigged Core" Invariant:**
+  - Key installation target blocks (`MISSION_TARGET_CORE` in Artillery Batteries, Strongpoints, Signal Towers, and Command Desks) are locked and rigged while under enemy control.
+  - Destroying them mid-combat completes mission objectives, but drops only slag/debris to prevent hit-and-run mining exploits.
+* **Victory State Stabilization:**
+  - When the region is successfully conquered by Humanity (`owner == Faction.HUMANITY`), installation targets across the sector disarm and stabilize.
+  - Mining disarmed installations drops **Pristine Machinery Cores**:
+    - *Artillery Battery* $\rightarrow$ **Salvaged Mortar Core**
+    - *Strongpoint Redoubt* $\rightarrow$ **Reinforced Redoubt Plate** & **Heavy Pivot Bearing**
+    - *War Horn Signal Tower* $\rightarrow$ **Acoustic War Horn Relay**
+    - *Officer Encampment* $\rightarrow$ **Commander's Battle Standard & Cipher**
+
+### 11.6. Physical Territory Fortifications (Boosting Territory Beyond 20/20)
+Players transport salvaged cores back to liberated territory to construct physical, in-world combat installations:
+* **Defensive Combat Emplacements (Watchtowers, Mounted Ballistas):**
+  - **Stat Impact:** $+15$ to $+20$ Regional Resistance ($20 \rightarrow 80+$).
+  - **Gameplay Effect:** Sounds early warning alarms (+60s siege response window), bypasses Pillager tower shields, shreds armor, and slows enemy siege advance speed.
+* **Cross-Border Support Artillery (Counter-Battery Mortars / Trebuchets):**
+  - **Stat Impact:** $+25$ Regional Stability ($20 \rightarrow 80+$).
+  - **Gameplay Effect:** Defensively shells enemy siege staging areas; offensively bombards enemy hold-ground positions every 30s during assaults on adjacent enemy sectors.
+* **Garrison Encampments / War Tents:**
+  - **Stat Impact:** $+20$ Regional Stability.
+  - **Gameplay Effect:** Spawns and maintains a permanent 4-man allied patrol squad to contest borders and delay incoming sieges.
+
+### 11.7. Create Mod Expansion Alignment
+* All player fortifications and emplacements feature physical mechanical interfaces designed for future Create mod integration:
+  - Kinetic conveyor belts feeding ballista bolts into hoppers.
+  - Mechanical arm shell loaders feeding boulders and gunpowder kegs into trebuchet buckets.
+  - Logistical train routes hauling supply wagon crates between regional Headquarters.
+
+---
+
+## 12. Asymmetric Faction Rewards & Incursion Warfare Ecosystem
+
+Warfront features four distinct hostile factions, each occupying a unique tactical role, reward profile, and progression tier to ensure players have compelling reasons to engage all of them.
+
+```text
+┌──────────────────────────────────────┬──────────────────────────────────────┐
+│        PILLAGER CONQUERORS           │            ZOMBIE HORDE              │
+│    (Conventional Military Defense)   │      (Mobile Bio-Tactical Offense)   │
+│  - Stationary Fortifications         │  - Handheld Armor-Melting Rounds     │
+│  - Mounted Ballistas & Watchtowers   │  - Hivemind Frenzy Adrenaline Stims  │
+│  - Cross-Border Artillery Trebuchets │  - Corrosive Spore Breachers         │
+│  - Goal: "Hold & Fortify My Land"    │  - Goal: "Breach & Melt Enemy Bases" │
+├──────────────────────────────────────┼──────────────────────────────────────┤
+│          PIGLIN EXPEDITION           │            ENDER ECLIPSE             │
+│   (Mercenaries & Gold War Barter)    │   (Reality-Bending Endgame Meta)     │
+│  - Unclaimed Frontier Incursions     │  - Singularity Rift Artillery        │
+│  - Dynamic 3-Way Border Clashes      │  - 2-Region Shelling Range           │
+│  - Reputation: Mercenary Contracts   │  - Spatial Teleportation Relays      │
+│  - Goal: "Hire, Bribe, or Purge"     │  - Goal: "Endgame God-Tier Meta"     │
+└──────────────────────────────────────┴──────────────────────────────────────┘
+```
+
+### 12.1. The Pillager-Zombie Strategic Push-Pull
+* **The Synergy:** 
+  - Pillagers provide stationary defensive hardware (fortifying player territory from 20 to 80+).
+  - Zombies provide mobile, handheld offensive combat gear (breaching fortifications and melting elite armor).
+* **The Mutual Incentive:**
+  - Attacking only Pillagers creates an impenetrable home base, but subsequent offensive pushes remain slow and grinding.
+  - Attacking only Zombies yields devastating armor-melting weapons, but home borders remain fragile at 20/20.
+  - Efficient conquest requires fighting both factions to balance defensive security with offensive shock power.
+* **Zombie Offensive Arsenal:**
+  - **Corrosive Acid Phials / Melter Rounds:** Applied to arrows, bolts, or TACZ ammo. Dissolves armor rating on hit and forces Pillager Warriors to stagger and lower their physical tower shields.
+  - **Hivemind Frenzy Injector:** Bio-stim crafted from Hivemind Controller glands granting 20s of +40% sprint speed, zero flinch, and instant melee recovery to cross sniper fire.
+  - **Corrosive Hive Spores:** Organic breaching charges that dissolve fortified deepslate and iron bars quietly without carrying heavy TNT.
+  - **Frenzy Pheromone Canister:** Throwable bio-flask marking targets to trigger feral infighting in contested sectors.
+
+### 12.2. Piglin Expedition: Incursion Dynamics & 3-Way Frontlines
+* **Unclaimed Frontier Incursion:**
+  - Piglins do not expand methodically like Pillagers; they enter the Overworld through Nether Incursion Portals situated exclusively in **Unclaimed Territory**.
+  - They establish forward fortified bastions and gilded outposts as military expeditionary beachheads.
+* **Autonomous 3-Way Warfare:**
+  - Piglins autonomously skirmish with nearby Pillager patrols (territorial rivalry) and relentlessly hunt Zombie swarms (abhorring undead rot).
+  - Players can observe, exploit, or intervene in dynamic 3-way border skirmishes.
+* **Supply Wagon Hijacking:**
+  - Piglin foraging squads ambush passing supply convoys, stockpiling timber, metals, and ammunition inside their bastions.
+* **The Early Purge Strategic Option:**
+  - Players can choose to eradicate a nearby Piglin incursion before they entrench.
+  - Launching an early strike on their Incursion Portal permanently collapses the rift in that sector and yields a **Nether Gateway Core** (used to craft fire- and blast-proof gilded plating).
+
+### 12.3. Piglin Reputation & War Disposition System
+Reputation with the Piglin Expedition is tracked per Player Faction on a scale from **-100 (Hostile Hunt)** to **+100 (Bloodsworn Allies)**:
+* **Hostile Hunt (-100 to -50):** Attack on sight regardless of gold armor. Piglins actively stage opportunistic border raids against adjacent player subregions.
+* **Suspicious (-49 to -10):** Tolerated in gold armor, but weapons are drawn if approaching bastion centers. Mercenary contracts refused; bartering disabled.
+* **Neutral (-9 to +25):** Baseline arrival state. Standard gold bartering open; basic mercenary vanguard squads can be hired.
+* **Honored (+26 to +65):** Gold armor no longer required inside bastions. Unlocks elite Piglin Brute shock contracts, Pyrotechnic Incendiary Mortar Shells, and advance warnings of incoming Pillager sieges on the Map Terminal.
+* **Bloodsworn (+66 to +100):** If an adjacent player region is attacked by Pillagers or Zombies, an allied Piglin warband automatically rides in to reinforce player lines! Unlocks joint co-op assaults against enemy HQs.
+
+### 12.4. Nemesis Reputation Recovery: The Blood-Gold Tribute Altar
+* **Problem Addressed:** Accidental stray bullets or early uninformed combat shouldn't permanently lock the player out of the Piglin mercenary economy.
+* **The "Wergild" (Blood-Gold) Protocol:**
+  - Outside the perimeter of their main Bastion in unclaimed territory, Piglins maintain a neutral **Tribute Cauldron / Gilded Altar**.
+  - Even at Nemesis status, a player wearing gold armor can approach the perimeter altar and deposit a heavy **Blood-Gold Tribute** (e.g. 8–16 Gold Blocks, or Gold Blocks + a captured Pillager Commander Standard).
+  - Depositing the tribute strikes an anvil chime and ignites a crimson smoke flare.
+  - The Piglin War Boss accepts restitution for fallen kin, resetting reputation from **Nemesis (-100) up to Suspicious (-30)**, immediately lifting the kill-on-sight hunt order and reopening diplomatic avenues.
+
+### 12.5. Ender Eclipse: Reality-Bending Endgame Meta
+Conquering endgame Ender Spires and Void Citadels yields alien, multidimensional technology that supersedes conventional lower-tier gear:
+* **Void Rift Battery (Trebuchet Meta Upgrade):** Replaces stone/iron mortar shells with Singularity Warheads that open localized black holes, crushing squads and bypassing all terrain, shields, and armor. Extends artillery bombardment range to **2 regions away** (rather than just adjacent borders).
+* **Phase-Shift Watchtower (Watchtower Meta Upgrade):** Projects void shields making the installation completely immune to physical artillery, while psychic spotters uncover the Fog of War across entire enemy clusters.
+* **Spatial Teleportation Relays:** Placed in liberated HQs, enabling instantaneous player and squad transit between distant regional fortresses across the map.
+* **Ender Sentry Pylons:** Levitating crystalline turrets that beam instant-hit void lasers at fast-moving scouts and airborne threats.
+
+---
+
+## 13. Developer Rules for Future Iterations
 
 1. **Always Check Stored State First:** Never re-derive or guess a base location or region owner if `RegionData` already has it stored.
 2. **Never Re-Introduce Region-Wide Bans on Rivers:** Keep river checks localized to footprint viability and base-center aquatic ratio ($\le 50\%$).

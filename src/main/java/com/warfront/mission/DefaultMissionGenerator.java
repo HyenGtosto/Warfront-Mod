@@ -139,19 +139,19 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
         ));
 
         HARD_DEFINITIONS.add(new MissionDefinition(
-                "default_supply_line",
-                MissionType.CUT_THE_SUPPLY_LINE,
-                ObjectiveType.MULTI_OBJECTIVE,
+                "default_war_horn",
+                MissionType.WAR_HORN_RELAY,
+                ObjectiveType.MULTI_PHASE,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
                 50.0f, 100.0f,
                 100,
                 Map.of(),
-                3, 3,
+                1, 1,
                 0.03f,
                 List.of("BASIC"),
-                "Cut the Supply Line",
-                "Sever vital frontline supply lines across this combat zone."
+                "War Horn Signal Tower",
+                "Scale the fortified signal mast and sabotage the summit fuse before response battalions arrive."
         ));
     }
 

@@ -63,6 +63,14 @@ public final class ModEntities {
                             .clientTrackingRange(10)
                             .build("supply_wagon_extension"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<ArtilleryShellEntity>> ARTILLERY_SHELL =
+            ENTITY_TYPES.register("artillery_shell", () ->
+                    EntityType.Builder.<ArtilleryShellEntity>of(ArtilleryShellEntity::new, MobCategory.MISC)
+                            .sized(0.8f, 0.8f)
+                            .clientTrackingRange(20)
+                            .updateInterval(1)
+                            .build("artillery_shell"));
+
     private ModEntities() {
     }
 

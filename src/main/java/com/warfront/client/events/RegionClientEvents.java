@@ -42,5 +42,8 @@ public final class RegionClientEvents {
         event.registerEntityRenderer(ModEntities.PILLAGER_COMMANDER.get(), PillagerCommanderRenderer::new);
         event.registerEntityRenderer(ModEntities.SUPPLY_WAGON_CART.get(), SupplyWagonCartRenderer::new);
         event.registerEntityRenderer(ModEntities.SUPPLY_WAGON_EXTENSION.get(), SupplyWagonExtensionRenderer::new);
+        event.registerEntityRenderer(ModEntities.ARTILLERY_SHELL.get(), com.warfront.client.renderer.ArtilleryShellRenderer::new);
+        event.registerBlockEntityRenderer(com.warfront.block.entity.WarfrontBlockEntities.MORTAR.get(), context -> new com.warfront.client.renderer.MortarBlockRenderer());
+        event.registerBlockEntityRenderer(com.warfront.block.entity.WarfrontBlockEntities.AMMO_RACK.get(), context -> new com.warfront.client.renderer.AmmoRackBlockRenderer());
     }
 }
