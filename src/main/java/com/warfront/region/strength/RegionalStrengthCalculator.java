@@ -45,49 +45,9 @@ public final class RegionalStrengthCalculator {
         float baseResistance = getBaseTypeResistance(baseType);
         float baseStability = getBaseTypeStability(baseType);
 
-        // 2. Weighted 64-Chunk Biome Terrain Composition
+        // 2. Biome Terrain Composition (Disabled per user direction; deferred to post-playtesting)
         float biomeResistanceMod = 0.0F;
         float biomeStabilityMod = 0.0F;
-        if (level != null) {
-            int startX = regionX * RegionData.REGION_SIZE_BLOCKS;
-            int startZ = regionZ * RegionData.REGION_SIZE_BLOCKS;
-            int chunksPerSide = Math.max(1, RegionData.REGION_SIZE_BLOCKS / 16);
-            float totalChunkCount = chunksPerSide * chunksPerSide;
-
-            float totalBiomeResistance = 0.0F;
-            float totalBiomeStability = 0.0F;
-
-            for (int cx = 0; cx < chunksPerSide; cx++) {
-                for (int cz = 0; cz < chunksPerSide; cz++) {
-                    int sampleX = startX + cx * 16 + 8;
-                    int sampleZ = startZ + cz * 16 + 8;
-                    BlockPos samplePos = new BlockPos(sampleX, 64, sampleZ);
-                    Holder<Biome> biomeHolder = level.getBiome(samplePos);
-                    String biomePath = biomeHolder.unwrapKey().map(key -> key.location().getPath().toLowerCase()).orElse("");
-
-                    if (isMountainBiome(biomePath)) {
-                        totalBiomeResistance += 15.0F;
-                        totalBiomeStability -= 5.0F;
-                    } else if (isSwampOrJungleBiome(biomePath)) {
-                        totalBiomeResistance += 10.0F;
-                        totalBiomeStability -= 10.0F;
-                    } else if (isDesertOrBadlandsBiome(biomePath)) {
-                        totalBiomeResistance += 5.0F;
-                        totalBiomeStability -= 5.0F;
-                    } else if (isPlainsOrForestBiome(biomePath)) {
-                        totalBiomeResistance += 0.0F;
-                        totalBiomeStability += 10.0F;
-                    } else if (isSnowOrIceBiome(biomePath)) {
-                        totalBiomeResistance -= 5.0F;
-                        totalBiomeStability += 10.0F;
-                    }
-                    // Unknown / unclassified biomes contribute +0.0F / +0.0F
-                }
-            }
-
-            biomeResistanceMod = totalBiomeResistance / totalChunkCount;
-            biomeStabilityMod = totalBiomeStability / totalChunkCount;
-        }
 
         // 3. Neighbor Cohesion (Cardinal Neighbors)
         float neighborResistanceMod = 0.0F;
@@ -114,11 +74,7 @@ public final class RegionalStrengthCalculator {
 
             if (neighborOwner == faction && faction != Faction.UNCLAIMED) {
                 neighborResistanceMod += 2.5F;
-                neighborStabilityMod += 3.0F;
-
-                if (clusterId != 0L && neighborClusterId == clusterId) {
-                    neighborStabilityMod += 1.0F;
-                }
+                neighborStabilityMod += 2.5F;
             }
         }
 
@@ -138,19 +94,19 @@ public final class RegionalStrengthCalculator {
 
     private static float getBaseTypeResistance(BaseType baseType) {
         return switch (baseType) {
-            case MEGA_BASE -> 85.0F;
-            case HEADQUARTERS -> 65.0F;
-            case OUTPOST -> 45.0F;
-            case NONE -> 22.0F;
+            case MEGA_BASE -> 60.0F;
+            case HEADQUARTERS -> 55.0F;
+            case OUTPOST -> 35.0F;
+            case NONE -> 25.0F;
         };
     }
 
     private static float getBaseTypeStability(BaseType baseType) {
         return switch (baseType) {
-            case MEGA_BASE -> 85.0F;
-            case HEADQUARTERS -> 65.0F;
-            case OUTPOST -> 45.0F;
-            case NONE -> 22.0F;
+            case MEGA_BASE -> 60.0F;
+            case HEADQUARTERS -> 55.0F;
+            case OUTPOST -> 35.0F;
+            case NONE -> 25.0F;
         };
     }
 

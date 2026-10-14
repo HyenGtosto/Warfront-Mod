@@ -100,6 +100,8 @@ public final class PersistentBaseProtectionManager {
         ServerLevel level = event.getServer().overworld();
         if (level == null) return;
 
+        com.warfront.region.base.garrison.BaseGarrisonManager.onServerTick(level);
+
         long gameTime = level.getGameTime();
         if (gameTime % REPAIR_INTERVAL_TICKS != 0) return;
 
@@ -166,6 +168,8 @@ public final class PersistentBaseProtectionManager {
 
             // For AI-owned regions:
             if (reg.owner().isAI()) {
+                com.warfront.region.base.garrison.BaseGarrisonManager.ensureGarrisonSpawned(level, rx, rz, reg.baseType(), reg.owner(), anchor);
+
                 // Scenario 2 & Scenario 3: If base is actively at war, skip both decay and repair
                 if (isBaseAtWar(level, rx, rz, anchor, regions)) {
                     continue;
@@ -230,6 +234,8 @@ public final class PersistentBaseProtectionManager {
                     remainingBlocks.size(), rx, rz);
         }
 
+        com.warfront.region.base.garrison.BaseGarrisonManager.cleanupGarrisonOnConquest(level, rx, rz);
+
         if (regions != null && regions.isBasePlaced(rx, rz)) {
             regions.setBasePlaced(rx, rz, false);
         }
@@ -254,8 +260,8 @@ public final class PersistentBaseProtectionManager {
             BlockPos pos = entry.getKey();
             BlockState expected = entry.getValue();
 
-            // CAUTION: Foundations beneath ground level (y < anchor.getY()) are NOT added to the repair/decay goal
-            if (pos.getY() < anchor.getY() || expected.isAir()) {
+            // CAUTION: Foundations beneath building floor (y < anchor.getY() - 1) are NOT added to the repair/decay goal
+            if (pos.getY() < anchor.getY() - 1 || expected.isAir()) {
                 continue;
             }
 
@@ -303,6 +309,67 @@ public final class PersistentBaseProtectionManager {
                 }
             }
         }
+    }
+
+    /**
+     * Instantly evaluates and repairs all damaged/missing blocks in the base blueprint in a single tick.
+     * Invoked when a base mission begins to immediately restore the structure to pristine condition.
+     */
+    public static int instantRepairBase(ServerLevel level, int rx, int rz, BlockPos anchor, RegionData.RegionState state) {
+        if (level == null || anchor == null) {
+            return 0;
+        }
+
+        Map<BlockPos, BlockState> blueprint = getOrComputePristineBlocks(level, rx, rz, state);
+        if (blueprint == null || blueprint.isEmpty()) {
+            Warfront.LOGGER.warn("[Warfront] instantRepairBase: Blueprint is empty for Region ({}, {}) with baseType {} and anchor {}.",
+                    rx, rz, state != null ? state.baseType() : "null", anchor);
+            return 0;
+        }
+
+        List<Map.Entry<BlockPos, BlockState>> damagedEntries = new ArrayList<>();
+        int floorMinY = anchor.getY() - 1;
+
+        for (Map.Entry<BlockPos, BlockState> entry : blueprint.entrySet()) {
+            BlockPos pos = entry.getKey();
+            BlockState expected = entry.getValue();
+
+            if (pos.getY() < floorMinY || expected.isAir()) {
+                continue;
+            }
+
+            if (!level.hasChunkAt(pos)) {
+                continue;
+            }
+
+            BlockState current = level.getBlockState(pos);
+            if (!current.is(expected.getBlock())) {
+                damagedEntries.add(entry);
+            }
+        }
+
+        if (damagedEntries.isEmpty()) {
+            return 0;
+        }
+
+        // Sort bottom-to-top so reconstruction builds upwards naturally
+        damagedEntries.sort((a, b) -> Integer.compare(a.getKey().getY(), b.getKey().getY()));
+
+        for (Map.Entry<BlockPos, BlockState> entry : damagedEntries) {
+            level.setBlock(entry.getKey(), entry.getValue(), 3);
+        }
+
+        level.playSound(null, anchor, SoundEvents.ANVIL_USE, SoundSource.BLOCKS, 1.0F, 1.0F);
+        level.sendParticles(ParticleTypes.HAPPY_VILLAGER, anchor.getX() + 0.5D, anchor.getY() + 1.0D, anchor.getZ() + 0.5D, 20, 1.5D, 1.0D, 1.5D, 0.05D);
+        Warfront.LOGGER.info("[Warfront] Instantly repaired base at {} in Region ({}, {}). Restored {} blocks to pristine state.",
+                anchor, rx, rz, damagedEntries.size());
+
+        RegionData regions = RegionData.get(level);
+        if (regions != null && !regions.isBasePlaced(rx, rz)) {
+            regions.markBasePlaced(rx, rz, anchor);
+        }
+
+        return damagedEntries.size();
     }
 
     /**

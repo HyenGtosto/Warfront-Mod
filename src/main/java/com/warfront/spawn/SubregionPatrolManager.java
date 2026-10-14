@@ -47,8 +47,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class SubregionPatrolManager {
 
     public static final int SUBREGION_SIZE_BLOCKS = 64;
-    public static final int MAX_SQUADS_PER_SUBREGION = 3;
-    public static final long SPAWN_COOLDOWN_TICKS = 45L * 20L; // 45 seconds = 900 ticks
+    public static final int MAX_SQUADS_PER_SUBREGION = 2;
+    public static final long SPAWN_COOLDOWN_TICKS = 90L * 20L; // 90 seconds = 1800 ticks
     public static final double MIN_WAYPOINT_DIST = 48.0D;
     public static final int HOLD_GROUND_DURATION_TICKS = 15 * 20; // 15 seconds = 300 ticks
 
@@ -362,21 +362,24 @@ public final class SubregionPatrolManager {
                 if (!com.warfront.mission.ActiveCampaignMissionManager.isAttackingPlayerPresentInRegion(level, rx, rz)) {
                     continue; // Skip spawning war patrols if attacking faction player is not present in region
                 }
+                if (progress.missionType() == com.warfront.mission.MissionType.WAR_HORN_RELAY) {
+                    continue; // Disabled in Warhorn Relay: handled exclusively by WarHornRelayMissionHandler's border wave system
+                }
                 if (progress.missionType() == com.warfront.mission.MissionType.KILL_COUNT) {
-                    maxSquads = 4;
-                    cooldownTicks = 20L * 20L; // 20 seconds = 400 ticks
-                } else {
                     maxSquads = 3;
-                    cooldownTicks = 30L * 20L; // 30 seconds = 600 ticks
+                    cooldownTicks = 45L * 20L; // 45 seconds = 900 ticks
+                } else {
+                    maxSquads = 2;
+                    cooldownTicks = 90L * 20L; // 90 seconds = 1800 ticks
                 }
             } else {
-                // Out-of-war Subregion: 3 max squads, 45s cooldown
+                // Out-of-war Subregion: 2 max squads, 90s cooldown
                 Faction owner = state.owner();
                 if (!owner.isAI() || state.underSiege()) {
                     continue; // Skip non-hostile subregions or subregions under siege
                 }
                 targetFaction = owner;
-                maxSquads = MAX_SQUADS_PER_SUBREGION; // 1
+                maxSquads = MAX_SQUADS_PER_SUBREGION;
                 cooldownTicks = SPAWN_COOLDOWN_TICKS; // 90 seconds = 1800 ticks
             }
 
@@ -416,8 +419,8 @@ public final class SubregionPatrolManager {
         float resistance = regions.calculateEffectiveResistance(rx, rz);
         EnemyResistanceTier tier = EnemyResistanceTier.fromResistance(resistance);
 
-        // Size matches attack roamers (4 to 14)
-        int squadSize = Math.clamp(tier.minSpawn() + level.getRandom().nextInt(Math.max(1, tier.maxSpawn() - tier.minSpawn() + 1)), 4, 14);
+        // Size matches resistance tier (3 to 16 max)
+        int squadSize = Math.clamp(tier.minSpawn() + level.getRandom().nextInt(Math.max(1, tier.maxSpawn() - tier.minSpawn() + 1)), 3, 16);
 
         List<Object> rolePool = buildPatrolRolePool(faction, tier);
         if (rolePool.isEmpty()) return null;

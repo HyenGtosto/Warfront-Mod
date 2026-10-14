@@ -270,6 +270,10 @@ public final class RegionData extends SavedData {
             com.warfront.mission.ActiveCampaignMissionManager.loadCampaigns(loadedMap);
         }
 
+        if (tag.contains("pending_salvage_sites", Tag.TAG_LIST)) {
+            com.warfront.mission.site.PendingSalvageManager.load(tag.getList("pending_salvage_sites", Tag.TAG_COMPOUND));
+        }
+
         data.migrateLegacyClusterIds();
 
         return data;
@@ -424,6 +428,8 @@ public final class RegionData extends SavedData {
             activeMissionsTag.add(regTag);
         }
         tag.put("active_campaign_missions", activeMissionsTag);
+
+        tag.put("pending_salvage_sites", com.warfront.mission.site.PendingSalvageManager.save());
 
         return tag;
     }
@@ -1171,10 +1177,20 @@ public final class RegionData extends SavedData {
                 activeSieges.remove(regionKey);
                 com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, regionX, regionZ);
                 if (faction == Faction.HUMANITY) {
+                    if (level != null) {
+                        com.warfront.region.base.garrison.BaseGarrisonManager.cleanupGarrisonOnConquest(level, regionX, regionZ);
+                    }
                     String attName = "Humanity";
                     if (level != null && effectivePfId != null) {
                         com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(effectivePfId);
                         if (pf != null) attName = pf.getName();
+                    }
+                    if (targetRegion.baseType() == BaseType.MEGA_BASE) {
+                        addLog(level, String.format("§6§l[INTEL] CITADEL BREACHED: Mega Base at (%d, %d) conquered by %s! Central command aura destroyed.", regionX, regionZ, attName));
+                    } else if (targetRegion.baseType() == BaseType.HEADQUARTERS) {
+                        addLog(level, String.format("§e[Intel] Headquarters neutralized at (%d, %d) by %s! Regional command aura collapsed (-15%% Resistance/Stability in cardinal sectors).", regionX, regionZ, attName));
+                    } else if (targetRegion.baseType() == BaseType.OUTPOST) {
+                        addLog(level, String.format("§e[Intel] Outpost demolished at (%d, %d) by %s! Forward garrison aura collapsed (-10%% Resistance/Stability in 3x3).", regionX, regionZ, attName));
                     }
                     addLog(level, String.format("§aRegion conquered: Region (%d, %d) captured by %s.", regionX, regionZ, attName));
                     broadcastTitle(level, Component.literal("§a§lATTACK SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) captured by %s", regionX, regionZ, attName)));
@@ -1520,14 +1536,60 @@ public final class RegionData extends SavedData {
         return Math.max(20L * 30L, finalTicks); // Minimum floor: 30 seconds
     }
 
+    public float calculateSurroundingBaseBoost(int centerRX, int centerRZ, Faction faction) {
+        if (faction == Faction.UNCLAIMED || faction == Faction.HUMANITY) {
+            return 0.0F;
+        }
+
+        float totalBoost = 0.0F;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) continue; // Skip self
+
+                boolean isCardinal = (dx == 0 || dz == 0); // Manhattan distance == 1
+                Region neighbor = regionAt(centerRX + dx, centerRZ + dz);
+
+                if (neighbor.owner() == faction) {
+                    switch (neighbor.baseType()) {
+                        case MEGA_BASE -> {
+                            if (isCardinal) {
+                                totalBoost += 20.0F; // Cardinal neighbors only (corners excluded)
+                            }
+                        }
+                        case HEADQUARTERS -> {
+                            if (isCardinal) {
+                                totalBoost += 15.0F; // Cardinal neighbors only (corners excluded)
+                            }
+                        }
+                        case OUTPOST -> {
+                            totalBoost += 10.0F; // Outposts retain full 3x3 (corners included)
+                        }
+                        default -> {}
+                    }
+                }
+            }
+        }
+        return totalBoost;
+    }
+
     public float calculateEffectiveResistance(int regionX, int regionZ) {
         Region region = regionAt(regionX, regionZ);
-        return region.resistance();
+        if (region.owner() == Faction.UNCLAIMED) {
+            return 0.0F;
+        }
+        float baseValue = region.resistance();
+        float boost = calculateSurroundingBaseBoost(regionX, regionZ, region.owner());
+        return Math.clamp(baseValue + boost, 0.0F, 100.0F);
     }
 
     public float calculateEffectiveStability(int regionX, int regionZ) {
         Region region = regionAt(regionX, regionZ);
-        return region.stability();
+        if (region.owner() == Faction.UNCLAIMED) {
+            return 0.0F;
+        }
+        float baseValue = region.stability();
+        float boost = calculateSurroundingBaseBoost(regionX, regionZ, region.owner());
+        return Math.clamp(baseValue + boost, 0.0F, 100.0F);
     }
 
     public long findAdjacentClusterId(int regionX, int regionZ, Faction faction) {

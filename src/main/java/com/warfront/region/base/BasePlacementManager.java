@@ -191,6 +191,7 @@ public final class BasePlacementManager {
             regions.markBasePlaced(regionX, regionZ, anchor);
             Warfront.LOGGER.info("[Warfront] Placed persistent base ({}) for {} at {} in region ({}, {})",
                     baseType, owner.displayName().getString(), anchor, regionX, regionZ);
+            com.warfront.region.base.garrison.BaseGarrisonManager.ensureGarrisonSpawned(level, regionX, regionZ, baseType, owner, anchor);
             return true;
         }
 

@@ -17,8 +17,8 @@ public class AmmoRackBlockRenderer extends GeoBlockRenderer<AmmoRackBlockEntity>
     protected void rotateBlock(Direction facing, PoseStack poseStack) {
         switch (facing) {
             case SOUTH -> poseStack.mulPose(Axis.YP.rotationDegrees(180.0F));
-            case EAST  -> poseStack.mulPose(Axis.YP.rotationDegrees(90.0F));
-            case WEST  -> poseStack.mulPose(Axis.YP.rotationDegrees(270.0F));
+            case WEST  -> poseStack.mulPose(Axis.YP.rotationDegrees(90.0F));
+            case EAST  -> poseStack.mulPose(Axis.YP.rotationDegrees(270.0F));
             case NORTH -> poseStack.mulPose(Axis.YP.rotationDegrees(0.0F));
             default    -> super.rotateBlock(facing, poseStack);
         }

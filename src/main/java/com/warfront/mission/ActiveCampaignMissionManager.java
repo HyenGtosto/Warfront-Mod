@@ -68,6 +68,7 @@ public final class ActiveCampaignMissionManager {
         private BlockPos missionSiteAnchor;
         private int phaseIndex;
         private boolean completed;
+        private boolean temporaryStructuresBuilt;
         private final List<UUID> trackedEntityUuids;
         private final List<BlockPos> trackedBlockPositions;
 
@@ -84,7 +85,7 @@ public final class ActiveCampaignMissionManager {
         ) {
             this(UUID.randomUUID(), regionX, regionZ, subX, subZ, targetFaction, targetRoleName,
                     displayName, objectiveDescription, missionType, objectiveType,
-                    targetProgress, 0, null, 0, false, new ArrayList<>(), new ArrayList<>());
+                    targetProgress, 0, null, 0, false, false, new ArrayList<>(), new ArrayList<>());
         }
 
         public ActiveSubRegionProgress(
@@ -105,6 +106,31 @@ public final class ActiveCampaignMissionManager {
                 List<UUID> trackedEntityUuids,
                 List<BlockPos> trackedBlockPositions
         ) {
+            this(missionInstanceId, regionX, regionZ, subX, subZ, targetFaction, targetRoleName,
+                    displayName, objectiveDescription, missionType, objectiveType,
+                    targetProgress, currentProgress, missionSiteAnchor, phaseIndex, completed, false,
+                    trackedEntityUuids, trackedBlockPositions);
+        }
+
+        public ActiveSubRegionProgress(
+                UUID missionInstanceId,
+                int regionX, int regionZ,
+                int subX, int subZ,
+                Faction targetFaction,
+                String targetRoleName,
+                String displayName,
+                String objectiveDescription,
+                MissionType missionType,
+                ObjectiveType objectiveType,
+                int targetProgress,
+                int currentProgress,
+                BlockPos missionSiteAnchor,
+                int phaseIndex,
+                boolean completed,
+                boolean temporaryStructuresBuilt,
+                List<UUID> trackedEntityUuids,
+                List<BlockPos> trackedBlockPositions
+        ) {
             this.missionInstanceId = missionInstanceId != null ? missionInstanceId : UUID.randomUUID();
             this.regionX = regionX;
             this.regionZ = regionZ;
@@ -121,6 +147,7 @@ public final class ActiveCampaignMissionManager {
             this.missionSiteAnchor = missionSiteAnchor;
             this.phaseIndex = phaseIndex;
             this.completed = completed;
+            this.temporaryStructuresBuilt = temporaryStructuresBuilt;
             this.trackedEntityUuids = trackedEntityUuids != null ? new ArrayList<>(trackedEntityUuids) : new ArrayList<>();
             this.trackedBlockPositions = trackedBlockPositions != null ? new ArrayList<>(trackedBlockPositions) : new ArrayList<>();
         }
@@ -141,6 +168,7 @@ public final class ActiveCampaignMissionManager {
         public BlockPos missionSiteAnchor() { return missionSiteAnchor; }
         public int phaseIndex() { return phaseIndex; }
         public boolean isCompleted() { return completed; }
+        public boolean temporaryStructuresBuilt() { return temporaryStructuresBuilt; }
         public List<UUID> trackedEntityUuids() { return trackedEntityUuids; }
         public List<BlockPos> trackedBlockPositions() { return trackedBlockPositions; }
 
@@ -148,6 +176,7 @@ public final class ActiveCampaignMissionManager {
         public void setPhaseIndex(int phaseIndex) { this.phaseIndex = phaseIndex; }
         public void setTargetProgress(int targetProgress) { this.targetProgress = targetProgress; }
         public void setCompleted(boolean completed) { this.completed = completed; }
+        public void setTemporaryStructuresBuilt(boolean built) { this.temporaryStructuresBuilt = built; }
         public void setCurrentProgress(int currentProgress) { this.currentProgress = currentProgress; }
         public void incrementProgress() { this.currentProgress++; }
         public void addProgress(int amount) { this.currentProgress += amount; }
@@ -208,6 +237,7 @@ public final class ActiveCampaignMissionManager {
             tag.putInt("current_progress", currentProgress);
             tag.putInt("phase", phaseIndex);
             tag.putBoolean("completed", completed);
+            tag.putBoolean("temporary_structures_built", temporaryStructuresBuilt);
 
             if (missionSiteAnchor != null) {
                 tag.putInt("anchor_x", missionSiteAnchor.getX());
@@ -269,6 +299,7 @@ public final class ActiveCampaignMissionManager {
             int currProg = tag.getInt("current_progress");
             int phase = tag.getInt("phase");
             boolean comp = tag.getBoolean("completed");
+            boolean tempBuilt = tag.getBoolean("temporary_structures_built");
 
             BlockPos anchor = null;
             if (tag.contains("anchor_x") && tag.contains("anchor_y") && tag.contains("anchor_z")) {
@@ -297,7 +328,7 @@ public final class ActiveCampaignMissionManager {
 
             return new ActiveSubRegionProgress(
                     id, rx, rz, sx, sz, faction, role, dispName, objDesc,
-                    mType, oType, targetProg, currProg, anchor, phase, comp, entities, blocks
+                    mType, oType, targetProg, currProg, anchor, phase, comp, tempBuilt, entities, blocks
             );
         }
     }
@@ -404,7 +435,7 @@ public final class ActiveCampaignMissionManager {
 
             if ((activeSubRegionsMask & (1 << bit)) != 0) {
                 ActiveSubRegionProgress existing = subMissions.get(bit);
-                if (existing != null && existing.isCompleted()) {
+                if (existing != null) {
                     continue;
                 }
                 SubRegionMission gen = generatedMissions[i];
@@ -434,36 +465,76 @@ public final class ActiveCampaignMissionManager {
     }
 
     /**
-     * Clears active server-side campaign progress for a region (e.g. on cancellation, completion, or expiration).
+     * Ends active campaign progress in a region according to the 3 decay scenarios.
      */
-    public static void clearCampaign(ServerLevel level, int regionX, int regionZ) {
+    public static void endCampaignWithScenario(
+            ServerLevel level,
+            int regionX, int regionZ,
+            int heldSectors,
+            int dominoThreshold,
+            boolean allMandatoryCompleted
+    ) {
         long regionKey = ChunkPos.asLong(regionX, regionZ);
         REGION_ABANDON_COUNTDOWN.remove(regionKey);
         REGION_MISSIONS_ENGAGED.remove(regionKey);
         Map<Integer, ActiveSubRegionProgress> removed = ACTIVE_CAMPAIGN_MISSIONS.remove(regionKey);
-        if (removed != null && level != null) {
-            long gameTime = level.getGameTime();
-            for (ActiveSubRegionProgress progress : removed.values()) {
-                progress.setCompleted(true);
-                for (UUID uuid : progress.trackedEntityUuids()) {
-                    net.minecraft.world.entity.Entity e = level.getEntity(uuid);
-                    if (e != null) {
-                        if (e.isAlive()) {
-                            com.warfront.spawn.MissionEntityTracker.registerMissionEntity(
-                                    e, progress.missionInstanceId(), regionX, regionZ, progress.subX(), progress.subZ(), progress.targetFaction());
-                        }
-                    } else {
-                        com.warfront.spawn.MissionEntityTracker.registerMissionEntityUuid(
-                                uuid, progress.missionInstanceId(), regionX, regionZ, progress.subX(), progress.subZ(), progress.targetFaction(), gameTime);
+        if (removed == null || level == null) {
+            return;
+        }
+
+        long gameTime = level.getGameTime();
+        boolean isWarVictory = (heldSectors >= dominoThreshold && allMandatoryCompleted);
+
+        for (ActiveSubRegionProgress progress : removed.values()) {
+            progress.setCompleted(true);
+            for (UUID uuid : progress.trackedEntityUuids()) {
+                net.minecraft.world.entity.Entity e = level.getEntity(uuid);
+                if (e != null) {
+                    if (e.isAlive()) {
+                        com.warfront.spawn.MissionEntityTracker.registerMissionEntity(
+                                e, progress.missionInstanceId(), regionX, regionZ, progress.subX(), progress.subZ(), progress.targetFaction());
                     }
+                } else {
+                    com.warfront.spawn.MissionEntityTracker.registerMissionEntityUuid(
+                            uuid, progress.missionInstanceId(), regionX, regionZ, progress.subX(), progress.subZ(), progress.targetFaction(), gameTime);
                 }
-                MissionHandlerRegistry.getHandler(progress.missionType())
-                        .onCleanup(level, regionX, regionZ, progress.subX(), progress.subZ(), progress);
             }
-            RegionData regions = RegionData.get(level);
-            if (regions != null) {
-                regions.setDirty();
+            MissionHandlerRegistry.getHandler(progress.missionType())
+                    .onCleanup(level, regionX, regionZ, progress.subX(), progress.subZ(), progress);
+
+            // Structure decay handling for Scenarios 1, 2, and 3:
+            if (progress.temporaryStructuresBuilt()) {
+                if (isWarVictory) {
+                    // Scenario 3: Player wins the war!
+                    // Builds stay until player salvages all possible blocks -> builds decay after all loot is collected.
+                    com.warfront.mission.site.PendingSalvageManager.registerPostWarStructure(level, progress);
+                } else {
+                    // Scenario 1 (heldSectors == 0): Player finishes zero missions when war timer ends -> builds decay without further checks.
+                    // Scenario 2 (heldSectors > 0 but not war victory): Builds decay after war timer ends and enemy regains territory.
+                    com.warfront.mission.site.MissionSiteSnapshotManager.restoreAndRemove(
+                            level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
+                }
             }
+        }
+
+        RegionData regions = RegionData.get(level);
+        if (regions != null) {
+            regions.setDirty();
+        }
+    }
+
+    /**
+     * Clears active server-side campaign progress for a region (e.g. on cancellation, completion, or expiration).
+     */
+    public static void clearCampaign(ServerLevel level, int regionX, int regionZ) {
+        RegionData regions = (level != null) ? RegionData.get(level) : null;
+        if (regions != null) {
+            int heldSectors = Integer.bitCount(regions.computeConqueredMask(regionX, regionZ));
+            int dominoThreshold = regions.calculateDominoThreshold(regionX, regionZ);
+            boolean allMandatoryCompleted = regions.areAllMandatoryBaseMissionsCompleted(regionX, regionZ, Faction.HUMANITY);
+            endCampaignWithScenario(level, regionX, regionZ, heldSectors, dominoThreshold, allMandatoryCompleted);
+        } else {
+            endCampaignWithScenario(level, regionX, regionZ, 0, 4, false);
         }
     }
 
@@ -548,10 +619,87 @@ public final class ActiveCampaignMissionManager {
     }
 
     /**
+     * Checks if a player is physically located within the 3x3 subregions centered on (regionX, regionZ, subX, subZ).
+     * Subregion grid: 64x64 blocks. Range extends 1 subregion in all directions (-64 to +128 blocks from origin).
+     */
+    public static boolean isPlayerIn3x3SubRegionRange(ServerPlayer player, int regionX, int regionZ, int subX, int subZ) {
+        if (player == null) return false;
+        int playerGlobalSubX = Math.floorDiv(player.getBlockX(), 64);
+        int playerGlobalSubZ = Math.floorDiv(player.getBlockZ(), 64);
+        int missionGlobalSubX = regionX * 2 + subX;
+        int missionGlobalSubZ = regionZ * 2 + subZ;
+        return Math.abs(playerGlobalSubX - missionGlobalSubX) <= 1 && Math.abs(playerGlobalSubZ - missionGlobalSubZ) <= 1;
+    }
+
+    /**
+     * Returns an alive, non-spectator player from the attacking faction present within the 3x3 subregions
+     * around the specified subregion mission, or null.
+     */
+    public static ServerPlayer getAttackingPlayerIn3x3Range(ServerLevel level, int regionX, int regionZ, int subX, int subZ) {
+        if (level == null) return null;
+        RegionData regions = RegionData.get(level);
+        if (regions == null) return null;
+
+        RegionData.SiegeCampaign siege = regions.getSiege(regionX, regionZ);
+        if (siege == null) return null;
+
+        UUID targetFactionId;
+        if (siege.attacker() == Faction.HUMANITY) {
+            targetFactionId = siege.attackerPlayerFactionId();
+        } else {
+            targetFactionId = siege.defenderPlayerFactionId();
+            if (targetFactionId == null) {
+                RegionData.Region reg = regions.regionAt(regionX, regionZ);
+                targetFactionId = (reg != null) ? reg.playerFactionId() : null;
+            }
+        }
+
+        com.warfront.faction.PlayerFactionData factionData = com.warfront.faction.PlayerFactionData.get(level);
+
+        for (ServerPlayer player : level.players()) {
+            if (!player.isAlive() || player.isSpectator()) continue;
+            if (isPlayerIn3x3SubRegionRange(player, regionX, regionZ, subX, subZ)) {
+                if (targetFactionId == null) {
+                    return player;
+                }
+                if (factionData != null) {
+                    com.warfront.faction.PlayerFaction pf = factionData.getFactionByPlayer(player.getUUID());
+                    if (pf != null && targetFactionId.equals(pf.getId())) {
+                        return player;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Checks if at least one attacking player is actively engaged in the battle:
+     * physically present in the region OR within 3x3 subregion range of any active uncompleted mission.
+     */
+    public static boolean isAttackingPlayerEngagedInRegion(ServerLevel level, int regionX, int regionZ) {
+        if (isAttackingPlayerPresentInRegion(level, regionX, regionZ)) {
+            return true;
+        }
+        long regionKey = ChunkPos.asLong(regionX, regionZ);
+        Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.get(regionKey);
+        if (subMissions != null) {
+            for (ActiveSubRegionProgress p : subMissions.values()) {
+                if (p != null && !p.isCompleted()) {
+                    if (getAttackingPlayerIn3x3Range(level, regionX, regionZ, p.subX(), p.subZ()) != null) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Checks if a region mission is active and running: player is present in region OR abandon grace countdown is active.
      */
     public static boolean isRegionMissionActiveAndRunning(ServerLevel level, int regionX, int regionZ) {
-        if (isAttackingPlayerPresentInRegion(level, regionX, regionZ)) {
+        if (isAttackingPlayerEngagedInRegion(level, regionX, regionZ)) {
             return true;
         }
         long regionKey = ChunkPos.asLong(regionX, regionZ);
@@ -661,26 +809,39 @@ public final class ActiveCampaignMissionManager {
             int rx = ChunkPos.getX(regionKey);
             int rz = ChunkPos.getZ(regionKey);
 
-            ServerPlayer attackingPlayer = getAttackingPlayerInRegion(level, rx, rz);
+            boolean playerEngaged = isAttackingPlayerEngagedInRegion(level, rx, rz);
 
-            if (attackingPlayer != null) {
+            if (playerEngaged) {
                 REGION_MISSIONS_ENGAGED.put(regionKey, true);
                 Integer prevCountdown = REGION_ABANDON_COUNTDOWN.remove(regionKey);
                 if (prevCountdown != null && prevCountdown < 400) {
-                    attackingPlayer.sendSystemMessage(net.minecraft.network.chat.Component.literal("§a§l[WARFRONT] §eRe-entered battle region (" + rx + ", " + rz + ")! Mission countdown cancelled."), true);
+                    ServerPlayer pNotice = getAttackingPlayerInRegion(level, rx, rz);
+                    if (pNotice == null) {
+                        for (ActiveSubRegionProgress p : subMissions.values()) {
+                            if (p != null && !p.isCompleted()) {
+                                pNotice = getAttackingPlayerIn3x3Range(level, rx, rz, p.subX(), p.subZ());
+                                if (pNotice != null) break;
+                            }
+                        }
+                    }
+                    if (pNotice != null) {
+                        pNotice.sendSystemMessage(net.minecraft.network.chat.Component.literal("§a§l[WARFRONT] §eRe-entered battle region (" + rx + ", " + rz + ")! Mission countdown cancelled."), true);
+                    }
                 }
 
-                // Spawning trigger: A player entering region triggers spawning the selected missions
+                // 3x3 subregion footprint trigger:
+                // Spawns/builds temporary structures and manages mission execution within 3x3 subregion footprint
                 for (ActiveSubRegionProgress p : subMissions.values()) {
                     if (p != null && !p.isCompleted()) {
-                        if (p.trackedEntityUuids().isEmpty() && p.trackedBlockPositions().isEmpty()) {
+                        ServerPlayer nearbyPlayer = getAttackingPlayerIn3x3Range(level, rx, rz, p.subX(), p.subZ());
+                        if (nearbyPlayer != null) {
                             MissionHandlerRegistry.getHandler(p.missionType())
-                                    .onPlayerInSubregion(level, rx, rz, p.subX(), p.subZ(), p, attackingPlayer);
+                                    .onPlayerInSubregion(level, rx, rz, p.subX(), p.subZ(), p, nearbyPlayer);
                         }
                     }
                 }
             } else {
-                // All players have left the region area
+                // All players have left the region area and 3x3 subregion footprints
                 if (REGION_MISSIONS_ENGAGED.getOrDefault(regionKey, false)) {
                     int countdown = REGION_ABANDON_COUNTDOWN.computeIfAbsent(regionKey, k -> 20 * 20); // 400 ticks = 20s
                     countdown--;
@@ -710,6 +871,9 @@ public final class ActiveCampaignMissionManager {
                 }
             }
         }
+
+        // Periodic salvage verification (Scenario 3)
+        com.warfront.mission.site.PendingSalvageManager.tick(level);
     }
 
     /**
@@ -718,7 +882,7 @@ public final class ActiveCampaignMissionManager {
     public static void onPlayerInSubregion(ServerLevel level, int regionX, int regionZ, int subX, int subZ, ServerPlayer player) {
         ActiveSubRegionProgress progress = getActiveProgress(regionX, regionZ, subX, subZ);
         if (progress != null && !progress.isCompleted()) {
-            if (!isAttackingPlayerPresentInRegion(level, regionX, regionZ)) {
+            if (!isAttackingPlayerEngagedInRegion(level, regionX, regionZ)) {
                 return;
             }
             MissionHandlerRegistry.getHandler(progress.missionType())
@@ -846,6 +1010,9 @@ public final class ActiveCampaignMissionManager {
         }
         MissionHandlerRegistry.getHandler(progress.missionType())
                 .onCleanup(level, regionX, regionZ, subX, subZ, progress);
+
+        // Disarm any salvage machinery blocks in the structure for post-capture harvesting (Scenario 2 & 3)
+        com.warfront.mission.site.PendingSalvageManager.findRemainingSalvageBlocks(level, progress);
 
         RegionData regions = RegionData.get(level);
         if (regions != null) {

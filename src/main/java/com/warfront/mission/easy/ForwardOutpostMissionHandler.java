@@ -54,7 +54,8 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
         }
 
         // If watchtower site has already been constructed, do not build again
-        if (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty()) {
+        if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
+            progress.setTemporaryStructuresBuilt(true);
             return;
         }
 
@@ -72,6 +73,7 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
         java.util.List<BlockPos> outpostBlocks = TemporaryStructureBuilder.buildForwardOutpost(level, anchor, snapshot);
         progress.trackedBlockPositions().clear();
         progress.trackedBlockPositions().addAll(outpostBlocks);
+        progress.setTemporaryStructuresBuilt(true);
 
         int totalBlocks = outpostBlocks.size();
         int targetDestroyed = (int) Math.ceil(totalBlocks * 0.60);
@@ -188,6 +190,8 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId());
+        if (!progress.isCompleted()) {
+            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
+        }
     }
 }

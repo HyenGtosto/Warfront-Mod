@@ -21,6 +21,9 @@ public final class MissionDeathEventHandler {
             return;
         }
 
+        // Handle persistent base garrison mob death (e.g. outside mission passive respawn timers)
+        com.warfront.region.base.garrison.BaseGarrisonManager.handleMobDeath(mob, level);
+
         CompoundTag data = mob.getPersistentData();
         boolean isWarfront = data.getBoolean(RoamingEntityTracker.WARFRONT_TAG)
                 || data.getBoolean("isMissionMob")

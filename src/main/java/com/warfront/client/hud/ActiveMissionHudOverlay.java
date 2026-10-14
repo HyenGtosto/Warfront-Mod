@@ -39,10 +39,45 @@ public final class ActiveMissionHudOverlay {
             return;
         }
 
-        int width = 185;
-        int height = 62;
+        int width = 210;
         int x = screenWidth - width - 10;
         int y = 10;
+        int innerW = width - 16;
+
+        String name = currentPayload.missionName();
+        if (name == null || name.isEmpty()) {
+            name = "Active Operation";
+        }
+        String sectorText = String.format("§7Sector [%d,%d] — Reg (%d,%d)",
+                currentPayload.subX(), currentPayload.subZ(), currentPayload.regionX(), currentPayload.regionZ());
+
+        String objDesc = currentPayload.objectiveDescription();
+        if (objDesc == null || objDesc.isEmpty()) {
+            objDesc = "Engage Targets";
+        }
+        java.util.List<net.minecraft.util.FormattedCharSequence> descLines =
+                font.split(net.minecraft.network.chat.Component.literal("§f" + objDesc), innerW);
+
+        String progressDisp = currentPayload.progressDisplayString();
+        if (progressDisp == null || progressDisp.isEmpty()) {
+            progressDisp = currentPayload.currentProgress() + "/" + currentPayload.targetProgress();
+        }
+        String progressText = "§7Status: §a" + progressDisp;
+
+        long totalSec = Math.max(0, currentPayload.remainingTicks() / 20);
+        long mins = totalSec / 60;
+        long secs = totalSec % 60;
+        String timeText = String.format("§6Time Left: §f%02d:%02d", mins, secs);
+
+        // Precompute total height dynamically so nothing gets covered
+        int contentH = 5
+                + font.lineHeight + 2
+                + font.lineHeight + 3
+                + (descLines.size() * font.lineHeight) + 3
+                + font.lineHeight + 2
+                + 5 + 4
+                + font.lineHeight + 5;
+        int height = Math.max(70, contentH);
 
         // 1. Semi-transparent dark slate background
         guiGraphics.fill(x, y, x + width, y + height, 0x990A0E16);
@@ -57,50 +92,41 @@ public final class ActiveMissionHudOverlay {
         int accentColor = currentPayload.isDefense() ? 0xFFFF5533 : 0xFF00DD88;
         guiGraphics.fill(x + 1, y + 1, x + 4, y + height - 1, accentColor);
 
+        int curY = y + 5;
+
         // 4. Header: Mission Name
-        String name = currentPayload.missionName();
-        if (name == null || name.isEmpty()) {
-            name = "Active Operation";
-        }
-        guiGraphics.drawString(font, "§e§l" + name, x + 8, y + 4, 0xFFFFDD33, false);
+        guiGraphics.drawString(font, "§e§l" + name, x + 8, curY, 0xFFFFDD33, false);
+        curY += font.lineHeight + 2;
 
         // 5. Sector and Region Coordinate Line
-        String sectorText = String.format("§7Sector [%d,%d] — Reg (%d,%d)",
-                currentPayload.subX(), currentPayload.subZ(), currentPayload.regionX(), currentPayload.regionZ());
-        guiGraphics.drawString(font, sectorText, x + 8, y + 16, 0xFFAAAAAA, false);
+        guiGraphics.drawString(font, sectorText, x + 8, curY, 0xFFAAAAAA, false);
+        curY += font.lineHeight + 3;
 
-        // 6. Objective Description Line
-        String objDesc = currentPayload.objectiveDescription();
-        if (objDesc == null || objDesc.isEmpty()) {
-            objDesc = "Engage Targets";
+        // 6. Objective Description Line (Multi-line wrapped)
+        for (net.minecraft.util.FormattedCharSequence line : descLines) {
+            guiGraphics.drawString(font, line, x + 8, curY, 0xFFFFFFFF, false);
+            curY += font.lineHeight;
         }
-        guiGraphics.drawString(font, "§f" + objDesc, x + 8, y + 27, 0xFFFFFFFF, false);
+        curY += 3;
 
-        // 7. Progress Line & Bar
-        String progressDisp = currentPayload.progressDisplayString();
-        if (progressDisp == null || progressDisp.isEmpty()) {
-            progressDisp = currentPayload.currentProgress() + "/" + currentPayload.targetProgress();
-        }
-        String progressText = "§7Status: §a" + progressDisp;
-        guiGraphics.drawString(font, progressText, x + 8, y + 38, 0xFFFFFFFF, false);
+        // 7. Progress Line
+        guiGraphics.drawString(font, progressText, x + 8, curY, 0xFFFFFFFF, false);
+        curY += font.lineHeight + 2;
 
-        int barX = x + 105;
-        int barY = y + 40;
-        int barW = 70;
+        // 8. Dedicated Progress Bar (full width, never covers track numbers)
+        int barX = x + 8;
+        int barW = innerW;
         int barH = 5;
-        guiGraphics.fill(barX, barY, barX + barW, barY + barH, 0xFF222830);
+        guiGraphics.fill(barX, curY, barX + barW, curY + barH, 0xFF222830);
         float fraction = Math.clamp((float) currentPayload.currentProgress() / Math.max(1, currentPayload.targetProgress()), 0.0f, 1.0f);
         int fillW = (int) (barW * fraction);
         if (fillW > 0) {
-            guiGraphics.fill(barX, barY, barX + fillW, barY + barH, accentColor);
+            guiGraphics.fill(barX, curY, barX + fillW, curY + barH, accentColor);
         }
+        curY += barH + 4;
 
-        // 8. Remaining Timer Line
-        long totalSec = Math.max(0, currentPayload.remainingTicks() / 20);
-        long mins = totalSec / 60;
-        long secs = totalSec % 60;
-        String timeText = String.format("§6Time Left: §f%02d:%02d", mins, secs);
-        guiGraphics.drawString(font, timeText, x + 8, y + 50, 0xFFFFCC66, false);
+        // 9. Remaining Timer Line
+        guiGraphics.drawString(font, timeText, x + 8, curY, 0xFFFFCC66, false);
     }
 
     private static void renderFieldBattle(GuiGraphics guiGraphics, Font font, int screenWidth) {

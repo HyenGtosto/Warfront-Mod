@@ -16,19 +16,19 @@ package com.warfront.spawn;
 public enum EnemyResistanceTier {
 
     /** Resistance 0–24.9: fewest enemies, degraded / pacified fringe. */
-    MINIMAL(0.0f, 24.9f, 4, 6),
+    MINIMAL(0.0f, 24.9f, 3, 5),
 
     /** Resistance 25–44.9: standard non-base occupied territory. */
-    LOW(25.0f, 44.9f, 6, 9),
+    LOW(25.0f, 44.9f, 4, 7),
 
     /** Resistance 45–64.9: outpost territory / fortified clusters. */
-    MODERATE(45.0f, 64.9f, 8, 12),
+    MODERATE(45.0f, 64.9f, 6, 10),
 
     /** Resistance 65–84.9: headquarters / major military base. */
-    HIGH(65.0f, 84.9f, 12, 16),
+    HIGH(65.0f, 84.9f, 8, 12),
 
-    /** Resistance 85–100: mega base stronghold, largest encounters. */
-    EXTREME(85.0f, 100.0f, 16, 22);
+    /** Resistance 85–100: mega base stronghold, largest encounters (max 16). */
+    EXTREME(85.0f, 100.0f, 12, 16);
 
     private final float minResistance;
     private final float maxResistance;

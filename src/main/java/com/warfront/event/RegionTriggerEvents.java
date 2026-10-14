@@ -55,26 +55,33 @@ public final class RegionTriggerEvents {
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress =
                     ActiveCampaignMissionManager.getActiveProgress(rx, rz, sx, sz);
 
-            // Proximity fallback: If current subregion has no active mission, check if an active base demolition mission in this region is within 80 blocks
+            // Proximity check: If current subregion has no active mission, check 3x3 subregion footprint of active missions
             if (progress == null || progress.isCompleted()) {
-                for (int bit = 0; bit < 4; bit++) {
-                    ActiveCampaignMissionManager.ActiveSubRegionProgress candidate =
-                            ActiveCampaignMissionManager.getActiveProgress(rx, rz, bit % 2, bit / 2);
-                    if (candidate != null && !candidate.isCompleted() && candidate.missionSiteAnchor() != null) {
-                        BlockPos anc = candidate.missionSiteAnchor();
-                        if (player.distanceToSqr(anc.getX() + 0.5D, anc.getY() + 0.5D, anc.getZ() + 0.5D) <= 80.0D * 80.0D) {
-                            progress = candidate;
-                            sx = bit % 2;
-                            sz = bit / 2;
-                            break;
+                for (Map.Entry<Long, Map<Integer, ActiveCampaignMissionManager.ActiveSubRegionProgress>> regEntry :
+                        ActiveCampaignMissionManager.getAllActiveMissions().entrySet()) {
+                    int cRx = ChunkPos.getX(regEntry.getKey());
+                    int cRz = ChunkPos.getZ(regEntry.getKey());
+                    if (Math.abs(cRx - rx) <= 1 && Math.abs(cRz - rz) <= 1) {
+                        for (ActiveCampaignMissionManager.ActiveSubRegionProgress candidate : regEntry.getValue().values()) {
+                            if (candidate != null && !candidate.isCompleted()) {
+                                if (ActiveCampaignMissionManager.isPlayerIn3x3SubRegionRange(player, candidate.regionX(), candidate.regionZ(), candidate.subX(), candidate.subZ())) {
+                                    progress = candidate;
+                                    rx = candidate.regionX();
+                                    rz = candidate.regionZ();
+                                    sx = candidate.subX();
+                                    sz = candidate.subZ();
+                                    break;
+                                }
+                            }
                         }
+                        if (progress != null && !progress.isCompleted()) break;
                     }
                 }
             }
 
             if (progress != null && !progress.isCompleted()) {
-                // Handle in-world reinforcement spawning only if attacking faction player is present in region
-                if (ActiveCampaignMissionManager.isAttackingPlayerPresentInRegion(level, rx, rz)) {
+                // Handle in-world reinforcement spawning/updates if attacking faction player is engaged in region
+                if (ActiveCampaignMissionManager.isAttackingPlayerEngagedInRegion(level, rx, rz)) {
                     ActiveCampaignMissionManager.onPlayerInSubregion(level, rx, rz, sx, sz, player);
                 }
 
@@ -111,16 +118,24 @@ public final class RegionTriggerEvents {
     }
 
     public static void onEntityJoin(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
-        if (event.getEntity() instanceof net.minecraft.world.entity.Mob mob && mob.getPersistentData().getBoolean("isMissionMob")) {
-            java.util.UUID missionId = mob.getPersistentData().getUUID("missionInstanceId");
-            int rx = mob.getPersistentData().getInt("originRegionX");
-            int rz = mob.getPersistentData().getInt("originRegionZ");
-            int sx = mob.getPersistentData().getInt("originSubX");
-            int sz = mob.getPersistentData().getInt("originSubZ");
-            if (!com.warfront.mission.ActiveCampaignMissionManager.isMissionInstanceActive(missionId, rx, rz, sx, sz)) {
-                int factionId = mob.getPersistentData().getInt("faction");
-                com.warfront.region.Faction faction = com.warfront.region.Faction.byId(factionId);
-                com.warfront.spawn.MissionEntityTracker.registerMissionEntity(mob, missionId, rx, rz, sx, sz, faction);
+        if (event.getEntity() instanceof net.minecraft.world.entity.Mob mob) {
+            if (mob.getPersistentData().getBoolean("warfront_garrison")) {
+                if (com.warfront.region.base.garrison.BaseGarrisonManager.onGarrisonMobJoin(mob, event.getLevel())) {
+                    event.setCanceled(true);
+                    return;
+                }
+            }
+            if (mob.getPersistentData().getBoolean("isMissionMob")) {
+                java.util.UUID missionId = mob.getPersistentData().getUUID("missionInstanceId");
+                int rx = mob.getPersistentData().getInt("originRegionX");
+                int rz = mob.getPersistentData().getInt("originRegionZ");
+                int sx = mob.getPersistentData().getInt("originSubX");
+                int sz = mob.getPersistentData().getInt("originSubZ");
+                if (!com.warfront.mission.ActiveCampaignMissionManager.isMissionInstanceActive(missionId, rx, rz, sx, sz)) {
+                    int factionId = mob.getPersistentData().getInt("faction");
+                    com.warfront.region.Faction faction = com.warfront.region.Faction.byId(factionId);
+                    com.warfront.spawn.MissionEntityTracker.registerMissionEntity(mob, missionId, rx, rz, sx, sz, faction);
+                }
             }
         }
 

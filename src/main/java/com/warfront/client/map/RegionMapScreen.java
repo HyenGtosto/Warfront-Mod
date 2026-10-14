@@ -8,6 +8,9 @@ import com.warfront.network.RegionMapPayload;
 import com.warfront.network.RequestRegionDetailsPayload;
 import com.warfront.network.RequestRegionMapPayload;
 import com.warfront.region.Faction;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Renderable;
@@ -305,21 +308,27 @@ public final class RegionMapScreen extends Screen {
                 .build());
         defendAreaButton.visible = false;
 
-        // 1×4 vertical stack — all buttons use full rightWidth
+        // 1×4 vertical stack of square buttons (width == height) fitting horizontally across the panel
+        int btnGap = 4;
+        int availableH = viewport.mapSize() - 4;
+        int maxStackBtnH = Math.max(20, (availableH - btnHeight - 5 * btnGap) / 4);
+        int btnSize = Math.min(rightWidth, maxStackBtnH);
+        int btnX = rightLeft + (rightWidth - btnSize) / 2;
+
         for (int i = 0; i < 4; i++) {
             int subX = i % 2;
             int subZ = i / 2;
-            int btnY = top + i * (btnHeight + gap);
+            int btnY = top + i * (btnSize + btnGap);
             int index = i;
-            subRegionMissionButtons[i] = addRenderableWidget(Button.builder(
-                    Component.literal(String.format("(%d,%d) Mission", subX, subZ)),
-                    b -> toggleSubRegionMission(index))
-                    .bounds(rightLeft, btnY, rightWidth, btnHeight)
-                    .build());
+            subRegionMissionButtons[i] = addRenderableWidget(new SubRegionMissionButton(
+                    btnX, btnY, btnSize, btnSize,
+                    Component.literal(String.format("(%d,%d)", subX, subZ)),
+                    b -> toggleSubRegionMission(index)));
             subRegionMissionButtons[i].visible = false;
         }
 
-        int confirmY = top + 4 * (btnHeight + gap) + gap;
+        // Unchanged confirm campaign button fitting below the 4th button
+        int confirmY = top + 4 * (btnSize + btnGap) + btnGap;
         confirmCampaignButton = addRenderableWidget(Button.builder(
                 Component.literal("§a§lCONFIRM CAMPAIGN"),
                 b -> onConfirmCampaign())
@@ -327,7 +336,7 @@ public final class RegionMapScreen extends Screen {
                 .build());
         confirmCampaignButton.visible = false;
 
-        int cancelY = confirmY + btnHeight + gap;
+        int cancelY = confirmY + btnHeight + btnGap;
         cancelAttackButton = addRenderableWidget(Button.builder(Component.literal("§c§lCANCEL CAMPAIGN"),
                 b -> onCancelAttack())
                 .bounds(rightLeft, cancelY, rightWidth, btnHeight)
@@ -404,16 +413,16 @@ public final class RegionMapScreen extends Screen {
         int subZ = index / 2;
         SelectedRegion sel = state.getSelectedRegion();
         if (sel != null && sel.isFieldBattle()) {
-            return "★ Field battle";
+            return String.format("(%d,%d)\n★ Field", subX, subZ);
         }
         boolean isDefense = isDefense(sel);
         if (sel != null) {
             int bit = subZ * 2 + subX;
             if (!isDefense && (sel.conqueredMask() & (1 << bit)) != 0) {
-                return String.format("(%d,%d) §aSecured", subX, subZ);
+                return String.format("(%d,%d)\n§aSecured", subX, subZ);
             }
             if (!isDefense && (sel.reachableMask() & (1 << bit)) == 0) {
-                return String.format("(%d,%d) §8Blocked", subX, subZ);
+                return String.format("(%d,%d)\n§8Blocked", subX, subZ);
             }
         }
         com.warfront.mission.SubRegionMission[] missions =
@@ -421,7 +430,7 @@ public final class RegionMapScreen extends Screen {
         String label = (missions != null && index < missions.length)
                 ? missions[index].displayLabel()
                 : "Mission";
-        return String.format("(%d,%d) %s", subX, subZ, label);
+        return String.format("(%d,%d)\n%s", subX, subZ, label);
     }
 
     private void updateActionButtons() {
@@ -504,7 +513,7 @@ public final class RegionMapScreen extends Screen {
             } else if (!selectedRegion.regionReachable()) {
                 launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cMust own a bordering region to attack.")));
             } else if (!selectedRegion.playerInFactionRegion()) {
-                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cMust be inside faction territory to launch attack.")));
+                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cYou must be in an allied region to initiate attacks.")));
             } else {
                 launchAttackButton.setTooltip(null);
             }
@@ -546,14 +555,30 @@ public final class RegionMapScreen extends Screen {
                     }
                     // Always rebuild the label via the shared helper to keep format consistent
                     subRegionMissionButtons[i].setMessage(Component.literal(buildSubRegionLabel(i)));
+
+                    com.warfront.mission.SubRegionMission[] missions = state.getCachedMissions(selectedRegion.regionX(), selectedRegion.regionZ());
+                    if (missions != null && i < missions.length && missions[i] != null) {
+                        subRegionMissionButtons[i].setTooltip(net.minecraft.client.gui.components.Tooltip.create(
+                                Component.literal("§eSector (" + sx + "," + sz + ") - " + missions[i].displayLabel() + "\n§7" + missions[i].description())));
+                    } else {
+                        subRegionMissionButtons[i].setTooltip(null);
+                    }
                 }
             }
 
             if (confirmCampaignButton != null) {
                 confirmCampaignButton.visible = true;
-                confirmCampaignButton.active = inFaction;
+                boolean canConfirm = inFaction;
+                if (!isDefense) {
+                    canConfirm = inFaction && selectedRegion.regionReachable() && selectedRegion.playerInFactionRegion();
+                }
+                confirmCampaignButton.active = canConfirm;
                 if (!inFaction) {
                     confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("Must be in a faction to engage in war.")));
+                } else if (!isDefense && !selectedRegion.regionReachable()) {
+                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cMust own a bordering region to attack.")));
+                } else if (!isDefense && !selectedRegion.playerInFactionRegion()) {
+                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cYou must be in an allied region to initiate attacks.")));
                 } else {
                     confirmCampaignButton.setTooltip(null);
                 }
@@ -764,6 +789,35 @@ public final class RegionMapScreen extends Screen {
     @Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    public static class SubRegionMissionButton extends Button {
+        public SubRegionMissionButton(int x, int y, int width, int height, Component message, OnPress onPress) {
+            super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+            Minecraft mc = Minecraft.getInstance();
+            guiGraphics.setColor(1.0F, 1.0F, 1.0F, this.alpha);
+            RenderSystem.enableBlend();
+            RenderSystem.enableDepthTest();
+            guiGraphics.blitSprite(SPRITES.get(this.active, this.isHoveredOrFocused()), this.getX(), this.getY(), this.getWidth(), this.getHeight());
+            guiGraphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+
+            Font font = mc.font;
+            int textColor = this.active ? (this.isHoveredOrFocused() ? 0xFFFFA0 : 0xFFFFFF) : 0xA0A0A0;
+            java.util.List<net.minecraft.util.FormattedCharSequence> lines = font.split(this.getMessage(), this.getWidth() - 4);
+            int totalH = lines.size() * font.lineHeight;
+            int startY = this.getY() + Math.max(2, (this.getHeight() - totalH) / 2);
+
+            for (int i = 0; i < lines.size(); i++) {
+                net.minecraft.util.FormattedCharSequence line = lines.get(i);
+                int lw = font.width(line);
+                int lx = this.getX() + (this.getWidth() - lw) / 2;
+                guiGraphics.drawString(font, line, lx, startY + i * font.lineHeight, textColor, false);
+            }
+        }
     }
 }
 

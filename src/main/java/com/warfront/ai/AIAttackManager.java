@@ -86,15 +86,19 @@ public final class AIAttackManager {
                             if (pf != null) defenderName = pf.getName();
                         }
 
-                        if (securedCount >= dominoThreshold) {
+                        boolean allMandatorySecured = regions.areAllMandatoryBaseMissionsSecured(trx, trz, targetReg);
+
+                        if (securedCount >= dominoThreshold && allMandatorySecured) {
                             // Player successfully defended enough sectors before timer expired -> DEFENSE VICTORY!
                             regions.setRegionSiege(trx, trz, false);
+                            com.warfront.mission.ActiveCampaignMissionManager.endCampaignWithScenario(level, trx, trz, securedCount, dominoThreshold, true);
                             regions.addLog(level, String.format("§aSiege expired: Region (%d, %d) defended by %s against %s.", trx, trz, defenderName, attacker.commandName()));
                             Warfront.LOGGER.info("Siege expired: Region ({}, {}) defended by {}.", trx, trz, defenderName);
                         } else {
                             // Defense failed -> Defending region falls to attacking AI faction!
                             BaseType baseType = regions.determineBaseTypeForConqueredRegion(trx, trz, attacker);
                             regions.claim(level, trx, trz, attacker, 0.0F, 0.0F, baseType);
+                            com.warfront.mission.ActiveCampaignMissionManager.endCampaignWithScenario(level, trx, trz, 0, dominoThreshold, false);
                             regions.addLog(level, String.format("§cSiege expired: Region (%d, %d) [%s] conquered by %s.", trx, trz, defenderName, attacker.commandName()));
                             Warfront.LOGGER.info("Siege expired: Region ({}, {}) [{}] conquered by {}.", trx, trz, defenderName, attacker.commandName());
                         }
@@ -103,21 +107,31 @@ public final class AIAttackManager {
                         java.util.UUID attackerPfId = campaign.attackerPlayerFactionId();
                         regions.setRegionSiege(trx, trz, false);
                         regions.getActiveSieges().remove(net.minecraft.world.level.ChunkPos.asLong(trx, trz));
-                        com.warfront.mission.ActiveCampaignMissionManager.clearCampaign(level, trx, trz);
 
                         int heldSectors = Integer.bitCount(regions.computeConqueredMask(trx, trz));
                         int dominoThreshold = regions.calculateDominoThreshold(trx, trz);
+                        boolean allMandatoryCompleted = regions.areAllMandatoryBaseMissionsCompleted(trx, trz, Faction.HUMANITY);
                         RegionData.Region targetRegion = regions.regionAt(trx, trz);
                         Faction enemyFaction = targetRegion.owner();
 
-                        if (heldSectors >= dominoThreshold) {
-                            // Full domino collapse threshold reached -> Complete capture for Humanity!
+                        if (heldSectors >= dominoThreshold && allMandatoryCompleted) {
+                            // Full domino collapse threshold reached AND mandatory base missions completed -> Scenario 3 War Victory!
+                            BaseType prevBaseType = targetRegion.baseType();
                             regions.claim(level, trx, trz, Faction.HUMANITY, 20.0F, 20.0F, BaseType.NONE, attackerPfId);
+                            com.warfront.mission.ActiveCampaignMissionManager.endCampaignWithScenario(level, trx, trz, heldSectors, dominoThreshold, allMandatoryCompleted);
+                            if (prevBaseType == BaseType.MEGA_BASE) {
+                                regions.addLog(level, String.format("§6§l[INTEL] CITADEL BREACHED: Mega Base at (%d, %d) captured! Central command aura destroyed.", trx, trz));
+                            } else if (prevBaseType == BaseType.HEADQUARTERS) {
+                                regions.addLog(level, String.format("§e[Intel] Headquarters neutralized at (%d, %d)! Regional command aura collapsed (-15%% Resistance/Stability in cardinal sectors).", trx, trz));
+                            } else if (prevBaseType == BaseType.OUTPOST) {
+                                regions.addLog(level, String.format("§e[Intel] Outpost demolished at (%d, %d)! Forward garrison aura collapsed (-10%% Resistance/Stability in 3x3).", trx, trz));
+                            }
                             String outcome = String.format("§aCampaign victory: Region (%d, %d) captured for Humanity!", trx, trz);
                             regions.addLog(level, outcome);
                             Warfront.LOGGER.info("Campaign expired with victory: Region ({}, {}) captured.", trx, trz);
                         } else if (heldSectors > 0) {
-                            // Partial victory: Enemy regains the subregions, but suffers scaled stat loss and enters awaiting-reinforcements state
+                            // Partial victory (Scenario 2): Player won subregions but not war -> salvaged until timer end -> builds decay after timer ends
+                            com.warfront.mission.ActiveCampaignMissionManager.endCampaignWithScenario(level, trx, trz, heldSectors, dominoThreshold, allMandatoryCompleted);
                             float lossPerSector = switch (targetRegion.baseType()) {
                                 case MEGA_BASE -> 5.0F;
                                 case HEADQUARTERS -> 10.0F;
@@ -151,10 +165,11 @@ public final class AIAttackManager {
                             String outcome = String.format("§eCampaign expired: Region (%d, %d). Partial victory (%d/4 sectors): Enemy regained control with degraded stats (lost %.0f%% Stability, %.0f%% Resistance). [%s]",
                                     trx, trz, heldSectors, stabLoss, resLoss, statusStr);
                             regions.addLog(level, outcome);
-                            Warfront.LOGGER.info("Campaign partial victory: Region ({}, {}), {} sectors. New stats: stab={}, res={}. {}",
+                            Warfront.LOGGER.info("Campaign partial victory: Region ({}, {}) , {} sectors. New stats: stab={}, res={}. {}",
                                     trx, trz, heldSectors, newStab, newRes, statusStr);
                         } else {
-                            // Complete failure: Enemy repels invasion and digs in (+10 Resistance, +10 Stability defensive hardening)
+                            // Complete failure (Scenario 1): Zero missions finished when war timer ends -> builds decay without further checks
+                            com.warfront.mission.ActiveCampaignMissionManager.endCampaignWithScenario(level, trx, trz, heldSectors, dominoThreshold, allMandatoryCompleted);
                             regions.revertRegionSubRegionsToOwner(level, trx, trz);
                             float curStab = regions.calculateEffectiveStability(trx, trz);
                             float curRes = regions.calculateEffectiveResistance(trx, trz);

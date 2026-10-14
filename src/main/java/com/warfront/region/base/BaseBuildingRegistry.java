@@ -31,7 +31,7 @@ public final class BaseBuildingRegistry {
         StructureVariantRegistry.registerVariant(
                 Faction.PILLAGER_CONQUERORS,
                 BaseType.OUTPOST,
-                new TemplatePremadeStructure(outpostTemplate, 27, 27, 23)
+                new TemplatePremadeStructure(outpostTemplate, 29, 29, 25, -1)
         );
 
         // Initialize placeholder generators for unimplemented base tiers/factions

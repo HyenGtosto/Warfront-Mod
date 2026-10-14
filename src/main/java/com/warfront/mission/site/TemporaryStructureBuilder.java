@@ -364,185 +364,167 @@ public final class TemporaryStructureBuilder {
         return new StrongpointResult(placedBlocks, shieldRelays, vaultPos);
     }
 
+    private static final ResourceLocation COMMANDER_CAMP_TEMPLATE =
+            ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "pillager_commander_camp");
+
     public record OfficerCampResult(
             List<BlockPos> structureBlocks,
             BlockPos warDeskPos,
+            List<BlockPos> warDeskPositions,
             BlockPos commanderSpawnPos,
             List<BlockPos> bodyguardSpawnPositions,
             List<BlockPos> outerPatrolSpawnPositions
     ) {}
 
     /**
-     * Builds a 32x32 procedurally generated military encampment with perimeter barriers,
-     * 4 outer soldier tents, central mess campfire, and a large central Command Pavilion
-     * housing the Pillager Commander and the Commander's War Desk (salvage prize).
+     * Places the native NBT Pillager Commander Camp structure template (27x13x31).
+     * Placed centered at the anchor with a -2 block vertical offset to bed foundation blocks underground.
+     * Populates soldier tent chests and commander double chests while leaving prop barrels empty.
      */
     public static OfficerCampResult buildOfficerCamp(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
-        List<BlockPos> placedBlocks = new ArrayList<>();
+        List<BlockPos> structureBlocks = new ArrayList<>();
+        List<BlockPos> warDeskPositions = new ArrayList<>();
         List<BlockPos> bodyguardSpawns = new ArrayList<>();
         List<BlockPos> patrolSpawns = new ArrayList<>();
 
-        BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
-        BlockState fence = Blocks.DARK_OAK_FENCE.defaultBlockState();
-        BlockState planks = Blocks.DARK_OAK_PLANKS.defaultBlockState();
-        BlockState redWool = Blocks.RED_WOOL.defaultBlockState();
-        BlockState blackWool = Blocks.BLACK_WOOL.defaultBlockState();
-        BlockState grayWool = Blocks.GRAY_WOOL.defaultBlockState();
-        BlockState deskBlock = WarfrontBlocks.COMMANDER_WAR_DESK.get().defaultBlockState();
+        StructureTemplateManager manager = level.getStructureManager();
+        Optional<StructureTemplate> templateOpt = manager.get(COMMANDER_CAMP_TEMPLATE);
+        if (templateOpt.isEmpty() || templateOpt.get().getSize().getX() <= 0) {
+            Warfront.LOGGER.error("[Warfront] Required commander camp template '{}' not found!", COMMANDER_CAMP_TEMPLATE);
+            return new OfficerCampResult(structureBlocks, anchor, warDeskPositions, anchor, bodyguardSpawns, patrolSpawns);
+        }
 
-        int baseY = anchor.getY();
-        int minX = anchor.getX() - 15;
-        int maxX = anchor.getX() + 16; // 32x32
-        int minZ = anchor.getZ() - 15;
-        int maxZ = anchor.getZ() + 16;
+        StructureTemplate template = templateOpt.get();
+        Vec3i size = template.getSize();
+        int sizeX = size.getX();
+        int sizeY = size.getY();
+        int sizeZ = size.getZ();
 
-        // 1. Perimeter barricades (log posts & fences with gate openings at North and South)
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                boolean isEdge = (x == minX || x == maxX || z == minZ || z == maxZ);
-                boolean isCorner = (x == minX || x == maxX) && (z == minZ || z == maxZ);
+        // 27x13x31 footprint. Center template horizontally around anchor, -2 vertical offset
+        int halfX = sizeX / 2;
+        int halfZ = sizeZ / 2;
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() - 2, anchor.getZ() - halfZ);
 
-                if (isEdge) {
-                    // Checkpoint openings at North and South centers
-                    boolean isGate = (z == minZ || z == maxZ) && Math.abs(x - anchor.getX()) <= 1;
-                    if (!isGate) {
-                        BlockPos barPos = new BlockPos(x, baseY + 1, z);
-                        snapshot.setBlock(level, barPos, isCorner ? log : fence, 3);
-                        placedBlocks.add(barPos.immutable());
+        // Record original block states across structure volume for clean rollback
+        for (int x = 0; x < sizeX; x++) {
+            for (int y = 0; y < sizeY; y++) {
+                for (int z = 0; z < sizeZ; z++) {
+                    BlockPos p = origin.offset(x, y, z);
+                    snapshot.recordOriginalState(p, level.getBlockState(p));
+                }
+            }
+        }
 
-                        // Stepped support down to solid terrain
-                        BlockPos under = barPos.below();
-                        int d = 0;
-                        while (d < 5 && (level.getBlockState(under).isAir() || level.getBlockState(under).liquid())) {
-                            snapshot.setBlock(level, under, log, 3);
-                            placedBlocks.add(under.immutable());
-                            under = under.below();
-                            d++;
+        // Place template
+        StructurePlaceSettings settings = new StructurePlaceSettings()
+                .setRotation(Rotation.NONE)
+                .setMirror(Mirror.NONE)
+                .setIgnoreEntities(false);
+
+        boolean placed = template.placeInWorld(level, origin, origin, settings, level.getRandom(), Block.UPDATE_ALL);
+        if (!placed) {
+            Warfront.LOGGER.error("[Warfront] Failed to place commander camp template at {}", origin);
+            return new OfficerCampResult(structureBlocks, anchor, warDeskPositions, anchor, bodyguardSpawns, patrolSpawns);
+        }
+
+        // Scan placed volume for all placed blocks, chests, and commander desks
+        List<BlockPos> soldierChestPositions = new ArrayList<>();
+        List<BlockPos> commanderChestPositions = new ArrayList<>();
+
+        for (int x = 0; x < sizeX; x++) {
+            for (int y = 0; y < sizeY; y++) {
+                for (int z = 0; z < sizeZ; z++) {
+                    BlockPos p = origin.offset(x, y, z);
+                    BlockState state = level.getBlockState(p);
+                    if (!state.isAir()) {
+                        structureBlocks.add(p.immutable());
+                        if (state.is(WarfrontBlocks.COMMANDER_WAR_DESK.get())) {
+                            warDeskPositions.add(p.immutable());
+                        } else if (state.is(Blocks.CHEST)) {
+                            // Big tent is at local z >= 20; soldier tents are at z < 20
+                            if (z >= 20) {
+                                commanderChestPositions.add(p.immutable());
+                            } else {
+                                soldierChestPositions.add(p.immutable());
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Gate Lantern Posts
-        snapshot.setBlock(level, new BlockPos(anchor.getX() - 2, baseY + 2, minZ), Blocks.LANTERN.defaultBlockState(), 3);
-        snapshot.setBlock(level, new BlockPos(anchor.getX() + 2, baseY + 2, minZ), Blocks.LANTERN.defaultBlockState(), 3);
-        snapshot.setBlock(level, new BlockPos(anchor.getX() - 2, baseY + 2, maxZ), Blocks.LANTERN.defaultBlockState(), 3);
-        snapshot.setBlock(level, new BlockPos(anchor.getX() + 2, baseY + 2, maxZ), Blocks.LANTERN.defaultBlockState(), 3);
-
-        // 2. Central Mess Campfire
-        BlockPos campFirePos = new BlockPos(anchor.getX(), baseY + 1, anchor.getZ() + 7);
-        snapshot.setBlock(level, campFirePos, Blocks.CAMPFIRE.defaultBlockState(), 3);
-        placedBlocks.add(campFirePos.immutable());
-        snapshot.setBlock(level, campFirePos.east(2), log, 3);
-        snapshot.setBlock(level, campFirePos.west(2), log, 3);
-
-        // 3. Four Outer Soldier Tents
-        int[][] tentOffsets = {{-9, -9}, {9, -9}, {-9, 8}, {9, 8}};
-        for (int[] toff : tentOffsets) {
-            int tx = anchor.getX() + toff[0];
-            int tz = anchor.getZ() + toff[1];
-            buildSmallSoldierTent(level, new BlockPos(tx, baseY, tz), grayWool, planks, fence, snapshot, placedBlocks);
-            patrolSpawns.add(new BlockPos(tx, baseY + 1, tz));
-        }
-
-        // 4. Large Central Command Pavilion Tent (10x8 footprint)
-        int pavMinX = anchor.getX() - 5;
-        int pavMaxX = anchor.getX() + 4;
-        int pavMinZ = anchor.getZ() - 6;
-        int pavMaxZ = anchor.getZ() + 1;
-
-        // Clear interior air of Command Pavilion
-        for (int x = pavMinX; x <= pavMaxX; x++) {
-            for (int z = pavMinZ; z <= pavMaxZ; z++) {
-                for (int y = baseY + 1; y <= baseY + 6; y++) {
-                    BlockPos p = new BlockPos(x, y, z);
-                    if (!level.getBlockState(p).isAir()) {
-                        snapshot.setBlock(level, p, Blocks.AIR.defaultBlockState(), 3);
-                    }
-                }
-                // Floor
-                BlockPos fPos = new BlockPos(x, baseY, z);
-                snapshot.setBlock(level, fPos, planks, 3);
-                placedBlocks.add(fPos.immutable());
+        // Populate soldier chests (3 tents) with military supplies
+        net.minecraft.util.RandomSource random = level.getRandom();
+        for (BlockPos cp : soldierChestPositions) {
+            if (level.getBlockEntity(cp) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity chest) {
+                populateSoldierChest(chest, random);
             }
         }
 
-        // Pavilion Corner Posts
-        for (int x : new int[]{pavMinX, pavMaxX}) {
-            for (int z : new int[]{pavMinZ, pavMaxZ}) {
-                for (int y = baseY + 1; y <= baseY + 4; y++) {
-                    BlockPos postPos = new BlockPos(x, y, z);
-                    snapshot.setBlock(level, postPos, log, 3);
-                    placedBlocks.add(postPos.immutable());
-                }
+        // Populate commander double chests in the big tent with high-value tactical loot
+        for (BlockPos cp : commanderChestPositions) {
+            if (level.getBlockEntity(cp) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity chest) {
+                populateCommanderChest(chest, random);
             }
         }
+        // Prop barrels in build are intentionally left empty with no loot
 
-        // Pavilion Striped Wool Roof (A-frame peak from Y+3 to Y+5)
-        for (int x = pavMinX; x <= pavMaxX; x++) {
-            boolean isRedStripe = (Math.abs(x - anchor.getX()) % 2 == 0);
-            BlockState roofWool = isRedStripe ? redWool : blackWool;
-
-            for (int z = pavMinZ; z <= pavMaxZ; z++) {
-                int distFromCenterZ = Math.min(Math.abs(z - (pavMinZ + 3)), Math.abs(z - (pavMinZ + 4)));
-                int roofY = baseY + 5 - Math.min(distFromCenterZ, 2);
-                BlockPos rPos = new BlockPos(x, roofY, z);
-                snapshot.setBlock(level, rPos, roofWool, 3);
-                placedBlocks.add(rPos.immutable());
+        // Midpoint of War Desk
+        BlockPos warDeskMid;
+        if (!warDeskPositions.isEmpty()) {
+            int sumX = 0, sumY = 0, sumZ = 0;
+            for (BlockPos p : warDeskPositions) {
+                sumX += p.getX();
+                sumY += p.getY();
+                sumZ += p.getZ();
             }
+            warDeskMid = new BlockPos(sumX / warDeskPositions.size(), sumY / warDeskPositions.size(), sumZ / warDeskPositions.size());
+        } else {
+            warDeskMid = origin.offset(13, 2, 24);
         }
 
-        // Inside Command Pavilion: Commander War Desk (Salvage Prize)
-        BlockPos warDeskPos = new BlockPos(anchor.getX(), baseY + 1, anchor.getZ() - 4);
-        snapshot.setBlock(level, warDeskPos, deskBlock, 3);
-        placedBlocks.add(warDeskPos.immutable());
+        // Commander spawn pos: inside big tent right in front of tactical war desk
+        BlockPos commanderSpawn = origin.offset(13, 2, 22);
 
-        // Decorative props inside pavilion
-        snapshot.setBlock(level, warDeskPos.above(), Blocks.LANTERN.defaultBlockState(), 3);
-        snapshot.setBlock(level, warDeskPos.west(), Blocks.BOOKSHELF.defaultBlockState(), 3);
-        snapshot.setBlock(level, warDeskPos.east(), Blocks.CARTOGRAPHY_TABLE.defaultBlockState(), 3);
+        // Bodyguards: flanking inside the big tent
+        bodyguardSpawns.add(origin.offset(10, 2, 23));
+        bodyguardSpawns.add(origin.offset(16, 2, 23));
 
-        // Spawns
-        BlockPos commanderSpawn = new BlockPos(anchor.getX(), baseY + 1, anchor.getZ() - 2);
-        bodyguardSpawns.add(new BlockPos(anchor.getX() - 2, baseY + 1, anchor.getZ() - 2));
-        bodyguardSpawns.add(new BlockPos(anchor.getX() + 2, baseY + 1, anchor.getZ() - 2));
+        // Outer patrol spawns: near soldier tents & central campfire
+        patrolSpawns.add(origin.offset(13, 2, 6));  // North soldier tent
+        patrolSpawns.add(origin.offset(6, 2, 13));  // West soldier tent
+        patrolSpawns.add(origin.offset(20, 2, 13)); // East soldier tent
+        patrolSpawns.add(origin.offset(13, 2, 15)); // Central campfire
 
-        return new OfficerCampResult(placedBlocks, warDeskPos, commanderSpawn, bodyguardSpawns, patrolSpawns);
+        Warfront.LOGGER.info("[Warfront] Placed Commander Camp (size {}x{}x{}) at {}. Located {} war desk blocks.",
+                sizeX, sizeY, sizeZ, origin, warDeskPositions.size());
+
+        return new OfficerCampResult(structureBlocks, warDeskMid, warDeskPositions, commanderSpawn, bodyguardSpawns, patrolSpawns);
     }
 
-    private static void buildSmallSoldierTent(
-            ServerLevel level,
-            BlockPos origin,
-            BlockState wool,
-            BlockState planks,
-            BlockState fence,
-            MissionSiteSnapshot snapshot,
-            List<BlockPos> placedBlocks
-    ) {
-        int baseY = origin.getY();
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                // Clear interior
-                for (int dy = 1; dy <= 3; dy++) {
-                    BlockPos ap = origin.offset(dx, dy, dz);
-                    if (!level.getBlockState(ap).isAir()) {
-                        snapshot.setBlock(level, ap, Blocks.AIR.defaultBlockState(), 3);
-                    }
-                }
-                // Tent roof peak along X=0
-                int roofHeight = 3 - Math.abs(dx);
-                if (roofHeight > 0) {
-                    BlockPos rp = origin.offset(dx, roofHeight, dz);
-                    snapshot.setBlock(level, rp, wool, 3);
-                    placedBlocks.add(rp.immutable());
-                }
-            }
+    private static void populateSoldierChest(net.minecraft.world.level.block.entity.ChestBlockEntity chest, net.minecraft.util.RandomSource random) {
+        chest.clearContent();
+        chest.setItem(2, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.ARROW, 16 + random.nextInt(17)));
+        chest.setItem(4, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.BREAD, 4 + random.nextInt(5)));
+        chest.setItem(11, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_INGOT, 3 + random.nextInt(6)));
+        chest.setItem(15, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD, 1 + random.nextInt(4)));
+        if (random.nextBoolean()) {
+            chest.setItem(20, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.CROSSBOW));
         }
-        // Small prop inside
-        BlockPos chestPos = origin.offset(0, 1, 1);
-        snapshot.setBlock(level, chestPos, Blocks.BARREL.defaultBlockState(), 3);
-        placedBlocks.add(chestPos.immutable());
+    }
+
+    private static void populateCommanderChest(net.minecraft.world.level.block.entity.ChestBlockEntity chest, net.minecraft.util.RandomSource random) {
+        chest.clearContent();
+        chest.setItem(1, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.GOLDEN_APPLE, 1 + random.nextInt(2)));
+        chest.setItem(3, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, 1 + random.nextInt(3)));
+        chest.setItem(5, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD, 5 + random.nextInt(9)));
+        chest.setItem(10, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_BLOCK, 1 + random.nextInt(2)));
+        chest.setItem(13, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.TNT, 2 + random.nextInt(3)));
+        chest.setItem(16, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.GUNPOWDER, 6 + random.nextInt(7)));
+        chest.setItem(22, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EXPERIENCE_BOTTLE, 4 + random.nextInt(5)));
+        if (random.nextFloat() < 0.7F) {
+            chest.setItem(24, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.SHIELD));
+        }
     }
 
     public record ArtilleryBatteryResult(
@@ -611,7 +593,33 @@ public final class TemporaryStructureBuilder {
                         structureBlocks.add(p.immutable());
                         if (state.is(WarfrontBlocks.MORTAR.get())) {
                             mortarPositions.add(p.immutable());
+                            // Clear vertical airspace above mortar so firing line is completely clear
+                            for (int yUp = 1; yUp <= 8; yUp++) {
+                                BlockPos skyP = p.above(yUp);
+                                if (!level.getBlockState(skyP).isAir()) {
+                                    snapshot.recordOriginalState(skyP, level.getBlockState(skyP));
+                                    snapshot.setBlock(level, skyP, Blocks.AIR.defaultBlockState(), 3);
+                                }
+                            }
                         }
+                    }
+                }
+            }
+        }
+
+        // Perimeter walkability: ensure perimeter edges don't form impassable 2+ block vertical dirt walls
+        for (int x = 0; x < sizeX; x++) {
+            for (int z : new int[]{0, sizeZ - 1}) {
+                BlockPos rim = origin.offset(x, sizeY - 1, z);
+                BlockPos outer = (z == 0) ? rim.north() : rim.south();
+                int groundBelow = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, outer.getX(), outer.getZ());
+                if (rim.getY() - groundBelow >= 2) {
+                    // Place gentle step down so mobs can traverse
+                    BlockPos step = outer.atY(rim.getY() - 1);
+                    if (level.getBlockState(step).isAir()) {
+                        snapshot.recordOriginalState(step, level.getBlockState(step));
+                        snapshot.setBlock(level, step, Blocks.COARSE_DIRT.defaultBlockState(), 3);
+                        structureBlocks.add(step.immutable());
                     }
                 }
             }
@@ -623,117 +631,94 @@ public final class TemporaryStructureBuilder {
         return new ArtilleryBatteryResult(structureBlocks, mortarPositions);
     }
 
+    private static final ResourceLocation BROADCAST_TOWER_TEMPLATE =
+            ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "pillager_broadcast_tower");
+
     public record WarHornTowerResult(
             List<BlockPos> structureBlocks,
-            BlockPos fuseRelayPos,
-            BlockPos hornBellPos
-    ) {}
+            List<BlockPos> fuseRelayPositions,
+            List<BlockPos> hornBellPositions
+    ) {
+        public BlockPos fuseRelayPos() {
+            return fuseRelayPositions.isEmpty() ? null : fuseRelayPositions.get(0);
+        }
+
+        public BlockPos hornBellPos() {
+            return hornBellPositions.isEmpty() ? null : hornBellPositions.get(0);
+        }
+    }
 
     /**
-     * Builds a 14-block tall Dark Oak signal mast topped with a crow's nest,
-     * housing the Signal Fuse Relay (sabotage target) and Acoustic Horn Bell (salvage prize).
+     * Places the native NBT Pillager Broadcast Warhorn Tower structure template (7x30x7 footprint).
+     * Placed directly on the anchor at ground level with 0 vertical offset.
+     * Contains 4 Signal Fuse Relays (sabotage targets) and 4 Acoustic Horn Bells (salvage prizes).
      */
     public static WarHornTowerResult buildWarHornTower(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
-        List<BlockPos> placedBlocks = new ArrayList<>();
+        List<BlockPos> structureBlocks = new ArrayList<>();
+        List<BlockPos> fusePositions = new ArrayList<>();
+        List<BlockPos> hornBellPositions = new ArrayList<>();
 
-        BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
-        BlockState fence = Blocks.DARK_OAK_FENCE.defaultBlockState();
-        BlockState planks = Blocks.DARK_OAK_PLANKS.defaultBlockState();
-        BlockState fuseBlock = WarfrontBlocks.SIGNAL_FUSE_RELAY.get().defaultBlockState();
-        BlockState bellBlock = WarfrontBlocks.ACOUSTIC_HORN_BELL.get().defaultBlockState();
+        StructureTemplateManager manager = level.getStructureManager();
+        Optional<StructureTemplate> templateOpt = manager.get(BROADCAST_TOWER_TEMPLATE);
+        if (templateOpt.isEmpty() || templateOpt.get().getSize().getX() <= 0) {
+            Warfront.LOGGER.error("[Warfront] Required broadcast tower template '{}' not found!", BROADCAST_TOWER_TEMPLATE);
+            return new WarHornTowerResult(structureBlocks, fusePositions, hornBellPositions);
+        }
 
-        int baseY = anchor.getY();
-        int towerHeight = 14;
-        int summitY = baseY + towerHeight;
+        StructureTemplate template = templateOpt.get();
+        Vec3i size = template.getSize();
+        int sizeX = size.getX();
+        int sizeY = size.getY();
+        int sizeZ = size.getZ();
 
-        // 1. Four corner posts (3x3 base)
-        int[] dOffsets = {-1, 1};
-        for (int dx : dOffsets) {
-            for (int dz : dOffsets) {
-                int px = anchor.getX() + dx;
-                int pz = anchor.getZ() + dz;
+        // 7x30x7 footprint. Centered on anchor horizontally, 0 vertical offset
+        int halfX = sizeX / 2;
+        int halfZ = sizeZ / 2;
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY(), anchor.getZ() - halfZ);
 
-                // Stepped foundation down to solid ground
-                BlockPos under = new BlockPos(px, baseY - 1, pz);
-                int d = 0;
-                while (d < 8 && (level.getBlockState(under).isAir() || level.getBlockState(under).liquid())) {
-                    snapshot.setBlock(level, under, log, 3);
-                    placedBlocks.add(under.immutable());
-                    under = under.below();
-                    d++;
-                }
-
-                // Vertical corner posts
-                for (int y = baseY; y <= summitY; y++) {
-                    BlockPos lp = new BlockPos(px, y, pz);
-                    snapshot.setBlock(level, lp, log, 3);
-                    placedBlocks.add(lp.immutable());
+        // Record original block states across structure volume for clean rollback
+        for (int x = 0; x < sizeX; x++) {
+            for (int y = 0; y < sizeY; y++) {
+                for (int z = 0; z < sizeZ; z++) {
+                    BlockPos p = origin.offset(x, y, z);
+                    snapshot.recordOriginalState(p, level.getBlockState(p));
                 }
             }
         }
 
-        // Cross-bracing with fences at intermediate heights
-        for (int y : new int[]{baseY + 3, baseY + 7, baseY + 11}) {
-            for (int dx : dOffsets) {
-                BlockPos bp = new BlockPos(anchor.getX() + dx, y, anchor.getZ());
-                snapshot.setBlock(level, bp, fence, 3);
-                placedBlocks.add(bp.immutable());
-            }
-            for (int dz : dOffsets) {
-                BlockPos bp = new BlockPos(anchor.getX(), y, anchor.getZ() + dz);
-                snapshot.setBlock(level, bp, fence, 3);
-                placedBlocks.add(bp.immutable());
-            }
+        // Place template
+        StructurePlaceSettings settings = new StructurePlaceSettings()
+                .setRotation(Rotation.NONE)
+                .setMirror(Mirror.NONE)
+                .setIgnoreEntities(false);
+
+        boolean placed = template.placeInWorld(level, origin, origin, settings, level.getRandom(), Block.UPDATE_ALL);
+        if (!placed) {
+            Warfront.LOGGER.error("[Warfront] Failed to place broadcast tower template at {}", origin);
+            return new WarHornTowerResult(structureBlocks, fusePositions, hornBellPositions);
         }
 
-        // 2. Central access ladder up the north pillar
-        for (int y = baseY + 1; y <= summitY; y++) {
-            BlockPos ladderPos = new BlockPos(anchor.getX(), y, anchor.getZ() - 1);
-            BlockState ladderState = Blocks.LADDER.defaultBlockState().setValue(LadderBlock.FACING, Direction.SOUTH);
-            snapshot.setBlock(level, ladderPos, ladderState, 3);
-            placedBlocks.add(ladderPos.immutable());
-        }
-
-        // 3. Summit Crow's Nest Platform (5x5) at summitY
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                BlockPos p = new BlockPos(anchor.getX() + dx, summitY, anchor.getZ() + dz);
-
-                // Platform floor
-                snapshot.setBlock(level, p, planks, 3);
-                placedBlocks.add(p.immutable());
-
-                // Clear headroom
-                for (int dy = 1; dy <= 4; dy++) {
-                    BlockPos ap = p.above(dy);
-                    if (!level.getBlockState(ap).isAir()) {
-                        snapshot.setBlock(level, ap, Blocks.AIR.defaultBlockState(), 3);
+        // Scan placed volume for all placed blocks, fuses, and acoustic bells
+        for (int x = 0; x < sizeX; x++) {
+            for (int y = 0; y < sizeY; y++) {
+                for (int z = 0; z < sizeZ; z++) {
+                    BlockPos p = origin.offset(x, y, z);
+                    BlockState state = level.getBlockState(p);
+                    if (!state.isAir()) {
+                        structureBlocks.add(p.immutable());
+                        if (state.is(WarfrontBlocks.SIGNAL_FUSE_RELAY.get())) {
+                            fusePositions.add(p.immutable());
+                        } else if (state.is(WarfrontBlocks.ACOUSTIC_HORN_BELL.get())) {
+                            hornBellPositions.add(p.immutable());
+                        }
                     }
                 }
-
-                // Outer perimeter railing
-                if (Math.abs(dx) == 2 || Math.abs(dz) == 2) {
-                    BlockPos railPos = p.above();
-                    snapshot.setBlock(level, railPos, fence, 3);
-                    placedBlocks.add(railPos.immutable());
-                }
             }
         }
 
-        // 4. Summit Targets
-        // Signal Fuse Relay (Volatile Sabotage Target)
-        BlockPos fusePos = new BlockPos(anchor.getX() - 1, summitY + 1, anchor.getZ());
-        snapshot.setBlock(level, fusePos, fuseBlock, 3);
-        placedBlocks.add(fusePos.immutable());
+        Warfront.LOGGER.info("[Warfront] Placed Warhorn Tower (size {}x{}x{}) at {}. Located {} fuses, {} horn bells.",
+                sizeX, sizeY, sizeZ, origin, fusePositions.size(), hornBellPositions.size());
 
-        // Acoustic Horn Bell (Salvage Prize)
-        BlockPos bellPos = new BlockPos(anchor.getX() + 1, summitY + 1, anchor.getZ());
-        snapshot.setBlock(level, bellPos, bellBlock, 3);
-        placedBlocks.add(bellPos.immutable());
-
-        // Summit Lantern
-        snapshot.setBlock(level, bellPos.above(), Blocks.LANTERN.defaultBlockState(), 3);
-
-        return new WarHornTowerResult(placedBlocks, fusePos, bellPos);
+        return new WarHornTowerResult(structureBlocks, fusePositions, hornBellPositions);
     }
 }

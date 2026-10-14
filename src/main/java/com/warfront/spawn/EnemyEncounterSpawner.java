@@ -338,7 +338,7 @@ public final class EnemyEncounterSpawner {
         }
 
         EnemyResistanceTier tier = EnemyResistanceTier.fromResistance(resistance);
-        int squadSize = Math.clamp(determineEncounterSize(tier, level.getRandom()), 4, 14);
+        int squadSize = Math.clamp(determineEncounterSize(tier, level.getRandom()), 3, 16);
 
         List<Object> rolePool = buildPillagerPool(tier);
         if (rolePool.isEmpty()) {

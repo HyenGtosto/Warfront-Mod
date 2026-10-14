@@ -41,6 +41,9 @@ public final class MissionBlockEventHandler {
         if (ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
             ActiveCampaignMissionManager.onBlockBroken(level, rx, rz, sx, sz, pos, state, player);
         }
+
+        // Post-war salvage tracking (Scenario 3)
+        com.warfront.mission.site.PendingSalvageManager.onBlockBroken(level, pos, player);
     }
 
     public static void onExplosionDetonate(net.neoforged.neoforge.event.level.ExplosionEvent.Detonate event) {
@@ -62,6 +65,8 @@ public final class MissionBlockEventHandler {
                 BlockState state = level.getBlockState(pos);
                 ActiveCampaignMissionManager.onBlockBroken(level, rx, rz, sx, sz, pos, state, null);
             }
+
+            com.warfront.mission.site.PendingSalvageManager.onBlockBroken(level, pos, null);
         }
     }
 }

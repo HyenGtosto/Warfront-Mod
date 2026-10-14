@@ -96,6 +96,15 @@ public final class MissionEntityTracker {
     }
 
     /**
+     * Unregisters a tracked entity UUID from tracking.
+     */
+    public static void unregisterMissionMob(UUID entityUuid) {
+        if (entityUuid != null) {
+            TRACKED_MISSION_MOBS.remove(entityUuid);
+        }
+    }
+
+    /**
      * Registers a tracked entity UUID even if its entity object is currently unloaded.
      */
     public static void registerMissionEntityUuid(
@@ -204,9 +213,17 @@ public final class MissionEntityTracker {
                         continue;
                     }
 
+                    // Objective/target mobs marked with preventActiveDespawn stay alive at post until mission ends
+                    if (entity.getPersistentData().getBoolean("preventActiveDespawn")) {
+                        if (entity instanceof Mob mob) {
+                            mob.setNoAi(false);
+                        }
+                        continue;
+                    }
+
                     double minDistSq = getMinDistanceSqToPlayers(entity, players, level);
                     if (minDistSq > ACTIVE_MISSION_DESPAWN_RADIUS_SQ) {
-                        // Despawn distant active mission mob so new wave can spawn closer to combat
+                        // Despawn distant generic active mission mob so new wave can spawn closer to combat
                         entity.discard();
                         TRACKED_MISSION_MOBS.remove(item.entityUuid());
                     } else if (entity instanceof Mob mob) {

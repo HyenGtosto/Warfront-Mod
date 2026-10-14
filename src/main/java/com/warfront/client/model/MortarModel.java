@@ -25,9 +25,6 @@ public class MortarModel extends DefaultedBlockGeoModel<MortarBlockEntity> {
 
         getBone("Cannon").ifPresent(cannon -> {
             cannon.setRotX((float) Math.toRadians(pitch));
-            float recoil = animatable.getRecoilOffset(animationState.getPartialTick());
-            // Recoil kick along Z (barrel extends to negative Z, so positive Z kicks back)
-            cannon.setPosZ(recoil);
         });
     }
 }

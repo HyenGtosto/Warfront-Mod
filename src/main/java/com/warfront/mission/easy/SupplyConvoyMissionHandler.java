@@ -268,12 +268,15 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
     private void setupMob(Mob mob, UUID instanceId, int rx, int rz, int sx, int sz, ActiveCampaignMissionManager.ActiveSubRegionProgress progress) {
         mob.addTag("warfront_mission");
         mob.getPersistentData().putBoolean("isMissionMob", true);
+        mob.getPersistentData().putBoolean("preventActiveDespawn", true);
         mob.getPersistentData().putUUID("missionInstanceId", instanceId);
         mob.getPersistentData().putInt("originRegionX", rx);
         mob.getPersistentData().putInt("originRegionZ", rz);
         mob.getPersistentData().putInt("originSubX", sx);
         mob.getPersistentData().putInt("originSubZ", sz);
         mob.getPersistentData().putInt("faction", progress.targetFaction().id());
+
+        mob.setPersistenceRequired();
 
         MissionEntityTracker.registerMissionMob(mob, instanceId, rx, rz, sx, sz, progress.targetFaction());
         progress.trackedEntityUuids().add(mob.getUUID());
@@ -351,7 +354,13 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        // Tracked convoy wagons, horses, and escorts are automatically handled
-        // by MissionEntityTracker (staggered terminal despawn with POOF particles)
+        for (UUID uuid : progress.trackedEntityUuids()) {
+            Entity ent = level.getEntity(uuid);
+            if (ent != null && ent.isAlive()) {
+                ent.discard();
+            }
+            MissionEntityTracker.unregisterMissionMob(uuid);
+        }
+        progress.trackedEntityUuids().clear();
     }
 }

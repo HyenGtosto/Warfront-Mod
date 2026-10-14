@@ -114,7 +114,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 32.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.30D)
+                .add(Attributes.MOVEMENT_SPEED, 0.23D)
                 .add(Attributes.ATTACK_DAMAGE, 8.0D)
                 .add(Attributes.ARMOR, 6.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.20D)
@@ -166,7 +166,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
     }
 
     public boolean isAttacking() {
-        return getActionState() == ACTION_ATTACK || this.actionTicks > 0 || this.attackImpactTicks > 0;
+        return getActionState() == ACTION_ATTACK || this.attackImpactTicks > 0;
     }
 
     public void raiseShield(int durationTicks) {
@@ -202,8 +202,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         super.registerGoals();
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new WarriorShieldDefenseGoal(this));
-        this.goalSelector.addGoal(2, new Raider.HoldGroundAttackGoal(this, 10.0F));
-        this.goalSelector.addGoal(3, new WarriorMeleeAttackGoal(this, 1.25D));
+        this.goalSelector.addGoal(2, new WarriorMeleeAttackGoal(this, 1.10D));
         this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));
@@ -266,7 +265,6 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
             LivingEntity target = this.getTarget();
             boolean hasTarget = target != null && target.isAlive();
             this.setAggressive(hasTarget);
-            this.setSprinting(hasTarget && (this.getDeltaMovement().horizontalDistanceSqr() > 0.005D));
 
             if (this.shieldDisableTicks > 0) {
                 this.shieldDisableTicks--;
@@ -479,6 +477,21 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         return true;
     }
 
+    /**
+     * Executes an active melee strike from behind the raised shield.
+     * Keeps the shield raised so axe-disabling counterplay remains possible.
+     * Inflicts 2/3 of original attack damage rounded up.
+     */
+    public void performShieldAttack(LivingEntity target) {
+        if (target == null || !target.isAlive() || this.level().isClientSide) return;
+        double baseDamage = this.getAttributeValue(Attributes.ATTACK_DAMAGE);
+        float shieldDamage = (float) Math.ceil(baseDamage * (2.0D / 3.0D));
+        DamageSource source = this.damageSources().mobAttack(this);
+        if (target.hurt(source, shieldDamage)) {
+            this.playSound(SoundEvents.PLAYER_ATTACK_STRONG, 1.0F, 0.9F);
+        }
+    }
+
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
         controllers.add(new AnimationController<>(this, "movement", 4, this::movementPredicate));
@@ -678,6 +691,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
      */
     static class WarriorShieldDefenseGoal extends Goal {
         private final PillagerWarriorEntity warrior;
+        private int shieldAttackCooldown = 0;
 
         public WarriorShieldDefenseGoal(PillagerWarriorEntity warrior) {
             this.warrior = warrior;
@@ -700,6 +714,16 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
             if (target != null && target.isAlive()) {
                 this.warrior.getLookControl().setLookAt(target, 35.0F, 35.0F);
                 this.warrior.getNavigation().moveTo(target, 0.85D);
+
+                if (this.shieldAttackCooldown > 0) {
+                    this.shieldAttackCooldown--;
+                } else {
+                    double reach = this.warrior.getBbWidth() * 2.0F + target.getBbWidth() + 0.8D;
+                    if (this.warrior.distanceToSqr(target) <= reach * reach && this.warrior.getSensing().hasLineOfSight(target)) {
+                        this.warrior.performShieldAttack(target);
+                        this.shieldAttackCooldown = 25; // ~1.25s cadence while guarding
+                    }
+                }
             } else {
                 Player closest = this.warrior.level().getNearestPlayer(this.warrior, 20.0D);
                 if (closest != null) {

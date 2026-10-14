@@ -1,16 +1,24 @@
 package com.warfront.mission.base;
 
+import com.warfront.ai.goal.MissionPostGuardGoal;
+import com.warfront.block.SalvageMachineryBlock;
 import com.warfront.entity.ModEntities;
+import com.warfront.entity.PillagerCommanderEntity;
+import com.warfront.entity.PillagerMarksmanEntity;
+import com.warfront.entity.PillagerWarriorEntity;
+import com.warfront.entity.ai.goal.OutpostMarksmanPatrolGoal;
+import com.warfront.loot.OutpostLootManager;
 import com.warfront.mission.ActiveCampaignMissionManager;
 import com.warfront.mission.MissionObjectiveHandler;
-import com.warfront.mission.site.MissionSiteSnapshotManager;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import com.warfront.region.base.BasePlacementManager;
+import com.warfront.region.base.PersistentBaseProtectionManager;
 import com.warfront.region.generator.ProceduralRegionGenerator;
 import com.warfront.spawn.MissionEntityTracker;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -24,6 +32,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -84,6 +93,7 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
                 }
 
                 if (progress.currentProgress() >= progress.targetProgress() || progress.trackedBlockPositions().isEmpty()) {
+                    disarmCommandDesks(level, progress.missionSiteAnchor());
                     ActiveCampaignMissionManager.completeMission(level, regionX, regionZ, subX, subZ, progress);
                     return;
                 } else {
@@ -128,12 +138,19 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
         UUID instanceId = progress.missionInstanceId();
 
         // 3. Scan the outpost bounding box and register all structure blocks
-        // Outpost typical size is 27x23x27 centered on anchor.
-        // CAUTION: Foundation is strictly excluded from the decay/destruction goal (y >= anchor.getY())
+        // Outpost size is 29x25x29 centered on anchor.
+        // CAUTION: Floor/foundation beneath ground level (y < anchor.getY()) is strictly excluded from demolition goal
         progress.trackedBlockPositions().clear();
 
         RegionData.RegionState regState = (state != null) ? state : new RegionData.RegionState(
                 progress.targetFaction(), 100.0F, 100.0F, BaseType.OUTPOST, 0L, anchor, true);
+
+        // Instantly repair any missing/damaged structure blocks before combat
+        com.warfront.region.base.PersistentBaseProtectionManager.instantRepairBase(level, regionX, regionZ, anchor, regState);
+
+        // Populate curated mission loot inside outpost chests
+        OutpostLootManager.populateOutpostChests(level, anchor);
+
         java.util.Map<BlockPos, BlockState> blueprint = com.warfront.region.base.PersistentBaseProtectionManager
                 .getOrComputePristineBlocks(level, regionX, regionZ, regState);
 
@@ -146,7 +163,7 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
         } else {
             int halfX = 14;
             int halfZ = 14;
-            int minY = anchor.getY(); // Strictly at or above ground level; foundation columns are excluded
+            int minY = anchor.getY(); // Strictly at or above ground level; foundation/floor columns beneath are excluded
             int maxY = Math.min(level.getMaxBuildHeight(), anchor.getY() + 25);
 
             for (int x = anchor.getX() - halfX; x <= anchor.getX() + halfX; x++) {
@@ -188,8 +205,9 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
         progress.setCurrentProgress(0);
         progress.setPhaseIndex(1);
 
-        // 4. Spawn outpost garrison defenders
-        spawnGarrison(level, anchor, instanceId, regionX, regionZ, subX, subZ, progress);
+        // 4. Prepare outpost garrison defenders (missing-only instant respawn, living mobs healed & enlisted)
+        com.warfront.region.base.garrison.BaseGarrisonManager.prepareAndEnlistMissionGarrison(
+                level, regionX, regionZ, subX, subZ, anchor, instanceId, progress);
 
         if (regions != null) {
             regions.setDirty();
@@ -197,71 +215,15 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
         ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
     }
 
-    private void spawnGarrison(
-            ServerLevel level,
-            BlockPos anchor,
-            UUID instanceId,
-            int rx, int rz, int sx, int sz,
-            ActiveCampaignMissionManager.ActiveSubRegionProgress progress
-    ) {
-        Faction faction = progress.targetFaction();
-
-        if (faction == Faction.ZOMBIE_HORDE) {
-            // Zombie garrison: 4 Zombies around perimeter
-            int[][] offsets = {{-5, -5}, {5, -5}, {-5, 5}, {5, 5}};
-            for (int[] off : offsets) {
-                Mob zombie = EntityType.ZOMBIE.create(level);
-                if (zombie != null) {
-                    int gx = anchor.getX() + off[0];
-                    int gz = anchor.getZ() + off[1];
-                    int gy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, gx, gz);
-                    zombie.moveTo(gx + 0.5D, gy, gz + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
-                    net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(zombie, level, level.getCurrentDifficultyAt(new BlockPos(gx, gy, gz)), MobSpawnType.EVENT, null);
-                    if (level.addFreshEntity(zombie)) {
-                        setupMob(zombie, instanceId, rx, rz, sx, sz, progress);
-                    }
-                }
-            }
-        } else {
-            // Pillager garrison: 1 Elevated Marksman + 4 Ground Perimeter Warriors
-            Mob sniper = ModEntities.PILLAGER_MARKSMAN.get().create(level);
-            if (sniper != null) {
-                sniper.moveTo(anchor.getX() + 0.5D, anchor.getY() + 14.0D, anchor.getZ() + 0.5D, 0.0F, 0.0F);
-                net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(sniper, level, level.getCurrentDifficultyAt(anchor), MobSpawnType.EVENT, null);
-                if (level.addFreshEntity(sniper)) {
-                    setupMob(sniper, instanceId, rx, rz, sx, sz, progress);
-                }
-            }
-
-            int[][] guardOffsets = {{-6, -6}, {6, -6}, {-6, 6}, {6, 6}};
-            for (int[] off : guardOffsets) {
-                Mob guard = ModEntities.PILLAGER_WARRIOR.get().create(level);
-                if (guard != null) {
-                    int gx = anchor.getX() + off[0];
-                    int gz = anchor.getZ() + off[1];
-                    int gy = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, gx, gz);
-                    guard.moveTo(gx + 0.5D, gy, gz + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
-                    net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(guard, level, level.getCurrentDifficultyAt(new BlockPos(gx, gy, gz)), MobSpawnType.EVENT, null);
-                    if (level.addFreshEntity(guard)) {
-                        setupMob(guard, instanceId, rx, rz, sx, sz, progress);
-                    }
-                }
+    private void disarmCommandDesks(ServerLevel level, BlockPos anchor) {
+        if (level == null || anchor == null) return;
+        BlockPos origin = OutpostLootManager.getStructureOrigin(anchor);
+        for (int dx = 12; dx <= 13; dx++) {
+            for (int dz = 13; dz <= 15; dz++) {
+                BlockPos deskPos = origin.offset(dx, 5, dz);
+                SalvageMachineryBlock.disarm(level, deskPos);
             }
         }
-    }
-
-    private void setupMob(Mob mob, UUID instanceId, int rx, int rz, int sx, int sz, ActiveCampaignMissionManager.ActiveSubRegionProgress progress) {
-        mob.addTag("warfront_mission");
-        mob.getPersistentData().putBoolean("isMissionMob", true);
-        mob.getPersistentData().putUUID("missionInstanceId", instanceId);
-        mob.getPersistentData().putInt("originRegionX", rx);
-        mob.getPersistentData().putInt("originRegionZ", rz);
-        mob.getPersistentData().putInt("originSubX", sx);
-        mob.getPersistentData().putInt("originSubZ", sz);
-        mob.getPersistentData().putInt("faction", progress.targetFaction().id());
-
-        MissionEntityTracker.registerMissionMob(mob, instanceId, rx, rz, sx, sz, progress.targetFaction());
-        progress.trackedEntityUuids().add(mob.getUUID());
     }
 
     @Override
@@ -308,6 +270,7 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
             }
 
             if (progress.currentProgress() >= progress.targetProgress() || progress.trackedBlockPositions().isEmpty()) {
+                disarmCommandDesks(level, progress.missionSiteAnchor());
                 ActiveCampaignMissionManager.completeMission(level, regionX, regionZ, subX, subZ, progress);
             } else {
                 ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
@@ -324,9 +287,18 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        // Persistent base structures are NOT demolished on mission cleanup!
-        // The remaining damaged fortress stays in the world and repairs itself over time when out of war.
         progress.trackedBlockPositions().clear();
+
+        BlockPos anchor = progress.missionSiteAnchor();
+        if (anchor != null) {
+            if (!progress.isCompleted()) {
+                // Mission ended without win -> clear loot from all chests with zero drops
+                OutpostLootManager.clearOutpostChests(level, anchor);
+            } else {
+                // Mission was won -> ensure command desks are disarmed
+                disarmCommandDesks(level, anchor);
+            }
+        }
 
         // Remaining defenders are automatically handled by MissionEntityTracker with gradual POOF dispersal
     }

@@ -140,7 +140,7 @@ public class SubregionPatrolGoal extends Goal {
 
         if (dist <= 24.0D) {
             int targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, destX, destZ);
-            mob.getNavigation().moveTo(destX + 0.5D, targetY, destZ + 0.5D, 1.05D);
+            mob.getNavigation().moveTo(destX + 0.5D, targetY, destZ + 0.5D, 0.80D);
         } else {
             // Incremental step toward long-distance destination
             double ux = dx / dist;
@@ -148,7 +148,7 @@ public class SubregionPatrolGoal extends Goal {
             int stepX = (int) Math.round(mob.getX() + ux * 20.0D);
             int stepZ = (int) Math.round(mob.getZ() + uz * 20.0D);
             int stepY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, stepX, stepZ);
-            mob.getNavigation().moveTo(stepX + 0.5D, stepY, stepZ + 0.5D, 1.05D);
+            mob.getNavigation().moveTo(stepX + 0.5D, stepY, stepZ + 0.5D, 0.80D);
         }
     }
 }

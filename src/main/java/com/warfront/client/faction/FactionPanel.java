@@ -381,10 +381,11 @@ public class FactionPanel {
 
     private void onDisbandFaction() {
         confirmationType = ConfirmationType.DISBAND;
+        updateWidgetVisibility();
     }
 
     public void updateWidgetVisibility() {
-        if (!panelVisible) {
+        if (!panelVisible || confirmationType != ConfirmationType.NONE) {
             for (Button b : allButtons) b.visible = false;
             for (EditBox e : allEditBoxes) e.setVisible(false);
             return;
@@ -885,7 +886,6 @@ public class FactionPanel {
                 if (confirmationType == ConfirmationType.DISBAND) {
                     PacketDistributor.sendToServer(new DisbandFactionPayload());
                     subview = Subview.MAIN;
-                    updateWidgetVisibility();
                 } else if (confirmationType == ConfirmationType.KICK) {
                     if (confirmTargetUuid != null) {
                         PacketDistributor.sendToServer(new KickPlayerPayload(confirmTargetUuid));
@@ -894,11 +894,13 @@ public class FactionPanel {
                 confirmationType = ConfirmationType.NONE;
                 confirmTargetUuid = null;
                 confirmTargetName = "";
+                updateWidgetVisibility();
                 return true;
             } else if (mouseX >= btnCancelX && mouseX <= btnCancelX + btnW && mouseY >= btnY && mouseY <= btnY + btnH) {
                 confirmationType = ConfirmationType.NONE;
                 confirmTargetUuid = null;
                 confirmTargetName = "";
+                updateWidgetVisibility();
                 return true;
             } else {
                 // Clicking outside the modal dismisses it
@@ -906,6 +908,7 @@ public class FactionPanel {
                     confirmationType = ConfirmationType.NONE;
                     confirmTargetUuid = null;
                     confirmTargetName = "";
+                    updateWidgetVisibility();
                 }
                 return true;
             }
@@ -918,6 +921,7 @@ public class FactionPanel {
                     confirmTargetUuid = activeMemberPopup.targetUuid;
                     confirmTargetName = activeMemberPopup.targetName;
                     confirmationType = ConfirmationType.KICK;
+                    updateWidgetVisibility();
                 } else {
                     PacketDistributor.sendToServer(new LeaveFactionPayload());
                 }
@@ -1034,6 +1038,7 @@ public class FactionPanel {
             confirmationType = ConfirmationType.NONE;
             confirmTargetUuid = null;
             confirmTargetName = "";
+            updateWidgetVisibility();
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {

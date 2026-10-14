@@ -123,14 +123,27 @@ public final class MissionSiteSnapshotManager {
      * queuing it for gradual top-to-bottom removal with POOF particles.
      */
     public static void restoreAndRemove(ServerLevel level, UUID missionInstanceId) {
-        if (missionInstanceId == null) return;
+        restoreAndRemove(level, missionInstanceId, null, null);
+    }
+
+    /**
+     * Restores and unregisters the snapshot for a completed or cancelled mission instance.
+     * If the snapshot in memory was lost (e.g. after a server restart), falls back to gradual demolition
+     * using the saved block positions.
+     */
+    public static void restoreAndRemove(ServerLevel level, UUID missionInstanceId, Collection<BlockPos> fallbackPositions, BlockPos centerPos) {
+        if (missionInstanceId == null || level == null) return;
         MissionSiteSnapshot snapshot = ACTIVE_SNAPSHOTS.remove(missionInstanceId);
-        if (snapshot != null && level != null) {
+        if (snapshot != null) {
             List<MissionSiteSnapshot.BlockRestoreEntry> entries = snapshot.getSortedRestoreEntries();
             if (!entries.isEmpty()) {
-                BlockPos centerPos = entries.get(0).pos();
-                ACTIVE_TASKS.add(new ActiveDemolitionTask(level, entries, centerPos));
+                BlockPos center = centerPos != null ? centerPos : entries.get(0).pos();
+                ACTIVE_TASKS.add(new ActiveDemolitionTask(level, entries, center));
+                return;
             }
+        }
+        if (fallbackPositions != null && !fallbackPositions.isEmpty()) {
+            queueGradualDemolition(level, fallbackPositions, centerPos);
         }
     }
 

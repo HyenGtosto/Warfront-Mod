@@ -57,7 +57,7 @@ public class PillagerArmoredEliteEntity extends AbstractIllager implements GeoEn
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 40.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.29D)
+                .add(Attributes.MOVEMENT_SPEED, 0.18D)
                 .add(Attributes.ATTACK_DAMAGE, 9.0D)
                 .add(Attributes.ARMOR, 8.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.35D)
@@ -68,8 +68,7 @@ public class PillagerArmoredEliteEntity extends AbstractIllager implements GeoEn
     protected void registerGoals() {
         super.registerGoals();
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(2, new Raider.HoldGroundAttackGoal(this, 10.0F));
-        this.goalSelector.addGoal(3, new MeleeAttackGoal(this, 1.25D, false));
+        this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.0D, false));
         this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));
@@ -91,7 +90,6 @@ public class PillagerArmoredEliteEntity extends AbstractIllager implements GeoEn
             LivingEntity target = this.getTarget();
             boolean hasTarget = target != null && target.isAlive();
             this.setAggressive(hasTarget);
-            this.setSprinting(hasTarget && (this.getDeltaMovement().horizontalDistanceSqr() > 0.005D));
         }
     }
 

@@ -39,14 +39,24 @@ public class TemplatePremadeStructure implements PremadeStructure {
     private final int fallbackSizeX;
     private final int fallbackSizeZ;
     private final int fallbackHeight;
+    private final int yOffset;
     private static final int MAX_FOUNDATION_DEPTH = 14;
     private static final int SET_BLOCK_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
 
     public TemplatePremadeStructure(ResourceLocation templateId, int sizeX, int sizeZ, int height) {
+        this(templateId, sizeX, sizeZ, height, 0);
+    }
+
+    public TemplatePremadeStructure(ResourceLocation templateId, int sizeX, int sizeZ, int height, int yOffset) {
         this.templateId = templateId;
         this.fallbackSizeX = sizeX;
         this.fallbackSizeZ = sizeZ;
         this.fallbackHeight = height;
+        this.yOffset = yOffset;
+    }
+
+    public int getYOffset() {
+        return yOffset;
     }
 
     @Override
@@ -89,7 +99,7 @@ public class TemplatePremadeStructure implements PremadeStructure {
         Vec3i size = template.getSize();
         int halfX = size.getX() / 2;
         int halfZ = size.getZ() / 2;
-        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY(), anchor.getZ() - halfZ);
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() + yOffset, anchor.getZ() - halfZ);
 
         CompoundTag tag = template.save(new CompoundTag());
         ListTag paletteTag = tag.contains("palette", Tag.TAG_LIST)
@@ -123,15 +133,15 @@ public class TemplatePremadeStructure implements PremadeStructure {
             if (stateIdx >= 0 && stateIdx < palette.size()) {
                 BlockState state = palette.get(stateIdx);
                 BlockPos worldPos = origin.offset(lx, ly, lz);
-                // Strictly exclude foundations beneath ground level and air blocks
-                if (worldPos.getY() >= anchor.getY() && !state.isAir()) {
+                // Include all structure blocks at or above origin level (including floor), excluding air
+                if (worldPos.getY() >= origin.getY() && !state.isAir()) {
                     result.put(worldPos.immutable(), state);
                 }
             }
         }
 
-        Warfront.LOGGER.info("[Warfront] Resolved {} pristine blocks for template '{}' centered at anchor {}.",
-                result.size(), templateId, anchor);
+        Warfront.LOGGER.info("[Warfront] Resolved {} pristine blocks for template '{}' centered at anchor {} (yOffset={}).",
+                result.size(), templateId, anchor, yOffset);
         return result;
     }
 
@@ -158,10 +168,10 @@ public class TemplatePremadeStructure implements PremadeStructure {
         int sizeY = size.getY();
         int sizeZ = size.getZ();
 
-        // Calculate origin corner: anchor is centered at ground level
+        // Calculate origin corner: anchor is centered at ground level with configured yOffset
         int halfX = sizeX / 2;
         int halfZ = sizeZ / 2;
-        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY(), anchor.getZ() - halfZ);
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() + yOffset, anchor.getZ() - halfZ);
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         BlockState air = Blocks.AIR.defaultBlockState();
 

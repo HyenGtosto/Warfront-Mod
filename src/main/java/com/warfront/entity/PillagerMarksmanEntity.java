@@ -80,7 +80,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 26.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.28D)
+                .add(Attributes.MOVEMENT_SPEED, 0.20D)
                 .add(Attributes.ATTACK_DAMAGE, 4.0D)
                 .add(Attributes.ARMOR, 4.0D)
                 .add(Attributes.FOLLOW_RANGE, 40.0D);
@@ -104,7 +104,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     protected void registerGoals() {
         super.registerGoals();
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(2, new MarksmanAttackGoal(this, 1.0D, 18.0F));
+        this.goalSelector.addGoal(2, new MarksmanAttackGoal(this, 1.0D, 36.0F));
         this.goalSelector.addGoal(3, new Raider.HoldGroundAttackGoal(this, 10.0F));
         this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
@@ -462,10 +462,16 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                     other -> other != this.mob && other.isAlive()
             );
 
+            boolean isGarrison = this.mob.getPersistentData().getBoolean("warfront_garrison");
+
             if (nearbyMarksmen.isEmpty()) {
                 // Solo marksman behavior
                 if (distSq > (double) (this.attackRadius * this.attackRadius) || !canSee) {
-                    this.mob.getNavigation().moveTo(target, this.speedModifier);
+                    if (!isGarrison) {
+                        this.mob.getNavigation().moveTo(target, this.speedModifier);
+                    } else {
+                        this.mob.getNavigation().stop();
+                    }
                 } else {
                     this.mob.getNavigation().stop();
                 }
@@ -511,10 +517,12 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
 
             // Longitudinal combat positioning: align along optimal firing distance (~13.5 blocks)
             double forwardMove = 0.0D;
-            if (horizontalDist > 16.0D || !canSee) {
-                forwardMove = Math.min(horizontalDist - 13.5D, 3.5D);
-            } else if (horizontalDist < 9.0D) {
-                forwardMove = -(9.0D - horizontalDist);
+            if (!isGarrison) {
+                if (horizontalDist > 16.0D || !canSee) {
+                    forwardMove = Math.min(horizontalDist - 13.5D, 3.5D);
+                } else if (horizontalDist < 9.0D) {
+                    forwardMove = -(9.0D - horizontalDist);
+                }
             }
 
             // Clamp lateral displacement per step

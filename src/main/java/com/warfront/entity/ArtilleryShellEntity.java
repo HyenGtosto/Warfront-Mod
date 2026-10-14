@@ -7,15 +7,21 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
+import net.minecraft.world.level.Explosion;
+import net.minecraft.world.level.ExplosionDamageCalculator;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import java.util.List;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.animation.AnimatableManager;
@@ -106,14 +112,62 @@ public class ArtilleryShellEntity extends Projectile implements GeoEntity {
     @Override
     protected void onHitEntity(EntityHitResult hitResult) {
         super.onHitEntity(hitResult);
+        if (!level().isClientSide && hitResult.getEntity() instanceof LivingEntity living) {
+            // Direct kinetic impact: devastating direct hit bonus
+            living.hurt(level().damageSources().thrown(this, getOwner()), 12.0F);
+        }
     }
 
     private void explode() {
         if (level() instanceof ServerLevel serverLevel) {
-            // High explosive detonation
-            serverLevel.explode(this, getX(), getY(), getZ(), 4.5F, Level.ExplosionInteraction.MOB);
+            // 1. Crater: Controlled 1.6F power destroys 5-6 dirt blocks (preventing moon craters)
+            // Entity damage is disabled for this block-pass explosion so it doesn't interfere with our calibrated radius/damage.
+            ExplosionDamageCalculator blockOnlyCalc = new ExplosionDamageCalculator() {
+                @Override
+                public boolean shouldDamageEntity(Explosion explosion, Entity entity) {
+                    return false;
+                }
+            };
+            serverLevel.explode(this, null, blockOnlyCalc, getX(), getY(), getZ(), 1.6F, false, Level.ExplosionInteraction.BLOCK);
             serverLevel.sendParticles(ParticleTypes.EXPLOSION_EMITTER, getX(), getY(), getZ(), 1, 0.0D, 0.0D, 0.0D, 0.0D);
-            serverLevel.playSound(null, blockPosition(), SoundEvents.GENERIC_EXPLODE.value(), SoundSource.BLOCKS, 6.0F, 0.7F);
+            serverLevel.playSound(null, blockPosition(), SoundEvents.GENERIC_EXPLODE.value(), SoundSource.BLOCKS, 5.0F, 0.75F);
+
+            // 2. Wide Lethality Radius: 5.0 blocks
+            // Direct hit (dist <= 1.0) inflicts 25.0 raw damage:
+            // Calculated against Netherite Armor (20 armor, 12 toughness):
+            // defensePoints = clamp(20 - 25/5, 4, 20) = 15
+            // damageMultiplier = 1 - 15/25 = 0.40
+            // finalDamage = 25.0 * 0.40 = 10.0 exact damage (5 hearts)!
+            // Non-direct hit falls off smoothly so players aren't one-shot unless direct hit.
+            // Blast Protection enchantment applies via damageSources().explosion().
+            final double maxDamageRadius = 5.0D;
+            AABB damageArea = this.getBoundingBox().inflate(maxDamageRadius);
+            List<LivingEntity> targets = serverLevel.getEntitiesOfClass(LivingEntity.class, damageArea);
+            Vec3 explosionCenter = this.position();
+
+            for (LivingEntity target : targets) {
+                double dist = target.position().distanceTo(explosionCenter);
+                if (dist <= maxDamageRadius) {
+                    float exposure = Explosion.getSeenPercent(explosionCenter, target);
+                    if (exposure > 0.0F) {
+                        double distRatio = Math.max(0.0D, dist - 1.0D) / (maxDamageRadius - 1.0D);
+                        // At direct hit (dist <= 1.0), rawDamage = 25.0 (10 damage to Netherite)
+                        // At outer edge (dist = 5.0), rawDamage = 10.0 (4 damage to Netherite)
+                        double falloff = 1.0D - distRatio * 0.60D;
+                        float rawDamage = (float) (25.0D * falloff * exposure);
+
+                        DamageSource src = serverLevel.damageSources().explosion(this, getOwner());
+                        target.hurt(src, rawDamage);
+
+                        Vec3 diff = target.position().subtract(explosionCenter);
+                        double len = diff.length();
+                        if (len > 0.001D) {
+                            Vec3 knockback = diff.scale((1.0D - (dist / maxDamageRadius)) * 0.5D * exposure / len);
+                            target.push(knockback.x, 0.20D, knockback.z);
+                        }
+                    }
+                }
+            }
         }
     }
 

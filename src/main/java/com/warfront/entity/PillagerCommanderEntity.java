@@ -89,7 +89,7 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 36.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.30D)
+                .add(Attributes.MOVEMENT_SPEED, 0.21D)
                 .add(Attributes.ATTACK_DAMAGE, 8.5D)
                 .add(Attributes.ARMOR, 7.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.25D)
@@ -125,7 +125,7 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
         super.registerGoals();
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new CommanderTacticsGoal(this));
-        this.goalSelector.addGoal(2, new CommanderMeleeGoal(this, 1.25D));
+        this.goalSelector.addGoal(2, new CommanderMeleeGoal(this, 1.05D));
         this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));

@@ -12,9 +12,9 @@ import com.warfront.region.base.structure.StructureVariantRegistry;
  */
 public class PillagerOutpostGenerator implements BaseBuildingGenerator {
 
-    public static final int DEFAULT_SIZE_X = 27;
-    public static final int DEFAULT_SIZE_Z = 27;
-    public static final int DEFAULT_HEIGHT = 23;
+    public static final int DEFAULT_SIZE_X = 29;
+    public static final int DEFAULT_SIZE_Z = 29;
+    public static final int DEFAULT_HEIGHT = 25;
 
     @Override
     public int getSizeX() {

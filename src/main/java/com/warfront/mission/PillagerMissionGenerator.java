@@ -152,8 +152,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 1, 2,
                 0.02f,
                 List.of("COMMANDER", "ARMORED_ELITE"),
-                "Officer Hunt",
-                "Infiltrate a defended field headquarters and assassinate a high-ranking Pillager Officer."
+                "Commander Hunt",
+                "Infiltrate the command encampment and eliminate the Field Commander."
         );
         HARD_DEFINITIONS.add(officerHunt);
 
@@ -169,8 +169,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 2, 2,
                 0.02f,
                 List.of("MARKSMAN", "ARMORED_ELITE"),
-                "Artillery Battery",
-                "Sabotage heavy field mortar and catapult emplacements shelling the frontline."
+                "Mortar Emplacement",
+                "Destroy the heavy mortar positions shelling the sector."
         );
         HARD_DEFINITIONS.add(artilleryBattery);
 
@@ -186,8 +186,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 1, 1,
                 0.02f,
                 List.of("WARRIOR", "MARKSMAN", "ARMORED_ELITE"),
-                "War Horn Signal Tower",
-                "Scale the fortified signal mast and sabotage the summit fuse before response battalions arrive."
+                "Warhorn Tower",
+                "Scale the broadcast tower and sabotage the summit signal fuse before reinforcements arrive."
         );
         HARD_DEFINITIONS.add(warHornRelay);
 

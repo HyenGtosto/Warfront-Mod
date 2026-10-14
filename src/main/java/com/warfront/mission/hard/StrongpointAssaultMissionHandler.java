@@ -1,5 +1,6 @@
 package com.warfront.mission.hard;
 
+import com.warfront.ai.goal.MissionPostGuardGoal;
 import com.warfront.block.SabotageTargetBlock;
 import com.warfront.block.SalvageMachineryBlock;
 import com.warfront.entity.ModEntities;
@@ -19,6 +20,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -76,7 +78,8 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
         }
 
         // If pillbox has already been constructed, do not build again
-        if (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty()) {
+        if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
+            progress.setTemporaryStructuresBuilt(true);
             return;
         }
 
@@ -95,6 +98,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
 
         progress.trackedBlockPositions().clear();
         progress.trackedBlockPositions().addAll(result.structureBlocks());
+        progress.setTemporaryStructuresBuilt(true);
 
         int totalBlocks = result.structureBlocks().size();
         int targetDestroyed = (int) Math.ceil(totalBlocks * 0.50); // 50% demolition target
@@ -120,6 +124,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
                 net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(guard, level, level.getCurrentDifficultyAt(guard.blockPosition()), MobSpawnType.EVENT, null);
                 if (level.addFreshEntity(guard)) {
                     setupMob(guard, instanceId, regionX, regionZ, subX, subZ, progress);
+                    guard.goalSelector.addGoal(1, new MissionPostGuardGoal(guard, anchor, 22.0D, 1.10D));
                 }
             }
         }
@@ -133,6 +138,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
                 net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(sniper, level, level.getCurrentDifficultyAt(sniper.blockPosition()), MobSpawnType.EVENT, null);
                 if (level.addFreshEntity(sniper)) {
                     setupMob(sniper, instanceId, regionX, regionZ, subX, subZ, progress);
+                    sniper.goalSelector.addGoal(1, new MissionPostGuardGoal(sniper, anchor, 22.0D, 1.10D));
                 }
             }
         }
@@ -146,6 +152,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
                 net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(warrior, level, level.getCurrentDifficultyAt(warrior.blockPosition()), MobSpawnType.EVENT, null);
                 if (level.addFreshEntity(warrior)) {
                     setupMob(warrior, instanceId, regionX, regionZ, subX, subZ, progress);
+                    warrior.goalSelector.addGoal(1, new MissionPostGuardGoal(warrior, anchor, 22.0D, 1.10D));
                 }
             }
         }
@@ -159,12 +166,15 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
     private void setupMob(Mob mob, UUID instanceId, int rx, int rz, int sx, int sz, ActiveCampaignMissionManager.ActiveSubRegionProgress progress) {
         mob.addTag("warfront_mission");
         mob.getPersistentData().putBoolean("isMissionMob", true);
+        mob.getPersistentData().putBoolean("preventActiveDespawn", true);
         mob.getPersistentData().putUUID("missionInstanceId", instanceId);
         mob.getPersistentData().putInt("originRegionX", rx);
         mob.getPersistentData().putInt("originRegionZ", rz);
         mob.getPersistentData().putInt("originSubX", sx);
         mob.getPersistentData().putInt("originSubZ", sz);
         mob.getPersistentData().putInt("faction", progress.targetFaction().id());
+
+        mob.setPersistenceRequired();
 
         MissionEntityTracker.registerMissionMob(mob, instanceId, rx, rz, sx, sz, progress.targetFaction());
         progress.trackedEntityUuids().add(mob.getUUID());
@@ -286,9 +296,18 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
             SalvageMachineryBlock.disarm(level, data.vaultPos);
         }
 
+        for (UUID uuid : progress.trackedEntityUuids()) {
+            Entity ent = level.getEntity(uuid);
+            if (ent != null && ent.isAlive()) {
+                ent.discard();
+            }
+            MissionEntityTracker.unregisterMissionMob(uuid);
+        }
+        progress.trackedEntityUuids().clear();
+
         // If mission failed without completion, restore terrain
         if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId());
+            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
         }
     }
 }

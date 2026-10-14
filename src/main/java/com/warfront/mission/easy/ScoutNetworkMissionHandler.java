@@ -55,7 +55,8 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
         }
 
         // If observation network has already been constructed, do not build again
-        if (!progress.trackedBlockPositions().isEmpty()) {
+        if (progress.temporaryStructuresBuilt() || !progress.trackedBlockPositions().isEmpty()) {
+            progress.setTemporaryStructuresBuilt(true);
             return;
         }
 
@@ -146,6 +147,7 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
         }
 
         if (generatedNests > 0) {
+            progress.setTemporaryStructuresBuilt(true);
             progress.setTargetProgress(generatedNests);
             progress.setCurrentProgress(0);
             if (regions != null) {
@@ -220,6 +222,8 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId());
+        if (!progress.isCompleted()) {
+            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
+        }
     }
 }

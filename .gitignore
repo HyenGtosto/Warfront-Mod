@@ -40,3 +40,8 @@ run/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+.models/
+.docs/
+
+### Agent ###
+AGENTS.md

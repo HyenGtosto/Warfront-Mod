@@ -261,7 +261,7 @@ public class MortarBlockEntity extends BlockEntity implements GeoBlockEntity {
         serverLevel.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, spawnX, spawnY, spawnZ, 20, 0.3D, 0.3D, 0.3D, 0.12D);
         serverLevel.sendParticles(ParticleTypes.FLAME, spawnX, spawnY, spawnZ, 12, 0.2D, 0.2D, 0.2D, 0.15D);
 
-        this.recoilTicks = 10;
+        this.recoilTicks = 15;
         this.reloadCooldown = COOLDOWN_TICKS; // 15 seconds cooldown
 
         triggerAnim("recoil_controller", "recoil");
@@ -336,7 +336,11 @@ public class MortarBlockEntity extends BlockEntity implements GeoBlockEntity {
             float newPitch = tag.getFloat("CurrentPitch");
             this.targetYaw = tag.getFloat("TargetYaw");
             this.targetPitch = tag.getFloat("TargetPitch");
-            this.recoilTicks = tag.getInt("RecoilTicks");
+            int newRecoil = tag.getInt("RecoilTicks");
+            if (newRecoil > 0 && this.recoilTicks <= 0) {
+                triggerAnim("recoil_controller", "recoil");
+            }
+            this.recoilTicks = newRecoil;
 
             if (Math.abs(Mth.degreesDifference(this.currentYaw, newYaw)) > 5.0F) {
                 this.currentYaw = newYaw;
@@ -354,8 +358,12 @@ public class MortarBlockEntity extends BlockEntity implements GeoBlockEntity {
 
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
-        controllers.add(new software.bernie.geckolib.animation.AnimationController<>(this, "recoil_controller", 0, state -> software.bernie.geckolib.animation.PlayState.STOP)
-                .triggerableAnim("recoil", RECOIL_ANIM));
+        controllers.add(new software.bernie.geckolib.animation.AnimationController<>(this, "recoil_controller", 0, state -> {
+            if (this.recoilTicks > 0) {
+                return state.setAndContinue(RECOIL_ANIM);
+            }
+            return software.bernie.geckolib.animation.PlayState.STOP;
+        }).triggerableAnim("recoil", RECOIL_ANIM));
     }
 
     @Override
