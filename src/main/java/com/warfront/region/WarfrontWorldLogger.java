@@ -26,21 +26,12 @@ public class WarfrontWorldLogger {
 
         try {
             File logFile = getLogFile(level);
-            List<String> lines = new ArrayList<>();
-            if (logFile.exists()) {
-                for (String line : Files.readAllLines(logFile.toPath())) {
-                    if (!line.isBlank()) {
-                        lines.add(line);
-                    }
-                }
-            }
-            lines.add(logMessage);
-
-            while (lines.size() > 30) {
-                lines.remove(0);
-            }
-
-            Files.write(logFile.toPath(), lines);
+            Files.writeString(
+                    logFile.toPath(),
+                    logMessage + System.lineSeparator(),
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND
+            );
         } catch (Exception e) {
             Warfront.LOGGER.error("Failed to write to Warfront world log file", e);
         }

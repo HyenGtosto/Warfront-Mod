@@ -14,12 +14,12 @@ public final class ModEntities {
     public static final DeferredRegister<EntityType<?>> ENTITY_TYPES =
             DeferredRegister.create(Registries.ENTITY_TYPE, Warfront.MOD_ID);
 
-    public static final DeferredHolder<EntityType<?>, EntityType<PillagerArmoredEliteEntity>> PILLAGER_ARMORED_ELITE =
-            ENTITY_TYPES.register("pillager_armored_elite", () ->
-                    EntityType.Builder.of(PillagerArmoredEliteEntity::new, MobCategory.MONSTER)
-                            .sized(0.6f, 1.95f)
-                            .clientTrackingRange(8)
-                            .build("pillager_armored_elite"));
+    public static final DeferredHolder<EntityType<?>, EntityType<PillagerEliteEntity>> PILLAGER_ELITE =
+            ENTITY_TYPES.register("pillager_elite", () ->
+                    EntityType.Builder.of(PillagerEliteEntity::new, MobCategory.MONSTER)
+                            .sized(0.85f, 2.6f)
+                            .clientTrackingRange(10)
+                            .build("pillager_elite"));
 
     public static final DeferredHolder<EntityType<?>, EntityType<PillagerWarriorEntity>> PILLAGER_WARRIOR =
             ENTITY_TYPES.register("pillager_warrior", () ->
@@ -80,7 +80,7 @@ public final class ModEntities {
     }
 
     public static void registerAttributes(EntityAttributeCreationEvent event) {
-        event.put(PILLAGER_ARMORED_ELITE.get(), PillagerArmoredEliteEntity.createAttributes().build());
+        event.put(PILLAGER_ELITE.get(), PillagerEliteEntity.createAttributes().build());
         event.put(PILLAGER_WARRIOR.get(), PillagerWarriorEntity.createAttributes().build());
         event.put(PILLAGER_SCOUT.get(), PillagerScoutEntity.createAttributes().build());
         event.put(PILLAGER_MARKSMAN.get(), PillagerMarksmanEntity.createAttributes().build());

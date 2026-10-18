@@ -41,7 +41,7 @@ public final class EnemyEntityResolver {
             case CATAPULT ->
                     null; // Catapult is a base-defense role — never spawned as a roaming encounter
             case ARMORED_ELITE ->
-                    ModEntities.PILLAGER_ARMORED_ELITE.get().create(level);
+                    ModEntities.PILLAGER_ELITE.get().create(level);
             case FIGHTER ->
                     ModEntities.PILLAGER_WARRIOR.get().create(level);
             case SCOUT ->

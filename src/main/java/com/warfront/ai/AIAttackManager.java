@@ -41,8 +41,10 @@ public final class AIAttackManager {
 
         long gameTime = level.getGameTime();
 
-        // 1. Check active siege resolution timeouts
-        checkSiegeTimeouts(level, gameTime);
+        // 1. Check active siege resolution timeouts (evaluated every second / 20 ticks)
+        if (gameTime % 20L == 0L) {
+            checkSiegeTimeouts(level, gameTime);
+        }
 
         // 2. Evaluate AI expansion cycles
         int intervalTicks = WarfrontConfig.AI_ATTACK_INTERVAL_TICKS.get();
@@ -56,6 +58,9 @@ public final class AIAttackManager {
 
     private static void checkSiegeTimeouts(ServerLevel level, long gameTime) {
         RegionData regions = RegionData.get(level);
+        if (regions.getActiveSieges().isEmpty()) {
+            return;
+        }
         boolean mapStateChanged = false;
 
         Iterator<RegionData.SiegeCampaign> iterator = new ArrayList<>(regions.getActiveSieges().values()).iterator();
@@ -261,6 +266,49 @@ public final class AIAttackManager {
         // Instantiate short-lived BFS component cache for this evaluation cycle
         Map<Long, Optional<HQPos>> evaluationCache = new HashMap<>();
 
+        // Precompute Humanity-owned regions and perimeter scan origins once for this evaluation cycle
+        List<RegionData.Region> humanityRegions = regions.getRegionsOwnedBy(Faction.HUMANITY);
+        Set<Long> humanityKeys = new HashSet<>();
+        for (RegionData.Region hr : humanityRegions) {
+            humanityKeys.add(ChunkPos.asLong(hr.x(), hr.z()));
+        }
+
+        List<ChunkPos> playerRegionPositions = new ArrayList<>();
+        Set<Long> playerPosKeys = new HashSet<>();
+        if (level != null && level.getServer() != null) {
+            for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                if (player.level() == level) {
+                    int prx = Math.floorDiv(player.chunkPosition().x, 8);
+                    int prz = Math.floorDiv(player.chunkPosition().z, 8);
+                    long pKey = ChunkPos.asLong(prx, prz);
+                    if (playerPosKeys.add(pKey)) {
+                        playerRegionPositions.add(new ChunkPos(prx, prz));
+                    }
+                }
+            }
+        }
+
+        int[][] cardinalOffsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+        List<ChunkPos> scanOrigins = new ArrayList<>(playerRegionPositions);
+        for (RegionData.Region hr : humanityRegions) {
+            boolean isPerimeter = false;
+            for (int[] offset : cardinalOffsets) {
+                if (!humanityKeys.contains(ChunkPos.asLong(hr.x() + offset[0], hr.z() + offset[1]))) {
+                    isPerimeter = true;
+                    break;
+                }
+            }
+            if (isPerimeter) {
+                long hKey = ChunkPos.asLong(hr.x(), hr.z());
+                if (!playerPosKeys.contains(hKey)) {
+                    scanOrigins.add(new ChunkPos(hr.x(), hr.z()));
+                }
+            }
+        }
+
+        // Cache discovered candidate attacker regions by faction across strategic actors in this cycle
+        Map<Faction, List<RegionData.Region>> discoveredNearbyAIRegionsCache = new HashMap<>();
+
         int slotAttemptsExecuted = 0;
         int turnIndex = 0;
         Set<StrategicActor> exhaustedActors = new HashSet<>();
@@ -281,7 +329,9 @@ public final class AIAttackManager {
             Faction faction = actor.faction();
             List<com.warfront.ai.strategy.AttackCandidate> localCandidates = new ArrayList<>();
             List<com.warfront.ai.strategy.AttackCandidate> remoteCandidates = new ArrayList<>();
-            findFrontlineAttackCandidatesDualZone(level, regions, faction, actor.clusterId(), localCandidates, remoteCandidates);
+            findFrontlineAttackCandidatesDualZone(level, regions, faction, actor.clusterId(),
+                    humanityRegions, playerRegionPositions, scanOrigins, discoveredNearbyAIRegionsCache,
+                    localCandidates, remoteCandidates);
 
             List<com.warfront.ai.strategy.AttackCandidate> candidates;
             if (!localCandidates.isEmpty() && !remoteCandidates.isEmpty()) {
@@ -425,44 +475,37 @@ public final class AIAttackManager {
     }
 
     private static void findFrontlineAttackCandidatesDualZone(ServerLevel level, RegionData regions, Faction attacker, long clusterId,
+            List<RegionData.Region> humanityRegions, List<ChunkPos> playerRegionPositions, List<ChunkPos> scanOrigins,
+            Map<Faction, List<RegionData.Region>> discoveredNearbyAIRegionsCache,
             List<com.warfront.ai.strategy.AttackCandidate> localOut, List<com.warfront.ai.strategy.AttackCandidate> remoteOut) {
         long startNano = System.nanoTime();
-        List<RegionData.Region> attackerRegions = regions.getRegionsOwnedBy(attacker);
-        Set<Long> processedKeys = new HashSet<>();
-        for (RegionData.Region r : attackerRegions) {
-            processedKeys.add(ChunkPos.asLong(r.x(), r.z()));
-        }
 
-        // Also scan procedural regions around all active players and claimed HUMANITY regions
-        List<RegionData.Region> humanityRegions = regions.getRegionsOwnedBy(Faction.HUMANITY);
-        List<ChunkPos> scanOrigins = new ArrayList<>();
-
-        if (level != null && level.getServer() != null) {
-            for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
-                if (player.level() == level) {
-                    scanOrigins.add(new ChunkPos(Math.floorDiv(player.chunkPosition().x, 8), Math.floorDiv(player.chunkPosition().z, 8)));
-                }
-            }
-        }
-        for (RegionData.Region hr : humanityRegions) {
-            scanOrigins.add(new ChunkPos(hr.x(), hr.z()));
-        }
-
-        int scanRadius = 15;
+        List<RegionData.Region> attackerRegions = discoveredNearbyAIRegionsCache.get(attacker);
         int rawStateLookups = 0;
-        for (ChunkPos origin : scanOrigins) {
-            for (int rx = origin.x - scanRadius; rx <= origin.x + scanRadius; rx++) {
-                for (int rz = origin.z - scanRadius; rz <= origin.z + scanRadius; rz++) {
-                    long key = ChunkPos.asLong(rx, rz);
-                    if (processedKeys.add(key)) {
-                        rawStateLookups++;
-                        RegionData.RegionState state = getRawOrSavedRegionState(level, regions, rx, rz);
-                        if (state.owner() == attacker) {
-                            attackerRegions.add(new RegionData.Region(rx, rz, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId()));
+
+        if (attackerRegions == null) {
+            attackerRegions = new ArrayList<>(regions.getRegionsOwnedBy(attacker));
+            Set<Long> processedKeys = new HashSet<>();
+            for (RegionData.Region r : attackerRegions) {
+                processedKeys.add(ChunkPos.asLong(r.x(), r.z()));
+            }
+
+            int scanRadius = 15;
+            for (ChunkPos origin : scanOrigins) {
+                for (int rx = origin.x - scanRadius; rx <= origin.x + scanRadius; rx++) {
+                    for (int rz = origin.z - scanRadius; rz <= origin.z + scanRadius; rz++) {
+                        long key = ChunkPos.asLong(rx, rz);
+                        if (processedKeys.add(key)) {
+                            rawStateLookups++;
+                            RegionData.RegionState state = getRawOrSavedRegionState(level, regions, rx, rz);
+                            if (state.owner() == attacker) {
+                                attackerRegions.add(new RegionData.Region(rx, rz, state.owner(), state.stability(), state.resistance(), state.baseType(), state.clusterId()));
+                            }
                         }
                     }
                 }
             }
+            discoveredNearbyAIRegionsCache.put(attacker, attackerRegions);
         }
 
         int[][] offsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
@@ -475,8 +518,8 @@ public final class AIAttackManager {
             int rx = sourceRegion.x();
             int rz = sourceRegion.z();
 
-            boolean isLocal = isNearPlayerEntity(level, rx, rz, PLAYER_SQUARE_RADIUS_REGIONS);
-            boolean isRemote = !isLocal && isNearHumanityTerritory(regions, rx, rz, PLAYER_SQUARE_RADIUS_REGIONS);
+            boolean isLocal = isNearPlayerEntity(playerRegionPositions, rx, rz, PLAYER_SQUARE_RADIUS_REGIONS);
+            boolean isRemote = !isLocal && isNearHumanityTerritory(humanityRegions, rx, rz, PLAYER_SQUARE_RADIUS_REGIONS);
 
             if (!isLocal && !isRemote) {
                 continue;
@@ -502,26 +545,20 @@ public final class AIAttackManager {
         }
 
         long elapsedMs = (System.nanoTime() - startNano) / 1_000_000L;
-        Warfront.LOGGER.info("AI Candidate Scan ({}) completed in {} ms: {} regions evaluated, 0 strength calculations, 0 biome queries",
-                attacker.commandName(), elapsedMs, rawStateLookups);
+        Warfront.LOGGER.info("AI Candidate Scan ({}) completed in {} ms: {} regions evaluated, {} Humanity regions ({} scan origins), local candidates: {}, remote candidates: {}",
+                attacker.commandName(), elapsedMs, rawStateLookups, humanityRegions.size(), scanOrigins.size(), localOut.size(), remoteOut.size());
     }
 
-    private static boolean isNearPlayerEntity(ServerLevel level, int rx, int rz, int radiusRegions) {
-        if (level == null || level.getServer() == null) return false;
-        for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
-            if (player.level() == level) {
-                int prx = Math.floorDiv(player.chunkPosition().x, 8);
-                int prz = Math.floorDiv(player.chunkPosition().z, 8);
-                if (Math.abs(rx - prx) <= radiusRegions && Math.abs(rz - prz) <= radiusRegions) {
-                    return true;
-                }
+    private static boolean isNearPlayerEntity(List<ChunkPos> playerRegionPositions, int rx, int rz, int radiusRegions) {
+        for (ChunkPos pos : playerRegionPositions) {
+            if (Math.abs(rx - pos.x) <= radiusRegions && Math.abs(rz - pos.z) <= radiusRegions) {
+                return true;
             }
         }
         return false;
     }
 
-    private static boolean isNearHumanityTerritory(RegionData regions, int rx, int rz, int radiusRegions) {
-        List<RegionData.Region> humanityRegions = regions.getRegionsOwnedBy(Faction.HUMANITY);
+    private static boolean isNearHumanityTerritory(List<RegionData.Region> humanityRegions, int rx, int rz, int radiusRegions) {
         for (RegionData.Region hr : humanityRegions) {
             if (Math.abs(rx - hr.x()) <= radiusRegions && Math.abs(rz - hr.z()) <= radiusRegions) {
                 return true;

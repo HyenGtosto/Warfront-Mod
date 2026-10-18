@@ -51,6 +51,7 @@ public final class RegionData extends SavedData {
     private final Map<UUID, Set<Long>> playerVisitedRegions = new HashMap<>();
     private long worldSeed;
     private transient ServerLevel level;
+    private transient boolean logsMigrated = false;
 
     public static RegionData get(ServerLevel level) {
         RegionData data = level.getDataStorage().computeIfAbsent(FACTORY, DATA_FILE_ID);
@@ -60,15 +61,19 @@ public final class RegionData extends SavedData {
         data.worldSeed = level.getSeed();
         data.level = level;
 
-        // Load persisted war events from world log file
-        List<String> diskLogs = WarfrontWorldLogger.readLogs(level);
-        for (String diskLog : diskLogs) {
-            if (!data.warfrontLogs.contains(diskLog)) {
-                data.warfrontLogs.add(diskLog);
+        if (!data.logsMigrated) {
+            data.logsMigrated = true;
+            if (data.warfrontLogs.isEmpty()) {
+                List<String> diskLogs = WarfrontWorldLogger.readLogs(level);
+                for (String diskLog : diskLogs) {
+                    if (!data.warfrontLogs.contains(diskLog)) {
+                        data.warfrontLogs.add(diskLog);
+                    }
+                }
+                while (data.warfrontLogs.size() > 50) {
+                    data.warfrontLogs.remove(0);
+                }
             }
-        }
-        while (data.warfrontLogs.size() > 50) {
-            data.warfrontLogs.remove(0);
         }
 
         return data;

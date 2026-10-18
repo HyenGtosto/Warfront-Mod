@@ -357,14 +357,25 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                 this.seeTime = 0;
             }
 
-            this.mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
-
             if (this.repositionCooldown > 0) {
                 this.repositionCooldown--;
             }
 
-            // Apply tactical spacing: spread out in a line 90 degrees towards target like a firing squad
-            applyFiringSquadSpacing(target, distSq, canSee);
+            if (this.currentPhase == STATE_AIMING || this.currentPhase == STATE_SHOOTING) {
+                // User directive: Turn to player when aiming and shooting, halt retreat navigation
+                this.mob.getNavigation().stop();
+                double dX = target.getX() - this.mob.getX();
+                double dZ = target.getZ() - this.mob.getZ();
+                float targetYaw = (float) (Math.atan2(dZ, dX) * (180.0D / Math.PI)) - 90.0F;
+                this.mob.setYRot(targetYaw);
+                this.mob.yBodyRot = targetYaw;
+                this.mob.yHeadRot = targetYaw;
+                this.mob.getLookControl().setLookAt(target, 60.0F, 60.0F);
+            } else {
+                // During reloading or idle: allow tactical spacing and retreat away from player
+                this.mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
+                applyFiringSquadSpacing(target, distSq, canSee);
+            }
 
             this.attackPhaseTicks++;
 

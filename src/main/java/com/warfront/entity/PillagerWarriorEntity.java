@@ -1,5 +1,6 @@
 package com.warfront.entity;
 
+import com.warfront.ai.MeleeEngagementManager;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
@@ -197,6 +198,12 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         }
     }
 
+    public void disableShield(int ticks) {
+        if (this.level().isClientSide) return;
+        this.shieldDisableTicks = ticks;
+        lowerShield();
+    }
+
     @Override
     protected void registerGoals() {
         super.registerGoals();
@@ -265,6 +272,14 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
             LivingEntity target = this.getTarget();
             boolean hasTarget = target != null && target.isAlive();
             this.setAggressive(hasTarget);
+
+            if (hasTarget) {
+                boolean isEngaged = MeleeEngagementManager.requestSlot(target, this, false);
+                if (!isEngaged && this.shieldDisableTicks <= 0) {
+                    // Holding ground reserve warrior: maintain shield state
+                    this.raiseShield(20);
+                }
+            }
 
             if (this.shieldDisableTicks > 0) {
                 this.shieldDisableTicks--;
@@ -437,6 +452,10 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         if (target != null && AlliedFactionHelper.isAllied(this, target)) {
             return;
         }
+        LivingEntity oldTarget = this.getTarget();
+        if (oldTarget != null && !oldTarget.equals(target)) {
+            MeleeEngagementManager.releaseSlot(oldTarget, this);
+        }
         super.setTarget(target);
     }
 
@@ -456,6 +475,13 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         super.die(damageSource);
         this.attackImpactTicks = -1;
         this.pendingAttackTarget = null;
+        MeleeEngagementManager.onMobDied(this.getTarget(), this);
+    }
+
+    @Override
+    public void remove(Entity.RemovalReason reason) {
+        super.remove(reason);
+        MeleeEngagementManager.releaseAll(this);
     }
 
     @Override
@@ -657,12 +683,20 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
             if (this.warrior.isShieldRaised()) {
                 return false;
             }
+            LivingEntity target = this.warrior.getTarget();
+            if (target != null && !MeleeEngagementManager.isEngaged(target, this.warrior)) {
+                return false;
+            }
             return super.canUse();
         }
 
         @Override
         public boolean canContinueToUse() {
             if (this.warrior.isShieldRaised()) {
+                return false;
+            }
+            LivingEntity target = this.warrior.getTarget();
+            if (target != null && !MeleeEngagementManager.isEngaged(target, this.warrior)) {
                 return false;
             }
             return super.canContinueToUse();
@@ -712,14 +746,31 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         public void tick() {
             LivingEntity target = this.warrior.getTarget();
             if (target != null && target.isAlive()) {
+                boolean isEngaged = MeleeEngagementManager.isEngaged(target, this.warrior);
                 this.warrior.getLookControl().setLookAt(target, 35.0F, 35.0F);
-                this.warrior.getNavigation().moveTo(target, 0.85D);
+
+                double distSq = this.warrior.distanceToSqr(target);
+                double reach = this.warrior.getBbWidth() * 2.0F + target.getBbWidth() + 0.8D;
+
+                if (!isEngaged) {
+                    // Holding ground reserve mob (5-6 blocks away)
+                    if (distSq > 36.0D) {
+                        // Beyond 6 blocks: advance to reach 5-6m holding perimeter
+                        this.warrior.getNavigation().moveTo(target, 0.85D);
+                    } else {
+                        // Within 6 blocks (perimeter and closer): stand ground! Never back away.
+                        this.warrior.getNavigation().stop();
+                    }
+                } else {
+                    // Active duelist engagement: steadily advance forward
+                    this.warrior.getNavigation().moveTo(target, 0.85D);
+                }
 
                 if (this.shieldAttackCooldown > 0) {
                     this.shieldAttackCooldown--;
                 } else {
-                    double reach = this.warrior.getBbWidth() * 2.0F + target.getBbWidth() + 0.8D;
-                    if (this.warrior.distanceToSqr(target) <= reach * reach && this.warrior.getSensing().hasLineOfSight(target)) {
+                    // Striking reach check: executes attack even if holding ground when player gets too close!
+                    if (distSq <= reach * reach && this.warrior.getSensing().hasLineOfSight(target)) {
                         this.warrior.performShieldAttack(target);
                         this.shieldAttackCooldown = 25; // ~1.25s cadence while guarding
                     }

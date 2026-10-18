@@ -41,8 +41,8 @@ public final class WarfrontBlocks {
     public static final DeferredItem<Item> TESTING_MAP_TERMINAL = ITEMS.register("testing_map_terminal",
             () -> new com.warfront.item.TestingMapTerminalItem(new Item.Properties().stacksTo(1)));
 
-    public static final DeferredItem<Item> PILLAGER_ARMORED_ELITE_SPAWN_EGG = ITEMS.register("pillager_armored_elite_spawn_egg",
-            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_ARMORED_ELITE, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+    public static final DeferredItem<Item> PILLAGER_ELITE_SPAWN_EGG = ITEMS.register("pillager_elite_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_ELITE, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
     public static final DeferredItem<Item> PILLAGER_WARRIOR_SPAWN_EGG = ITEMS.register("pillager_warrior_spawn_egg",
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_WARRIOR, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
@@ -150,7 +150,7 @@ public final class WarfrontBlocks {
             event.accept(COMMANDER_BATTLE_STANDARD);
             event.accept(SCRAP_METAL_DEBRIS);
         } else if (event.getTabKey() == CreativeModeTabs.SPAWN_EGGS) {
-            event.accept(PILLAGER_ARMORED_ELITE_SPAWN_EGG);
+            event.accept(PILLAGER_ELITE_SPAWN_EGG);
             event.accept(PILLAGER_WARRIOR_SPAWN_EGG);
             event.accept(PILLAGER_SCOUT_SPAWN_EGG);
             event.accept(PILLAGER_MARKSMAN_SPAWN_EGG);

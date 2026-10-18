@@ -118,7 +118,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
         // 2 Armored Elites guarding the entrance chicane
         int[][] chicaneOffsets = {{-1, 8}, {1, 8}};
         for (int[] off : chicaneOffsets) {
-            Mob guard = ModEntities.PILLAGER_ARMORED_ELITE.get().create(level);
+            Mob guard = ModEntities.PILLAGER_ELITE.get().create(level);
             if (guard != null) {
                 guard.moveTo(anchor.getX() + off[0] + 0.5D, anchor.getY() + 1.0D, anchor.getZ() + off[1] + 0.5D, 0.0F, 0.0F);
                 net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(guard, level, level.getCurrentDifficultyAt(guard.blockPosition()), MobSpawnType.EVENT, null);

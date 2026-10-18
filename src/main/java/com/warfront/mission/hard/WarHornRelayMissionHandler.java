@@ -219,7 +219,7 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
             int[] off = spawnOffsets[i];
             Mob mob;
             if (i < 2) {
-                mob = ModEntities.PILLAGER_ARMORED_ELITE.get().create(level);
+                mob = ModEntities.PILLAGER_ELITE.get().create(level);
             } else if (i == 2) {
                 mob = ModEntities.PILLAGER_COMMANDER.get().create(level);
             } else {

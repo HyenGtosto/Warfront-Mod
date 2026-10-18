@@ -157,7 +157,7 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
 
                 // Spawn 2 Armored Elite bodyguards inside the tent
                 for (BlockPos bgPos : result.bodyguardSpawnPositions()) {
-                    Mob bodyguard = ModEntities.PILLAGER_ARMORED_ELITE.get().create(level);
+                    Mob bodyguard = ModEntities.PILLAGER_ELITE.get().create(level);
                     if (bodyguard != null) {
                         bodyguard.moveTo(bgPos.getX() + 0.5D, bgPos.getY(), bgPos.getZ() + 0.5D, 0.0F, 0.0F);
                         net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(bodyguard, level, level.getCurrentDifficultyAt(bgPos), MobSpawnType.EVENT, null);

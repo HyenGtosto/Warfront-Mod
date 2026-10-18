@@ -206,6 +206,27 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 8. **Elevated Marksman AI Flag Contention:**
    - *Problem:* Retaining `Flag.MOVE` and `Flag.LOOK` in elevated post/patrol goals completely suppressed lower-priority attack goals, paralyzing snipers in combat.
    - *Rule:* Yield movement and look flags in post/patrol goals when an active target is present within vertical bounds, and suppress ground-closing navigation for elevated garrison marksmen.
+9. **Synchronous Disk Reads in Hot Getters / Tick Paths:**
+   - *Problem:* Calling file reading operations (`Files.readAllLines`) inside high-frequency getters (`RegionData.get`) accessed via the server tick loop (`AIAttackManager.onServerTick`) caused blocking disk I/O 20+ times per second.
+   - *Rule:* `RegionData.get` must strictly be an in-memory $O(1)$ operation relying on authoritative NBT `SavedData`. Text event logs must be written via append-only writes, and tick-driven siege audits throttled.
+10. **Redundant Iterative Spatial Scans in AI Expansion:**
+    - *Problem:* Scanning 31×31 regional grids for every strategic cluster and repeatedly querying `getRegionsOwnedBy(HUMANITY)` inside inner candidate loops caused $O(N \times M)$ memory allocations and tens of thousands of duplicate evaluations per AI tick.
+    - *Rule:* Precompute Humanity regions and player positions once per cycle. Filter scan origins to perimeter regions (adjacent to non-Humanity), and cache discovered faction frontline regions across clusters within the same evaluation cycle.
+11. **Biped Bone Hierarchy & Action Combat Decoupling:**
+    - *Problem:* Inheriting vanilla Minecraft's flat root-level bone hierarchy (head and arms as siblings to body) caused upper-body rotations and combat swings to disconnect from the chest, breaking fluid animation.
+    - *Rule:* Parent `head`, `right_arm`, and `left_arm` under `body` (torso) so natural posture and combat swings carry shoulders and head organically. Keep `right_leg` and `left_leg` at root level to decouple running and walking from upper body combat.
+12. **Melee Dogpiling & Anti-Lynching Coordination:**
+    - *Problem:* Unrestricted pathfinding allowed arbitrary numbers of melee enemies to simultaneously dogpile ("lynch") players, creating chaotic and unreadable melee combat.
+    - *Rule:* Restrict active melee combat against players to 2 shared engagement slots (`MeleeEngagementManager`). Excess melee mobs hold ground 5–6 blocks away (warriors maintaining shield stance), holding ground if approached, striking if player enters personal reach, and replacing dead combatants with Elite priority.
+13. **Marksman Retreat-Aiming Desynchronization:**
+    - *Problem:* Pathing backwards away from close players turned marksmen bodies in the direction of travel, causing arrows to shoot out of their backs while running away.
+    - *Rule:* Halt retreat navigation and lock body yaw directly to the target during `STATE_AIMING` and `STATE_SHOOTING`. Resume retreat navigation only during reloading (`STATE_RELOADING`) or idle.
+14. **Decoupled Combat Combo Extension vs Hitbox Arcs:**
+    - *Problem:* Checking frontal look angle for combo continuation caused combat chains to prematurely break on swing 1 if the player circle-strafed, paralyzing aggressive duelists.
+    - *Rule:* Chain combo sequences based strictly on target proximity (<= 3.5m) to maintain offensive momentum and tracking, while retaining directional frontal arc checks strictly on the individual strike damage ticks so players can dodge attacks via timing and positioning.
+15. **Idle Goal Contention in Tick-Driven Custom AI:**
+    - *Problem:* Unconditioned idle goals (`RandomStrollGoal`, `RandomLookAroundGoal`) in `goalSelector` randomly triggered during combat, turning duelists away from targets and causing attacks to swing into empty space.
+    - *Rule:* Condition all idle movement and look goals on `!mob.isAggressive() && mob.getTarget() == null`. Explicitly synchronize body and head yaw (`yBodyRot`, `yHeadRot`, `setYRot`) directly to targets during active combat ticks so swings and lunges face opponents.
 
 ---
 
@@ -214,7 +235,7 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 - [x] **Strategic Grid Core:** $128 \times 128$ macro regions, $64 \times 64$ tactical subregions, persistent NBT world data storage.
 - [x] **Procedural Placement & River Filtering:** River-aware viability thresholds, solid dry-land anchors, footprint sampling grids, and downgrade cascade.
 - [x] **TPS Worldgen Optimization:** Bypassed 3D noise router for unloaded chunks during procedural evaluation.
-- [x] **Pillager GeckoLib Combat Roster:** Custom models, textures, animations, and combat AI for Warrior, Scout, Marksman, Commander, and Armored Elite.
+- [x] **Pillager GeckoLib Combat Roster:** Custom models, textures, animations, and combat AI for Warrior, Scout, Marksman, Commander, and Pillager Elite (1v1 specialist duelist with two-handed greatsword & repeating crossbow).
 - [x] **Tactical Tower Shield Sub-Entity:** Custom multipart collision hitbox with projectile absorption, crit particle feedback, and axe stun vulnerability.
 - [x] **Allied Anti-Friendly-Fire System:** Centralized `AlliedFactionHelper`, non-recursive team/tag verification, target-change interception.
 - [x] **Interactive Strategic Map GUI:** Zoom/pan viewport, faction color blending, hardware-accelerated vertex quad arrows, Fog of War pipeline, and 1-column square button layout.
@@ -232,6 +253,10 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 - [x] **Commitment to War:** Removal of voluntary cancel and defender hardening (+10/+10) on timeout.
 - [x] **Dynamic 3×3 Base Boosting:** Mega Base (+20 cardinal), HQ (+15 cardinal), Outpost (+10 3×3) boosting neighbor resistance and stability.
 - [x] **Pillager Outpost Structure & Garrison Ecosystem:** $29 \times 25 \times 29$ native NBT template, 17-mob structured garrison, wall patrol routines, 3-minute passive respawns, instant repair on sortie start, poof cleanup on conquest, and curated loot tables.
+- [x] **Melee Combat Engagement Management & Anti-Lynching Slots:** Centralized 2-slot melee engagement system between Warriors and Elites (`MeleeEngagementManager`), 5–6 block perimeter holding ground, Warrior shield perimeter defense, and Elite death replacement priority.
+- [x] **Crossbow Marksman Aiming & Retreat Decoupling:** Stationary aim-and-shoot body alignment towards player with tactical spacing and retreat relegated strictly to reloading windows.
+- [x] **Pillager Elite Duelist 4-Stage Combo Chain:** Multi-stage greatsword combo chain (`attack_1` through `attack_4` finisher) with distance-based combo chaining ($\le 3.5\text{m}$), forward lunge impulses, directional frontal damage arcs, finisher recovery freeze, and dynamic stance switching between greatsword and repeating crossbow.
+- [x] **Pillager Elite Shield-Punish Kick Attack:** 50% replacement roll against shield-wielding targets; at $0.60\text{s}$ contact disables blocking shields (5.0s cooldown), deals 1.0 damage, and inflicts 4 blocks of knockback. Whiffing against lowered shields incurs an extended 1.75s vulnerability freeze.
 
 ---
 

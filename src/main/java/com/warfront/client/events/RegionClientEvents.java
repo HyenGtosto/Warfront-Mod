@@ -2,7 +2,7 @@ package com.warfront.client.events;
 
 import com.warfront.Warfront;
 import com.warfront.client.hud.ActiveMissionHudOverlay;
-import com.warfront.client.renderer.PillagerArmoredEliteRenderer;
+import com.warfront.client.renderer.PillagerEliteRenderer;
 import com.warfront.client.renderer.PillagerCommanderRenderer;
 import com.warfront.client.renderer.PillagerMarksmanRenderer;
 import com.warfront.client.renderer.PillagerScoutRenderer;
@@ -35,7 +35,7 @@ public final class RegionClientEvents {
     }
 
     public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
-        event.registerEntityRenderer(ModEntities.PILLAGER_ARMORED_ELITE.get(), PillagerArmoredEliteRenderer::new);
+        event.registerEntityRenderer(ModEntities.PILLAGER_ELITE.get(), PillagerEliteRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_WARRIOR.get(), PillagerWarriorRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_SCOUT.get(), PillagerScoutRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_MARKSMAN.get(), PillagerMarksmanRenderer::new);
