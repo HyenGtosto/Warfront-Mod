@@ -162,6 +162,10 @@ public final class PersistentBaseProtectionManager {
 
             // Scenario 4: Player won the war on region -> base remains decay
             if (reg.owner() == com.warfront.region.Faction.HUMANITY) {
+                // If there is an active pending salvage site waiting for loot collection in this region, defer decay
+                if (com.warfront.mission.site.PendingSalvageManager.hasPendingSiteForRegion(rx, rz)) {
+                    continue;
+                }
                 decayBaseRemainsIfPresent(level, rx, rz, reg, anchor, regions);
                 continue;
             }
@@ -183,7 +187,8 @@ public final class PersistentBaseProtectionManager {
 
     /**
      * Decays any remaining enemy base structure blocks in a Humanity-captured region.
-     * CAUTION: Foundation blocks beneath ground level (y < anchor.getY()) are NOT added to decay.
+     * Includes the base template layer (anchor.getY() - 1) and stepped perimeter foundations
+     * so they are backfilled cleanly to natural ground (GRASS_BLOCK/DIRT/STONE) with zero craters.
      */
     public static void decayBaseRemainsIfPresent(ServerLevel level, int rx, int rz, RegionData.Region reg, BlockPos anchor, RegionData regions) {
         if (level == null || anchor == null) return;
@@ -195,9 +200,11 @@ public final class PersistentBaseProtectionManager {
         Map<BlockPos, BlockState> blueprint = (generator != null) ? generator.getPristineBlocks(level, anchor) : Map.of();
 
         List<BlockPos> remainingBlocks = new ArrayList<>();
+        int foundationMinY = anchor.getY() - 1;
+
         if (!blueprint.isEmpty()) {
             for (BlockPos pos : blueprint.keySet()) {
-                if (pos.getY() >= anchor.getY() && level.hasChunkAt(pos)) {
+                if (pos.getY() >= foundationMinY && level.hasChunkAt(pos)) {
                     BlockState current = level.getBlockState(pos);
                     if (!current.isAir()) {
                         remainingBlocks.add(pos.immutable());
@@ -208,7 +215,7 @@ public final class PersistentBaseProtectionManager {
             // Fallback bounding box scan
             int halfX = 14;
             int halfZ = 14;
-            int minY = anchor.getY();
+            int minY = foundationMinY;
             int maxY = Math.min(level.getMaxBuildHeight(), anchor.getY() + 25);
             for (int x = anchor.getX() - halfX; x <= anchor.getX() + halfX; x++) {
                 for (int z = anchor.getZ() - halfZ; z <= anchor.getZ() + halfZ; z++) {
@@ -221,6 +228,36 @@ public final class PersistentBaseProtectionManager {
                                     && !bs.is(Blocks.STONE) && !bs.is(Blocks.DEEPSLATE)
                                     && bs.getFluidState().isEmpty()) {
                                 remainingBlocks.add(pos.immutable());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also check stepped foundation columns under perimeter down to depth 14 beneath origin
+        int sizeX = 29;
+        int sizeZ = 29;
+        int halfX = sizeX / 2;
+        int halfZ = sizeZ / 2;
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() - 1, anchor.getZ() - halfZ);
+        for (int x = 0; x < sizeX; x++) {
+            boolean isPerimeterX = (x == 0 || x == sizeX - 1);
+            for (int z = 0; z < sizeZ; z++) {
+                boolean isPerimeterZ = (z == 0 || z == sizeZ - 1);
+                if (isPerimeterX || isPerimeterZ) {
+                    int wx = origin.getX() + x;
+                    int wz = origin.getZ() + z;
+                    for (int depth = 1; depth <= 14; depth++) {
+                        int wy = origin.getY() - depth;
+                        if (wy < level.getMinBuildHeight()) break;
+                        BlockPos fPos = new BlockPos(wx, wy, wz);
+                        if (level.hasChunkAt(fPos)) {
+                            BlockState bs = level.getBlockState(fPos);
+                            if (bs.is(Blocks.COBBLESTONE)) {
+                                remainingBlocks.add(fPos.immutable());
+                            } else {
+                                break;
                             }
                         }
                     }

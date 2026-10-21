@@ -90,17 +90,11 @@ public enum MissionType {
     // ==========================================
     // Defense Missions (Defending Allied / Contested Territory)
     // ==========================================
-    /** Hold the Line: Defend a frontier forward position against sustained assault waves. */
-    HOLD_THE_LINE(ObjectiveType.SURVIVE_ASSAULT),
+    /** Defeat Invading Forces: Neutralize invading enemy assault waves advancing from contested borders. */
+    DEFEAT_INVADING_FORCES(ObjectiveType.ELIMINATE_TARGETS),
 
-    /** Protect the Strongpoint: Defend allied bunker, radar relay, or beacon from being demolished. */
-    PROTECT_THE_STRONGPOINT(ObjectiveType.PROTECT_OBJECTIVE),
-
-    /** Emergency Evacuation: Escort civilian/engineer evacuation transport safely across the warzone. */
-    EMERGENCY_EVACUATION(ObjectiveType.ESCORT),
-
-    /** Counterattack: Repel enemy breakthrough, then strike back and eliminate the attacking field commander. */
-    COUNTERATTACK(ObjectiveType.MULTI_PHASE);
+    /** Hold the Chokepoint: Hold ground at an improvised perimeter against invading waves using terrain and player defenses. */
+    HOLD_THE_CHOKEPOINT(ObjectiveType.SURVIVE_ASSAULT);
 
     private final ObjectiveType defaultObjectiveType;
 
@@ -159,7 +153,7 @@ public enum MissionType {
      */
     public boolean isDefense() {
         return switch (this) {
-            case HOLD_THE_LINE, PROTECT_THE_STRONGPOINT, EMERGENCY_EVACUATION, COUNTERATTACK -> true;
+            case DEFEAT_INVADING_FORCES, HOLD_THE_CHOKEPOINT -> true;
             default -> false;
         };
     }

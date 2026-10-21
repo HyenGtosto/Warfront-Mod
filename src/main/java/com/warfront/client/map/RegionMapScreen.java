@@ -536,7 +536,7 @@ public final class RegionMapScreen extends Screen {
                     selectedRegion.regionX(), selectedRegion.regionZ(),
                     enemyFaction, selectedRegion.baseType(),
                     selectedRegion.resistance(), selectedRegion.stability(),
-                    selectedRegion.missionSeed(), selectedRegion.baseAnchor());
+                    selectedRegion.missionSeed(), selectedRegion.baseAnchor(), isDefense);
 
             for (int i = 0; i < 4; i++) {
                 if (subRegionMissionButtons[i] != null) {

@@ -30,6 +30,7 @@ import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.raid.Raider;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.animation.AnimatableManager;
@@ -54,20 +55,25 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
     public static final byte ACTION_SHEATHE = 2;
     public static final byte ACTION_ATTACK1 = 3;
     public static final byte ACTION_ATTACK2 = 4;
+    public static final byte ACTION_LOOK = 5;
+    public static final byte ACTION_ALERT = 6;
 
-    private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("animation.pillager_scout.idle");
-    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("animation.pillager_scout.walk");
-    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("animation.pillager_scout.run");
-    private static final RawAnimation UNSHEATHE = RawAnimation.begin().thenPlay("animation.pillager_scout.unsheathe");
-    private static final RawAnimation SHEATHE = RawAnimation.begin().thenPlay("animation.pillager_scout.sheathe");
-    private static final RawAnimation ATTACK1 = RawAnimation.begin().thenPlay("animation.pillager_scout.attack1");
-    private static final RawAnimation ATTACK2 = RawAnimation.begin().thenPlay("animation.pillager_scout.attack2");
+    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("walk");
+    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("run");
+    private static final RawAnimation UNSHEATHE = RawAnimation.begin().thenPlay("unsheathe");
+    private static final RawAnimation SHEATHE = RawAnimation.begin().thenPlay("sheathe");
+    private static final RawAnimation ATTACK1 = RawAnimation.begin().thenPlay("attack1");
+    private static final RawAnimation ATTACK2 = RawAnimation.begin().thenPlay("attack2");
+    private static final RawAnimation LOOK = RawAnimation.begin().thenPlay("look");
+    private static final RawAnimation ALERT = RawAnimation.begin().thenLoop("alert");
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private boolean alternateAttack = false;
     private int actionTicks = 0;
     private LivingEntity pendingAttackTarget = null;
     private int attackImpactTicks = -1;
+    private int leapCooldownTicks = 0;
+    private byte lastActionState = ACTION_NONE;
 
     public PillagerScoutEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -77,10 +83,10 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 22.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.23D)
+                .add(Attributes.MOVEMENT_SPEED, 0.28D)
                 .add(Attributes.ATTACK_DAMAGE, 5.0D)
                 .add(Attributes.ARMOR, 3.0D)
-                .add(Attributes.FOLLOW_RANGE, 32.0D);
+                .add(Attributes.FOLLOW_RANGE, 48.0D);
     }
 
     @Override
@@ -111,20 +117,40 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
     protected void registerGoals() {
         super.registerGoals();
         this.goalSelector.addGoal(0, new FloatGoal(this));
+        this.goalSelector.addGoal(1, new com.warfront.ai.goal.ScoutReconGoal(this));
         this.goalSelector.addGoal(2, new Raider.HoldGroundAttackGoal(this, 10.0F));
-        this.goalSelector.addGoal(3, new MeleeAttackGoal(this, 1.10D, false));
+        this.goalSelector.addGoal(3, new MeleeAttackGoal(this, 1.20D, false));
         this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));
 
         this.targetSelector.addGoal(1, new HurtByTargetGoal(this, Raider.class).setAlertOthers());
-        this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, true));
+        // Condition player targeting so random passive sightings don't bypass the spyglass look mechanic
+        this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, 10, true, false,
+                living -> this.areDaggersDrawn() || this.getTarget() != null));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractVillager.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, IronGolem.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Zombie.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractSkeleton.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Creeper.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Spider.class, true));
+    }
+
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        if (!this.level().isClientSide) {
+            byte currentAction = getActionState();
+            if (currentAction == ACTION_LOOK) {
+                // Option 2A: Interrupted by player attack before scan finishes!
+                // Cancel look state without blowing horn, immediately draw daggers to defend
+                setActionState(ACTION_NONE, 0);
+                setDaggersDrawn(true);
+                if (source.getEntity() instanceof LivingEntity attacker) {
+                    this.setTarget(attacker);
+                }
+            }
+        }
+        return super.hurt(source, amount);
     }
 
     @Override
@@ -140,6 +166,21 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
                 this.actionTicks--;
                 if (this.actionTicks <= 0) {
                     this.entityData.set(ACTION_STATE, ACTION_NONE);
+                }
+            }
+
+            if (this.leapCooldownTicks > 0) {
+                this.leapCooldownTicks--;
+            }
+
+            // Evasive retreat leap when wounded below 50% HP (stalls the player)
+            if (hasTarget && this.getHealth() <= 11.0F && this.leapCooldownTicks <= 0) {
+                double distSq = this.distanceToSqr(target);
+                if (distSq < 12.25D) { // Within 3.5 blocks
+                    Vec3 jumpVec = this.position().subtract(target.position()).normalize().scale(0.75D).add(0.0D, 0.35D, 0.0D);
+                    this.setDeltaMovement(jumpVec);
+                    this.playSound(SoundEvents.PLAYER_ATTACK_SWEEP, 1.0F, 1.8F);
+                    this.leapCooldownTicks = 140; // 7 seconds cooldown
                 }
             }
 
@@ -203,6 +244,9 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
     }
 
     private PlayState movementPredicate(AnimationState<PillagerScoutEntity> state) {
+        if (getActionState() == ACTION_LOOK || getActionState() == ACTION_ALERT) {
+            return PlayState.STOP;
+        }
         boolean isMoving = state.isMoving()
                 || this.walkAnimation.isMoving()
                 || this.walkAnimation.speed() > 0.001F
@@ -215,12 +259,19 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
             }
             return state.setAndContinue(WALK);
         }
-        return state.setAndContinue(IDLE);
+        return PlayState.STOP;
     }
 
     private PlayState actionPredicate(AnimationState<PillagerScoutEntity> state) {
         byte action = getActionState();
+        if (action != this.lastActionState) {
+            state.getController().forceAnimationReset();
+            this.lastActionState = action;
+        }
+
         return switch (action) {
+            case ACTION_LOOK -> state.setAndContinue(LOOK);
+            case ACTION_ALERT -> state.setAndContinue(ALERT);
             case ACTION_UNSHEATHE -> state.setAndContinue(UNSHEATHE);
             case ACTION_SHEATHE -> state.setAndContinue(SHEATHE);
             case ACTION_ATTACK1 -> state.setAndContinue(ATTACK1);
@@ -230,7 +281,7 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
                     state.getController().forceAnimationReset();
                     yield state.setAndContinue(alternateAttack ? ATTACK2 : ATTACK1);
                 }
-                yield PlayState.CONTINUE;
+                yield PlayState.STOP;
             }
         };
     }

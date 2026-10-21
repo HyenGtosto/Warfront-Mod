@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -78,6 +79,9 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     public static final byte ACTION_ATTACK_3 = 11;
     public static final byte ACTION_ATTACK_4 = 12;
     public static final byte ACTION_KICK = 13;
+    public static final byte ACTION_STAB_WINDUP = 14;
+    public static final byte ACTION_STAB_CHARGE = 15;
+    public static final byte ACTION_STAB_THRUST = 16;
 
     // Animation durations in ticks (20 TPS)
     public static final int UNSHEATHE_TICKS = 31;         // 1.5417s
@@ -98,6 +102,10 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     public static final int KICK_DAMAGE_TICK = 12;        // 0.6000s (User spec contact frame)
     public static final int KICK_WHIFF_COOLDOWN = 35;      // 1.7500s vulnerability freeze on whiff
     public static final int KICK_SUCCESS_COOLDOWN = 10;    // 0.5000s recovery on successful shield break
+    public static final int STAB_WINDUP_TICKS = 10;       // 0.5000s (Telegraph & tracking)
+    public static final int STAB_CHARGE_MAX_TICKS = 25;   // 1.2500s max sprint duration
+    public static final int STAB_THRUST_TICKS = 15;       // 0.7500s
+    public static final int STAB_THRUST_DAMAGE_TICK = 4;  // 0.2000s (User spec contact frame)
     public static final int SHEATHE_TICKS = 30;           // 1.5000s
     public static final int SHEATHE_INSERT_TICK = 20;     // Frame where sword enters sheathe
     public static final int SWORD_TO_XBOW_TICKS = 21;     // 1.0417s
@@ -106,6 +114,13 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     public static final int XBOW_TO_SWORD_TICKS = 20;     // 1.0000s
     public static final int XBOW_TO_SWORD_SWAP_TICK = 10; // Frame where xbow holsters back to sword
     public static final int BLOCK_TICKS = 11;             // 0.5417s (Active deflection 2..8)
+
+    // Directional attack arcs in degrees (frontal cone angle)
+    public static final float ATTACK_1_ARC_DEGREES = 110.0F;
+    public static final float ATTACK_2_ARC_DEGREES = 150.0F;
+    public static final float ATTACK_3_ARC_DEGREES = 80.0F;
+    public static final float ATTACK_4_ARC_DEGREES = 40.0F;
+    public static final float STAB_ARC_DEGREES = 40.0F;
 
     private static final EntityDataAccessor<Byte> ACTION_STATE =
             SynchedEntityData.defineId(PillagerEliteEntity.class, EntityDataSerializers.BYTE);
@@ -125,6 +140,9 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     private static final RawAnimation ATTACK_3 = RawAnimation.begin().thenPlay("attack_3");
     private static final RawAnimation ATTACK_4 = RawAnimation.begin().thenPlay("attack_4");
     private static final RawAnimation KICK = RawAnimation.begin().thenPlay("kick");
+    private static final RawAnimation STAB_WINDUP = RawAnimation.begin().thenPlay("stab_windup");
+    private static final RawAnimation STAB_CHARGE = RawAnimation.begin().thenLoop("stab_charge");
+    private static final RawAnimation STAB_THRUST = RawAnimation.begin().thenPlay("stab_thrust");
     private static final RawAnimation SHEATHE_SWORD = RawAnimation.begin().thenPlay("sheathe_sword");
     private static final RawAnimation SWORD_TO_CROSSBOW = RawAnimation.begin().thenPlay("sword_to_crossbow");
     private static final RawAnimation STANCE_CROSSBOW = RawAnimation.begin().thenLoop("stance_crossbow");
@@ -138,6 +156,7 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     private int actionTicks = 0;
     private byte lastActionState = ACTION_IDLE;
     private int attackCooldownTicks = 0;
+    private int stabCooldownTicks = 0;
     private int crossbowCooldownTicks = 0;
     private int blockCooldownTicks = 0;
     private int outOfCombatTicks = 0;
@@ -250,6 +269,7 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
         super.aiStep();
 
         if (this.attackCooldownTicks > 0) this.attackCooldownTicks--;
+        if (this.stabCooldownTicks > 0) this.stabCooldownTicks--;
         if (this.crossbowCooldownTicks > 0) this.crossbowCooldownTicks--;
         if (this.blockCooldownTicks > 0) this.blockCooldownTicks--;
 
@@ -329,6 +349,13 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                             if (distSq <= meleeReach * meleeReach && this.attackCooldownTicks <= 0) {
                                 // Close range: Start Attack 1 or 50% shield-punish Kick
                                 initiateMeleeAttack(target);
+                            } else if (distSq >= 4.5D * 4.5D && distSq <= 12.0D * 12.0D && this.stabCooldownTicks <= 0 && this.hasLineOfSight(target)) {
+                                // Option 2: Immediate Charged Stab gap-closer!
+                                this.spacedOutTicks = 0;
+                                setActionState(ACTION_STAB_WINDUP);
+                                this.actionTicks = 0;
+                                this.getNavigation().stop();
+                                this.playSound(SoundEvents.ARMOR_EQUIP_IRON.value(), 1.0F, 1.2F);
                             } else if (distSq >= 7.0D * 7.0D && distSq <= 16.0D * 16.0D && this.hasLineOfSight(target)) {
                                 // Player spacing at distance (7m - 16m)
                                 this.spacedOutTicks++;
@@ -358,20 +385,25 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                     // Committed slowdown during slash
                     this.setDeltaMovement(this.getDeltaMovement().multiply(0.3D, 1.0D, 0.3D));
 
-                    // Contact / Damage tick at 0.4s (Tick 8)
+                    // Contact / Damage tick at 0.4s (Tick 8) - 110 degree arc
                     if (this.actionTicks == ATTACK_1_DAMAGE_TICK) {
-                        executeAttackDamage(1.0F, 0.45D, 0.85F, false);
+                        executeAttackDamage(1.0F, 0.45D, 0.85F, ATTACK_1_ARC_DEGREES, false);
                     }
 
                     // Combo Extension check: only distance check as directed by user!
                     if (this.actionTicks >= ATTACK_1_LINK_TICK) {
                         if (hasTarget && this.distanceToSqr(target) <= 3.5D * 3.5D) {
-                            // Target within distance: chain into Attack 2 with forward step
                             faceTarget(target, 60.0F, 60.0F);
-                            setActionState(ACTION_ATTACK_2);
                             this.actionTicks = 0;
-                            Vec3 fwd = this.getLookAngle().multiply(0.18D, 0.0D, 0.18D);
-                            this.setDeltaMovement(this.getDeltaMovement().add(fwd));
+                            // Option A: 30% chance to punish active shield blocking with a kick
+                            if (isTargetActivelyBlocking(target) && this.random.nextFloat() < 0.30F) {
+                                this.kickConnected = false;
+                                setActionState(ACTION_KICK);
+                            } else {
+                                setActionState(ACTION_ATTACK_2);
+                                Vec3 fwd = this.getLookAngle().multiply(0.18D, 0.0D, 0.18D);
+                                this.setDeltaMovement(this.getDeltaMovement().add(fwd));
+                            }
                             break;
                         }
                     }
@@ -391,20 +423,25 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                     }
                     this.setDeltaMovement(this.getDeltaMovement().multiply(0.3D, 1.0D, 0.3D));
 
-                    // Contact / Damage tick at 0.47s (Tick 9)
+                    // Contact / Damage tick at 0.47s (Tick 9) - 150 degree arc
                     if (this.actionTicks == ATTACK_2_DAMAGE_TICK) {
-                        executeAttackDamage(1.0F, 0.50D, 0.90F, false);
+                        executeAttackDamage(1.0F, 0.50D, 0.90F, ATTACK_2_ARC_DEGREES, false);
                     }
 
                     // Combo Extension check: only distance check!
                     if (this.actionTicks >= ATTACK_2_LINK_TICK) {
                         if (hasTarget && this.distanceToSqr(target) <= 3.5D * 3.5D) {
-                            // Target within distance: chain into Attack 3 with forward step
                             faceTarget(target, 60.0F, 60.0F);
-                            setActionState(ACTION_ATTACK_3);
                             this.actionTicks = 0;
-                            Vec3 fwd = this.getLookAngle().multiply(0.18D, 0.0D, 0.18D);
-                            this.setDeltaMovement(this.getDeltaMovement().add(fwd));
+                            // Option A: 30% chance to punish active shield blocking with a kick
+                            if (isTargetActivelyBlocking(target) && this.random.nextFloat() < 0.30F) {
+                                this.kickConnected = false;
+                                setActionState(ACTION_KICK);
+                            } else {
+                                setActionState(ACTION_ATTACK_3);
+                                Vec3 fwd = this.getLookAngle().multiply(0.18D, 0.0D, 0.18D);
+                                this.setDeltaMovement(this.getDeltaMovement().add(fwd));
+                            }
                             break;
                         }
                     }
@@ -424,20 +461,25 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                     }
                     this.setDeltaMovement(this.getDeltaMovement().multiply(0.3D, 1.0D, 0.3D));
 
-                    // Contact / Damage tick at 0.46s (Tick 9)
+                    // Contact / Damage tick at 0.46s (Tick 9) - 80 degree arc
                     if (this.actionTicks == ATTACK_3_DAMAGE_TICK) {
-                        executeAttackDamage(1.125F, 0.55D, 0.95F, false);
+                        executeAttackDamage(1.125F, 0.55D, 0.95F, ATTACK_3_ARC_DEGREES, false);
                     }
 
                     // Combo Extension check: only distance check!
                     if (this.actionTicks >= ATTACK_3_LINK_TICK) {
                         if (hasTarget && this.distanceToSqr(target) <= 3.5D * 3.5D) {
-                            // Target within distance: chain into Attack 4 (Finisher) with forward lunge
                             faceTarget(target, 60.0F, 60.0F);
-                            setActionState(ACTION_ATTACK_4);
                             this.actionTicks = 0;
-                            Vec3 fwd = this.getLookAngle().multiply(0.22D, 0.0D, 0.22D);
-                            this.setDeltaMovement(this.getDeltaMovement().add(fwd));
+                            // Option A: 30% chance to punish active shield blocking with a kick
+                            if (isTargetActivelyBlocking(target) && this.random.nextFloat() < 0.30F) {
+                                this.kickConnected = false;
+                                setActionState(ACTION_KICK);
+                            } else {
+                                setActionState(ACTION_ATTACK_4);
+                                Vec3 fwd = this.getLookAngle().multiply(0.22D, 0.0D, 0.22D);
+                                this.setDeltaMovement(this.getDeltaMovement().add(fwd));
+                            }
                             break;
                         }
                     }
@@ -457,9 +499,9 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                     }
                     this.setDeltaMovement(this.getDeltaMovement().multiply(0.25D, 1.0D, 0.25D));
 
-                    // Contact / Damage tick at 0.60s (Tick 12) - Finisher!
+                    // Contact / Damage tick at 0.60s (Tick 12) - Finisher! - 40 degree arc
                     if (this.actionTicks == ATTACK_4_DAMAGE_TICK) {
-                        executeAttackDamage(1.50F, 1.20D, 0.75F, true);
+                        executeAttackDamage(1.50F, 1.20D, 0.75F, ATTACK_4_ARC_DEGREES, true);
                     }
 
                     // Attack 4 is the finisher: always finishes full 20 ticks + recovery freeze
@@ -490,6 +532,85 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                         } else {
                             this.attackCooldownTicks = KICK_WHIFF_COOLDOWN;   // 35 ticks vulnerability freeze!
                         }
+                    }
+                    break;
+
+                case ACTION_STAB_WINDUP:
+                    this.actionTicks++;
+                    if (target != null) {
+                        faceTarget(target, 45.0F, 45.0F);
+                    }
+                    // 80% slowdown while telegraphing
+                    this.setDeltaMovement(this.getDeltaMovement().multiply(0.2D, 1.0D, 0.2D));
+
+                    if (this.actionTicks >= STAB_WINDUP_TICKS) {
+                        setActionState(ACTION_STAB_CHARGE);
+                        this.actionTicks = 0;
+                        this.playSound(SoundEvents.RAVAGER_ROAR, 0.6F, 1.6F);
+                    }
+                    break;
+
+                case ACTION_STAB_CHARGE:
+                    this.actionTicks++;
+                    if (target != null && target.isAlive()) {
+                        // Steerable charge: turn rate capped at 6.0 degrees per tick to prevent 30G missile lock-on
+                        double dX = target.getX() - this.getX();
+                        double dZ = target.getZ() - this.getZ();
+                        float desiredYaw = (float) (Math.atan2(dZ, dX) * (180.0D / Math.PI)) - 90.0F;
+                        float yawDiff = Mth.wrapDegrees(desiredYaw - this.getYRot());
+                        float maxTurn = 6.0F; // degrees per tick max
+                        float turn = Mth.clamp(yawDiff, -maxTurn, maxTurn);
+                        float newYaw = this.getYRot() + turn;
+                        this.setYRot(newYaw);
+                        this.yBodyRot = newYaw;
+                        this.yHeadRot = newYaw;
+
+                        // Steerable dash in heading direction (0.46 blocks/tick ~ 9.2 blocks/s)
+                        Vec3 fwd = Vec3.directionFromRotation(0.0F, newYaw);
+                        double speed = 0.46D;
+                        this.setDeltaMovement(fwd.x * speed, this.getDeltaMovement().y, fwd.z * speed);
+
+                        // Interception check: within 3.0m and in front cone (dot > 0.60)
+                        double distSq = this.distanceToSqr(target);
+                        Vec3 look = this.getLookAngle();
+                        Vec3 toTarget = target.position().subtract(this.position()).normalize();
+                        double dot = look.x * toTarget.x + look.z * toTarget.z;
+
+                        if (distSq <= 3.0D * 3.0D && dot > 0.60D) {
+                            // Intercepted! Trigger thrust finisher
+                            setActionState(ACTION_STAB_THRUST);
+                            this.actionTicks = 0;
+                            Vec3 thrustImpulse = this.getLookAngle().multiply(0.25D, 0.0D, 0.25D);
+                            this.setDeltaMovement(this.getDeltaMovement().add(thrustImpulse));
+                            break;
+                        }
+                    }
+
+                    // Charge expired without hitting target (player dodged or ran sideways)
+                    if (this.actionTicks >= STAB_CHARGE_MAX_TICKS) {
+                        setActionState(ACTION_STANCE_SWORD);
+                        this.actionTicks = 0;
+                        this.attackCooldownTicks = 20; // 1.0s whiff recovery freeze
+                        this.stabCooldownTicks = 160;  // 8.0s cooldown
+                        this.playSound(SoundEvents.PLAYER_ATTACK_WEAK, 1.0F, 0.8F);
+                    }
+                    break;
+
+                case ACTION_STAB_THRUST:
+                    this.actionTicks++;
+                    // Deceleration during thrust follow-through
+                    this.setDeltaMovement(this.getDeltaMovement().multiply(0.25D, 1.0D, 0.25D));
+
+                    // Contact / Damage tick at 0.20s (Tick 4)
+                    if (this.actionTicks == STAB_THRUST_DAMAGE_TICK) {
+                        executeThrustDamage();
+                    }
+
+                    if (this.actionTicks >= STAB_THRUST_TICKS) {
+                        setActionState(ACTION_STANCE_SWORD);
+                        this.actionTicks = 0;
+                        this.attackCooldownTicks = 12; // 0.6s endlag
+                        this.stabCooldownTicks = 160;  // 8.0s cooldown
                     }
                     break;
 
@@ -725,7 +846,7 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
      * so players can side-strafe attacks and make them miss, while combo progression continues
      * based on distance.
      */
-    private void executeAttackDamage(float damageMultiplier, double knockbackStrength, float pitch, boolean isFinisher) {
+    private void executeAttackDamage(float damageMultiplier, double knockbackStrength, float pitch, float arcDegrees, boolean isFinisher) {
         double reach = 3.5D;
         Vec3 look = this.getLookAngle();
         Vec3 origin = this.position().add(0, 1.2, 0);
@@ -737,14 +858,15 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
         float baseDamage = (float) this.getAttributeValue(Attributes.ATTACK_DAMAGE);
         float damage = baseDamage * damageMultiplier;
         boolean hitAny = false;
+        double minDot = Math.cos(Math.toRadians(arcDegrees * 0.5F));
 
         for (LivingEntity victim : potentialTargets) {
             Vec3 toTarget = victim.position().add(0, victim.getEyeHeight() * 0.5, 0).subtract(origin);
             if (toTarget.lengthSqr() <= reach * reach) {
-                // Frontal arc check: dot product with look vector > 0.15 (~100 degree cone)
+                // Frontal arc check: dot product with look vector > minDot for specified arc degrees
                 Vec3 dir = toTarget.normalize();
                 double dot = look.x * dir.x + look.z * dir.z;
-                if (dot > 0.15D) {
+                if (dot > minDot) {
                     DamageSource source = this.damageSources().mobAttack(this);
                     if (victim.hurt(source, damage)) {
                         hitAny = true;
@@ -786,8 +908,17 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     }
 
     /**
+     * Checks if the target is actively blocking using a shield.
+     */
+    private boolean isTargetActivelyBlocking(LivingEntity target) {
+        if (target == null) return false;
+        return target.isBlocking()
+                || (target instanceof PillagerWarriorEntity warrior && warrior.isShieldRaised());
+    }
+
+    /**
      * Initiates an initial melee attack against a target in reach.
-     * If the target is actively blocking with a shield, there is a 50% chance
+     * If the target is actively blocking with a shield, there is a 30% chance
      * to perform an offensive shield-punishing kick instead of standard Attack 1.
      */
     private void initiateMeleeAttack(LivingEntity target) {
@@ -797,10 +928,7 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
         this.getNavigation().stop();
         faceTarget(target, 60.0F, 60.0F);
 
-        boolean targetActivelyBlocking = target.isBlocking()
-                || (target instanceof PillagerWarriorEntity warrior && warrior.isShieldRaised());
-
-        if (targetActivelyBlocking && this.random.nextFloat() < 0.50F) {
+        if (isTargetActivelyBlocking(target) && this.random.nextFloat() < 0.30F) {
             setActionState(ACTION_KICK);
         } else {
             setActionState(ACTION_ATTACK_1);
@@ -882,6 +1010,57 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
         }
     }
 
+    /**
+     * Executes the heavy thrust finisher damage at Tick 4 (0.20s).
+     * Inflicts 11.0 HP piercing damage and 0.75D knockback in a 3.0m frontal cone (dot > 0.40).
+     */
+    private void executeThrustDamage() {
+        double reach = 3.0D;
+        Vec3 look = this.getLookAngle();
+        Vec3 origin = this.position().add(0, 1.2, 0);
+
+        AABB attackBox = this.getBoundingBox().inflate(reach, 1.5D, reach);
+        List<LivingEntity> potentialTargets = this.level().getEntitiesOfClass(LivingEntity.class, attackBox,
+                e -> e != this && e.isAlive() && !this.isAlliedTo(e));
+
+        float damage = 11.0F; // 1.375x base damage (11 HP)
+        boolean hitAny = false;
+        double minDot = Math.cos(Math.toRadians(STAB_ARC_DEGREES * 0.5F));
+
+        for (LivingEntity victim : potentialTargets) {
+            Vec3 toTarget = victim.position().add(0, victim.getEyeHeight() * 0.5, 0).subtract(origin);
+            if (toTarget.lengthSqr() <= reach * reach) {
+                // Frontal cone check: dot product with look vector > minDot (40 degree cone)
+                Vec3 dir = toTarget.normalize();
+                double dot = look.x * dir.x + look.z * dir.z;
+                if (dot > minDot) {
+                    DamageSource source = this.damageSources().mobAttack(this);
+                    if (victim.hurt(source, damage)) {
+                        hitAny = true;
+                        victim.knockback(0.75D, -dir.x, -dir.z);
+                        if (victim instanceof ServerPlayer sPlayer) {
+                            sPlayer.hurtMarked = true;
+                            sPlayer.connection.send(new ClientboundSetEntityMotionPacket(sPlayer));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (this.level() instanceof ServerLevel serverLevel) {
+            double px = this.getX() + look.x * 1.8D;
+            double py = this.getY() + 1.2D;
+            double pz = this.getZ() + look.z * 1.8D;
+            serverLevel.sendParticles(ParticleTypes.CRIT, px, py, pz, 15, 0.3, 0.3, 0.3, 0.2);
+        }
+
+        if (hitAny) {
+            this.playSound(SoundEvents.PLAYER_ATTACK_CRIT, 1.0F, 0.75F);
+        } else {
+            this.playSound(SoundEvents.PLAYER_ATTACK_SWEEP, 1.0F, 0.8F);
+        }
+    }
+
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
         controllers.add(new AnimationController<>(this, "movement", 4, this::movementPredicate));
@@ -890,7 +1069,18 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
 
     private PlayState movementPredicate(AnimationState<PillagerEliteEntity> state) {
         byte action = getActionState();
-        boolean isAttacking = (action == ACTION_ATTACK_1 || action == ACTION_ATTACK_2 || action == ACTION_ATTACK_3 || action == ACTION_ATTACK_4 || action == ACTION_KICK);
+
+        // During steerable charged sprint, drive the legs with RUN at 2.3x playback speed
+        if (action == ACTION_STAB_CHARGE) {
+            state.getController().setAnimationSpeed(2.3D);
+            return state.setAndContinue(RUN);
+        }
+
+        // Neutral 1.0x animation playback speed for all other states
+        state.getController().setAnimationSpeed(1.0D);
+
+        boolean isAttacking = (action == ACTION_ATTACK_1 || action == ACTION_ATTACK_2 || action == ACTION_ATTACK_3 || action == ACTION_ATTACK_4 || action == ACTION_KICK
+                || action == ACTION_STAB_WINDUP || action == ACTION_STAB_THRUST);
 
         boolean isMoving = state.isMoving()
                 || this.walkAnimation.isMoving()
@@ -936,6 +1126,12 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                 return state.setAndContinue(ATTACK_4);
             case ACTION_KICK:
                 return state.setAndContinue(KICK);
+            case ACTION_STAB_WINDUP:
+                return state.setAndContinue(STAB_WINDUP);
+            case ACTION_STAB_CHARGE:
+                return state.setAndContinue(STAB_CHARGE);
+            case ACTION_STAB_THRUST:
+                return state.setAndContinue(STAB_THRUST);
             case ACTION_SHEATHE:
                 return state.setAndContinue(SHEATHE_SWORD);
             case ACTION_BLOCK:

@@ -187,7 +187,7 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
                     siegeArrows.add(new RegionMapPayload.SiegeArrowData(
                             src.x(), src.z(),
                             trx, trz,
-                            campaign.attackValue(), campaign.encircled()
+                            campaign.encircled()
                     ));
                 }
             }

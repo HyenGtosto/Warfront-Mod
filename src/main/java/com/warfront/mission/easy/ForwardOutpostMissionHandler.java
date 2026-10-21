@@ -14,14 +14,17 @@ import com.warfront.region.RegionData;
 import com.warfront.spawn.MissionEntityTracker;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -53,9 +56,62 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
             return;
         }
 
-        // If watchtower site has already been constructed, do not build again
+        UUID instanceId = progress.missionInstanceId();
+
+        // If watchtower site has already been constructed, repair damaged structure and regarrison if retrying
         if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
             progress.setTemporaryStructuresBuilt(true);
+            BlockPos anchor = progress.missionSiteAnchor();
+
+            boolean hasLivingDefenders = false;
+            for (UUID uuid : progress.trackedEntityUuids()) {
+                Entity e = level.getEntity(uuid);
+                if (e != null && e.isAlive()) {
+                    hasLivingDefenders = true;
+                    break;
+                }
+            }
+
+            if (!hasLivingDefenders && anchor != null) {
+                MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
+                List<BlockPos> outpostBlocks = TemporaryStructureBuilder.buildForwardOutpost(level, anchor, snapshot);
+                progress.trackedBlockPositions().clear();
+                progress.trackedBlockPositions().addAll(outpostBlocks);
+                int totalBlocks = outpostBlocks.size();
+                int targetDestroyed = (int) Math.ceil(totalBlocks * 0.60);
+                progress.setTargetProgress(targetDestroyed);
+                progress.setCurrentProgress(0);
+
+                progress.trackedEntityUuids().clear();
+                Mob sniper = ModEntities.PILLAGER_MARKSMAN.get().create(level);
+                if (sniper != null) {
+                    sniper.moveTo(anchor.getX() + 0.5D, anchor.getY() + 4.5D, anchor.getZ() + 0.5D, 0.0F, 0.0F);
+                    net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(sniper, level, level.getCurrentDifficultyAt(anchor), MobSpawnType.EVENT, null);
+                    if (level.addFreshEntity(sniper)) {
+                        setupMob(sniper, instanceId, regionX, regionZ, subX, subZ, progress);
+                    }
+                }
+
+                int[][] guardOffsets = {{-4, -2}, {4, -2}, {0, 4}};
+                for (int[] off : guardOffsets) {
+                    Mob guard = ModEntities.PILLAGER_WARRIOR.get().create(level);
+                    if (guard != null) {
+                        int gx = anchor.getX() + off[0];
+                        int gz = anchor.getZ() + off[1];
+                        int gy = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, gx, gz);
+                        guard.moveTo(gx + 0.5D, gy, gz + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
+                        net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(guard, level, level.getCurrentDifficultyAt(new BlockPos(gx, gy, gz)), MobSpawnType.EVENT, null);
+                        if (level.addFreshEntity(guard)) {
+                            setupMob(guard, instanceId, regionX, regionZ, subX, subZ, progress);
+                        }
+                    }
+                }
+
+                if (player != null) {
+                    player.displayClientMessage(Component.literal("§c⚠️ Enemy outpost has repaired fortifications and reinforced the site!"), true);
+                }
+                ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+            }
             return;
         }
 
@@ -66,7 +122,6 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
         BlockPos anchor = MissionSiteAnchorResolver.resolveDryLandAnchor(level, regionX, regionZ, subX, subZ, missionSeed);
         progress.setMissionSiteAnchor(anchor);
 
-        UUID instanceId = progress.missionInstanceId();
         MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
 
         // 2. Build temporary watchtower structure with stepped foundations
@@ -190,8 +245,13 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
+        for (UUID uuid : progress.trackedEntityUuids()) {
+            Entity ent = level.getEntity(uuid);
+            if (ent != null && ent.isAlive()) {
+                ent.discard();
+            }
+            MissionEntityTracker.unregisterMissionMob(uuid);
         }
+        progress.trackedEntityUuids().clear();
     }
 }

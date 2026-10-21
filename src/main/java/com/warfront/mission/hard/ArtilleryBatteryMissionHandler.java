@@ -1,6 +1,7 @@
 package com.warfront.mission.hard;
 
 import com.warfront.ai.goal.MissionPostGuardGoal;
+import com.warfront.block.SalvageMachineryBlock;
 import com.warfront.block.WarfrontBlocks;
 import com.warfront.entity.ModEntities;
 import com.warfront.mission.ActiveCampaignMissionManager;
@@ -81,14 +82,35 @@ public final class ArtilleryBatteryMissionHandler implements MissionObjectiveHan
             if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
                 progress.setTemporaryStructuresBuilt(true);
                 BlockPos anc = progress.missionSiteAnchor();
-                List<BlockPos> mortars = new ArrayList<>();
-                for (BlockPos p : progress.trackedBlockPositions()) {
-                    if (level.hasChunkAt(p) && level.getBlockState(p).is(com.warfront.block.WarfrontBlocks.MORTAR.get())) {
-                        mortars.add(p);
-                    }
+                MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
+                TemporaryStructureBuilder.ArtilleryBatteryResult result = TemporaryStructureBuilder.buildArtilleryBattery(level, anc, snapshot);
+
+                for (BlockPos m : result.mortarPositions()) {
+                    SalvageMachineryBlock.rearm(level, m);
                 }
-                data = new BatteryMissionData(anc, mortars);
+
+                data = new BatteryMissionData(anc, result.mortarPositions());
                 batteryDataMap.put(instanceId, data);
+
+                progress.trackedBlockPositions().clear();
+                progress.trackedBlockPositions().addAll(result.structureBlocks());
+                progress.setTargetProgress(data.totalMortars);
+                progress.setCurrentProgress(0);
+
+                progress.trackedEntityUuids().clear();
+                for (BlockPos mortarPos : result.mortarPositions()) {
+                    spawnMortarGuards(level, mortarPos, instanceId, regionX, regionZ, subX, subZ, progress);
+                }
+
+                if (player != null) {
+                    player.displayClientMessage(Component.literal("§c⚠️ Enemy battery has repaired fortifications and reinforced the site!"), true);
+                }
+                RegionData regions = RegionData.get(level);
+                if (regions != null) {
+                    regions.setDirty();
+                }
+                ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+                return;
             } else {
                 RegionData regions = RegionData.get(level);
                 long missionSeed = (regions != null) ? regions.calculateMissionSeed(regionX, regionZ) : 0L;
@@ -335,9 +357,5 @@ public final class ArtilleryBatteryMissionHandler implements MissionObjectiveHan
             MissionEntityTracker.unregisterMissionMob(uuid);
         }
         progress.trackedEntityUuids().clear();
-
-        if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
-        }
     }
 }

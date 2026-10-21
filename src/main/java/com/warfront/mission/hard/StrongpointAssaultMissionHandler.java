@@ -77,9 +77,51 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
             return;
         }
 
-        // If pillbox has already been constructed, do not build again
+        UUID instanceId = progress.missionInstanceId();
+
+        // If pillbox has already been constructed, repair and regarrison if retrying
         if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
             progress.setTemporaryStructuresBuilt(true);
+            BlockPos anchor = progress.missionSiteAnchor();
+            StrongpointMissionData existingData = siteDataMap.get(instanceId);
+            if (existingData == null && anchor != null) {
+                MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
+                TemporaryStructureBuilder.StrongpointResult result = TemporaryStructureBuilder.buildStrongpointPillbox(level, anchor, snapshot);
+
+                SalvageMachineryBlock.rearm(level, result.vaultPos());
+                for (BlockPos relay : result.shieldRelayPositions()) {
+                    SalvageMachineryBlock.rearm(level, relay);
+                }
+
+                progress.trackedBlockPositions().clear();
+                progress.trackedBlockPositions().addAll(result.structureBlocks());
+
+                int totalBlocks = result.structureBlocks().size();
+                int targetDestroyed = (int) Math.ceil(totalBlocks * 0.50);
+                progress.setTargetProgress(targetDestroyed);
+                progress.setCurrentProgress(0);
+
+                StrongpointMissionData data = new StrongpointMissionData(
+                        anchor,
+                        result.vaultPos(),
+                        new ArrayList<>(result.shieldRelayPositions()),
+                        totalBlocks,
+                        result.shieldRelayPositions().size()
+                );
+                siteDataMap.put(instanceId, data);
+
+                progress.trackedEntityUuids().clear();
+                spawnGarrisonDefenders(level, anchor, instanceId, regionX, regionZ, subX, subZ, progress);
+
+                if (player != null) {
+                    player.displayClientMessage(Component.literal("§c⚠️ Strongpoint pillbox has been repaired and reinforced!"), true);
+                }
+                RegionData regions = RegionData.get(level);
+                if (regions != null) {
+                    regions.setDirty();
+                }
+                ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+            }
             return;
         }
 
@@ -90,7 +132,6 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
         BlockPos anchor = MissionSiteAnchorResolver.resolveDryLandAnchor(level, regionX, regionZ, subX, subZ, missionSeed);
         progress.setMissionSiteAnchor(anchor);
 
-        UUID instanceId = progress.missionInstanceId();
         MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
 
         // 2. Build 20x20 WWII Pillbox structure
@@ -115,6 +156,22 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
         siteDataMap.put(instanceId, data);
 
         // 3. Spawn garrison defenders
+        spawnGarrisonDefenders(level, anchor, instanceId, regionX, regionZ, subX, subZ, progress);
+
+        if (regions != null) {
+            regions.setDirty();
+        }
+        ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+    }
+
+    private void spawnGarrisonDefenders(
+            ServerLevel level,
+            BlockPos anchor,
+            UUID instanceId,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            ActiveCampaignMissionManager.ActiveSubRegionProgress progress
+    ) {
         // 2 Armored Elites guarding the entrance chicane
         int[][] chicaneOffsets = {{-1, 8}, {1, 8}};
         for (int[] off : chicaneOffsets) {
@@ -156,11 +213,6 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
                 }
             }
         }
-
-        if (regions != null) {
-            regions.setDirty();
-        }
-        ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
     }
 
     private void setupMob(Mob mob, UUID instanceId, int rx, int rz, int sx, int sz, ActiveCampaignMissionManager.ActiveSubRegionProgress progress) {
@@ -304,10 +356,5 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
             MissionEntityTracker.unregisterMissionMob(uuid);
         }
         progress.trackedEntityUuids().clear();
-
-        // If mission failed without completion, restore terrain
-        if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
-        }
     }
 }

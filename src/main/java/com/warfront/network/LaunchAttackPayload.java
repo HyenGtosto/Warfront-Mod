@@ -74,7 +74,7 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             int finalMask = existingSiege.activeSubRegionsMask() | validDefenseMask;
             regions.setRegionSiegeWithCampaign(payload.regionX(), payload.regionZ(),
                     new RegionData.SiegeCampaign(existingSiege.attacker(), payload.regionX(), payload.regionZ(),
-                            existingSiege.sources(), existingSiege.attackValue(), existingSiege.encircled(),
+                            existingSiege.sources(), existingSiege.encircled(),
                             existingSiege.startTick(), existingSiege.durationTicks(), finalMask));
 
             float effectiveResistance = regions.calculateEffectiveResistance(payload.regionX(), payload.regionZ());
@@ -128,12 +128,11 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
 
             long startTick = level.getGameTime();
             long durationTicks = com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
-            int attackValue = sources.size();
 
             RegionData.SiegeCampaign fieldBattleSiege = new RegionData.SiegeCampaign(
                     com.warfront.region.Faction.HUMANITY,
                     payload.regionX(), payload.regionZ(),
-                    sources, attackValue, false,
+                    sources, false,
                     startTick, durationTicks,
                     0xF, 0L,
                     playerFaction.getId(), defenderPfId,
@@ -243,11 +242,10 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             regions.cancelReinforcement(payload.regionX(), payload.regionZ());
         }
 
-        int attackValue = Math.max(1, sources.size());
         regions.setRegionSiegeWithCampaign(payload.regionX(), payload.regionZ(),
                 new RegionData.SiegeCampaign(
                         com.warfront.region.Faction.HUMANITY, payload.regionX(), payload.regionZ(),
-                        sources, attackValue, false, startTick, durationTicks, finalMask, 0L,
+                        sources, false, startTick, durationTicks, finalMask, 0L,
                         playerFaction.getId(), null, 0.0F, 0.0F, false));
 
         // Initialize server-side active campaign mission progress tracking

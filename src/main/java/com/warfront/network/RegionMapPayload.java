@@ -90,7 +90,6 @@ public record RegionMapPayload(
             ByteBufCodecs.VAR_INT, SiegeArrowData::sourceRegionZ,
             ByteBufCodecs.VAR_INT, SiegeArrowData::targetRegionX,
             ByteBufCodecs.VAR_INT, SiegeArrowData::targetRegionZ,
-            ByteBufCodecs.VAR_INT, SiegeArrowData::attackValue,
             ByteBufCodecs.BOOL, SiegeArrowData::encircled,
             SiegeArrowData::new);
 
@@ -169,7 +168,7 @@ public record RegionMapPayload(
     public record RegionMarkerData(int regionX, int regionZ, int factionId, int baseTypeId) {
     }
 
-    public record SiegeArrowData(int sourceRegionX, int sourceRegionZ, int targetRegionX, int targetRegionZ, int attackValue, boolean encircled) {
+    public record SiegeArrowData(int sourceRegionX, int sourceRegionZ, int targetRegionX, int targetRegionZ, boolean encircled) {
     }
 
     public record ActiveWarData(int regionX, int regionZ, int attackerFactionId, boolean isDefense) {

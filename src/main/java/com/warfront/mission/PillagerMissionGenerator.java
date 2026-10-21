@@ -45,6 +45,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
 
     private static final MissionDefinition FALLBACK_EASY_DEF;
     private static final MissionDefinition FALLBACK_HARD_DEF;
+    private static final MissionDefinition DEFEAT_INVADING_FORCES_DEF;
+    private static final MissionDefinition HOLD_THE_CHOKEPOINT_DEF;
 
     static {
         // ==========================================
@@ -358,11 +360,29 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
         );
 
         // ==========================================
-        // 4 Defense Missions
+        // 2 Defense Missions (Co-Fallbacks)
         // ==========================================
-        MissionDefinition holdTheLine = new MissionDefinition(
-                "pillager_hold_the_line",
-                MissionType.HOLD_THE_LINE,
+        MissionDefinition defeatInvadingForces = new MissionDefinition(
+                "pillager_defeat_invading_forces",
+                MissionType.DEFEAT_INVADING_FORCES,
+                ObjectiveType.ELIMINATE_TARGETS,
+                Faction.PILLAGER_CONQUERORS,
+                EnumSet.allOf(BaseType.class),
+                0.0f, 100.0f,
+                100,
+                Map.of(),
+                12, 16,
+                0.05f,
+                List.of("WARRIOR", "MARKSMAN", "ARMORED_ELITE"),
+                "Defeat Invading Forces",
+                "Repel incoming hostile assault waves advancing from the contested border."
+        );
+        DEFENSE_DEFINITIONS.add(defeatInvadingForces);
+        DEFEAT_INVADING_FORCES_DEF = defeatInvadingForces;
+
+        MissionDefinition holdTheChokepoint = new MissionDefinition(
+                "pillager_hold_the_chokepoint",
+                MissionType.HOLD_THE_CHOKEPOINT,
                 ObjectiveType.SURVIVE_ASSAULT,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
@@ -370,63 +390,13 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 100,
                 Map.of(),
                 3, 3,
-                0.03f,
-                List.of("WARRIOR", "ARMORED_ELITE"),
-                "Hold the Line",
-                "Defend a frontier forward position against sustained assault waves."
+                0.05f,
+                List.of("WARRIOR", "ARMORED_ELITE", "COMMANDER"),
+                "Hold the Chokepoint",
+                "Hold ground at the defense perimeter against invading waves using terrain and player fortifications."
         );
-        DEFENSE_DEFINITIONS.add(holdTheLine);
-
-        MissionDefinition protectStrongpoint = new MissionDefinition(
-                "pillager_protect_strongpoint",
-                MissionType.PROTECT_THE_STRONGPOINT,
-                ObjectiveType.PROTECT_OBJECTIVE,
-                Faction.PILLAGER_CONQUERORS,
-                EnumSet.allOf(BaseType.class),
-                0.0f, 100.0f,
-                100,
-                Map.of(),
-                1, 1,
-                0.02f,
-                List.of("ARMORED_ELITE", "WARRIOR"),
-                "Protect the Strongpoint",
-                "Defend allied bunker, radar relay, or beacon from being demolished."
-        );
-        DEFENSE_DEFINITIONS.add(protectStrongpoint);
-
-        MissionDefinition emergencyEvac = new MissionDefinition(
-                "pillager_emergency_evac",
-                MissionType.EMERGENCY_EVACUATION,
-                ObjectiveType.ESCORT,
-                Faction.PILLAGER_CONQUERORS,
-                EnumSet.allOf(BaseType.class),
-                0.0f, 100.0f,
-                100,
-                Map.of(),
-                1, 1,
-                0.02f,
-                List.of("SCOUT", "WARRIOR"),
-                "Emergency Evacuation",
-                "Escort civilian transport safely across the warzone to the extraction border."
-        );
-        DEFENSE_DEFINITIONS.add(emergencyEvac);
-
-        MissionDefinition counterattack = new MissionDefinition(
-                "pillager_counterattack",
-                MissionType.COUNTERATTACK,
-                ObjectiveType.MULTI_PHASE,
-                Faction.PILLAGER_CONQUERORS,
-                EnumSet.allOf(BaseType.class),
-                0.0f, 100.0f,
-                100,
-                Map.of(),
-                2, 2,
-                0.02f,
-                List.of("COMMANDER", "ARMORED_ELITE"),
-                "Counterattack",
-                "Endure enemy breakthrough, then strike back and eliminate the attacking commander."
-        );
-        DEFENSE_DEFINITIONS.add(counterattack);
+        DEFENSE_DEFINITIONS.add(holdTheChokepoint);
+        HOLD_THE_CHOKEPOINT_DEF = holdTheChokepoint;
     }
 
     @Override
@@ -463,18 +433,59 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
             long seed,
             BlockPos baseAnchor
     ) {
+        return generateMissionsWithSeedAndBase(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor, false);
+    }
+
+    @Override
+    public SubRegionMission[] generateMissionsWithSeedAndBase(
+            int regionX, int regionZ,
+            Faction faction,
+            BaseType baseType,
+            float resistance,
+            float stability,
+            BiomeCategory biomeCategory,
+            long seed,
+            BlockPos baseAnchor,
+            boolean isDefense
+    ) {
         SubRegionMission[] missions = new SubRegionMission[4];
         float clampedRes = Math.clamp(resistance, 0.0f, 100.0f);
 
         // Derive authoritative deterministic region seed
         long effectiveSeed = seed != 0L ? seed : ((regionX * 73856093L) ^ (regionZ * 19349663L));
 
+        // Track regional mission type occurrences (max 2 of any type per region)
+        Map<MissionType, Integer> regionTypeCounts = new EnumMap<>(MissionType.class);
+
+        // DEFENSE PROTOCOL: Zero structure generation, co-fallback between Defeat Invading Forces and Hold The Chokepoint
+        if (isDefense) {
+            for (int i = 0; i < 4; i++) {
+                int subX = i % 2;
+                int subZ = i / 2;
+                long subSeed = effectiveSeed ^ (subX * 83492791L) ^ (subZ * 4393139L)
+                        ^ faction.id() ^ 0xDEFE1234ABCDL;
+
+                MissionDefinition def = ((subSeed & 1) == 0) ? DEFEAT_INVADING_FORCES_DEF : HOLD_THE_CHOKEPOINT_DEF;
+
+                missions[i] = WeightedMissionSelector.selectAndGenerate(
+                        List.of(def),
+                        def,
+                        regionX, regionZ,
+                        subX, subZ,
+                        faction,
+                        BaseType.NONE,
+                        clampedRes,
+                        biomeCategory,
+                        subSeed,
+                        regionTypeCounts
+                );
+            }
+            return missions;
+        }
+
         // Determine occupied base subregions & anchor subregion
         int occupiedBaseMask = MissionProfile.getOccupiedBaseSubRegionsMask(regionX, regionZ, baseType, baseAnchor);
         int anchorSubBit = MissionProfile.getAnchorSubRegionBit(regionX, regionZ, baseAnchor);
-
-        // Track regional mission type occurrences (max 2 of any type per region)
-        Map<MissionType, Integer> regionTypeCounts = new EnumMap<>(MissionType.class);
 
         // Prepare Medium Base secondary variant roll (if HQ)
         MissionDefinition hqSecondaryDef = null;

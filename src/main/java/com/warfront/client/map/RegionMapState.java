@@ -131,9 +131,8 @@ public final class RegionMapState {
         }
 
         boolean shouldRefreshDetails = false;
-        if (selectedRegion != null && selectedRegion.underSiege()) {
-            boolean regionStillSieged = isRegionAtWar(selectedRegion.regionX(), selectedRegion.regionZ());
-            if (!regionStillSieged) {
+        if (selectedRegion != null) {
+            if (selectedRegion.underSiege() || isRegionAtWar(selectedRegion.regionX(), selectedRegion.regionZ())) {
                 shouldRefreshDetails = true;
             }
         }
@@ -188,9 +187,7 @@ public final class RegionMapState {
 
         if (payload.underSiege()) {
             activatedRegions.add(regKey);
-            if (payload.existingSiegeMask() != 0) {
-                setConfirmedSubMask(payload.regionX(), payload.regionZ(), payload.existingSiegeMask());
-            }
+            setAuthoritativeSubMask(payload.regionX(), payload.regionZ(), payload.existingSiegeMask());
         } else if (!isSameRegion) {
             activatedRegions.remove(regKey);
             clearConfirmedSubMask(payload.regionX(), payload.regionZ());
@@ -385,6 +382,16 @@ public final class RegionMapState {
             com.warfront.region.BaseType baseType,
             float resistance, float stability,
             long seed, net.minecraft.core.BlockPos baseAnchor) {
+        return getOrGenerateMissions(regionX, regionZ, faction, baseType, resistance, stability, seed, baseAnchor, false);
+    }
+
+    public SubRegionMission[] getOrGenerateMissions(
+            int regionX, int regionZ,
+            com.warfront.region.Faction faction,
+            com.warfront.region.BaseType baseType,
+            float resistance, float stability,
+            long seed, net.minecraft.core.BlockPos baseAnchor,
+            boolean isDefense) {
         long key = ChunkPos.asLong(regionX, regionZ);
         SubRegionMission[] cached = missionCache.get(key);
         if (cached != null && cached.length > 0 && seed != 0L && cached[0].seed() != seed) {
@@ -395,7 +402,7 @@ public final class RegionMapState {
             return cached;
         }
         SubRegionMission[] missions = MissionProfile.generateForRegion(
-                regionX, regionZ, faction, baseType, resistance, stability, seed, baseAnchor);
+                regionX, regionZ, faction, baseType, resistance, stability, seed, baseAnchor, isDefense);
         missionCache.put(key, missions);
         return missions;
     }
@@ -415,6 +422,15 @@ public final class RegionMapState {
 
     public int getConfirmedSubMask(int regionX, int regionZ) {
         return confirmedMissionsMap.getOrDefault(ChunkPos.asLong(regionX, regionZ), 0);
+    }
+
+    public void setAuthoritativeSubMask(int regionX, int regionZ, int mask) {
+        long key = ChunkPos.asLong(regionX, regionZ);
+        if (mask == 0) {
+            confirmedMissionsMap.remove(key);
+        } else {
+            confirmedMissionsMap.put(key, mask);
+        }
     }
 
     public void setConfirmedSubMask(int regionX, int regionZ, int mask) {

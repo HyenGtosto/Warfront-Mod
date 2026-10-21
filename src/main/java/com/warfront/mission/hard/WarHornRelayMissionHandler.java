@@ -60,7 +60,7 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
         final BlockPos hornBellPos;
         final List<BlockPos> fusePositions;
         final List<BlockPos> hornBellPositions;
-        int countdownTicks = 45 * 20; // 45 seconds
+        int countdownTicks = 120 * 20; // 120 seconds
         boolean fuseSabotaged = false;
         final List<UUID> battalionUuids = new ArrayList<>();
         int battalionKills = 0;
@@ -104,20 +104,38 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
             if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
                 progress.setTemporaryStructuresBuilt(true);
                 BlockPos anc = progress.missionSiteAnchor();
-                List<BlockPos> fuses = new ArrayList<>();
-                List<BlockPos> bells = new ArrayList<>();
-                for (BlockPos p : progress.trackedBlockPositions()) {
-                    if (level.hasChunkAt(p)) {
-                        BlockState st = level.getBlockState(p);
-                        if (st.is(WarfrontBlocks.SIGNAL_FUSE_RELAY.get())) {
-                            fuses.add(p);
-                        } else if (st.is(WarfrontBlocks.ACOUSTIC_HORN_BELL.get()) || st.getBlock() instanceof SalvageMachineryBlock) {
-                            bells.add(p);
-                        }
-                    }
+                MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
+                TemporaryStructureBuilder.WarHornTowerResult result = TemporaryStructureBuilder.buildWarHornTower(level, anc, snapshot);
+
+                for (BlockPos b : result.hornBellPositions()) {
+                    SalvageMachineryBlock.rearm(level, b);
                 }
-                data = new HornTowerData(anc, fuses, bells);
+                for (BlockPos f : result.fuseRelayPositions()) {
+                    SalvageMachineryBlock.rearm(level, f);
+                }
+
+                data = new HornTowerData(anc, result.fuseRelayPositions(), result.hornBellPositions());
+                data.countdownTicks = 120 * 20;
                 towerDataMap.put(instanceId, data);
+
+                progress.trackedBlockPositions().clear();
+                progress.trackedBlockPositions().addAll(result.structureBlocks());
+                progress.setPhaseIndex(0); // Phase 1: 120s Scramble
+                progress.setTargetProgress(120);
+                progress.setCurrentProgress(0);
+                progress.trackedEntityUuids().clear();
+
+                level.playSound(null, anc.above(28), SoundEvents.RAID_HORN.value(), SoundSource.HOSTILE, 3.0F, 0.8F);
+
+                if (player != null) {
+                    player.displayClientMessage(Component.literal("§c⚠️ War Horn Tower signal has been re-activated!"), true);
+                }
+                RegionData regions = RegionData.get(level);
+                if (regions != null) {
+                    regions.setDirty();
+                }
+                ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+                return;
             } else {
                 RegionData regions = RegionData.get(level);
                 long missionSeed = (regions != null) ? regions.calculateMissionSeed(regionX, regionZ) : 0L;
@@ -134,8 +152,8 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
                 progress.trackedBlockPositions().clear();
                 progress.trackedBlockPositions().addAll(result.structureBlocks());
                 progress.setTemporaryStructuresBuilt(true);
-                progress.setPhaseIndex(0); // Phase 1: 45s Scramble
-                progress.setTargetProgress(45);
+                progress.setPhaseIndex(0); // Phase 1: 120s Scramble
+                progress.setTargetProgress(120);
                 progress.setCurrentProgress(0);
 
                 // Unguarded broadcast tower: "it doesnt need any mobs protecting it. the thrill comes from mobs coming at you from borders."
@@ -149,7 +167,7 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
             }
         }
 
-        // 2. Phase 1: 45-Second Signal Timer Scramble
+        // 2. Phase 1: 120-Second Signal Timer Scramble
         if (progress.phaseIndex() == 0) {
             long now = level.getGameTime();
             if (data.lastTickTime == 0) data.lastTickTime = now;
@@ -160,11 +178,10 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
             data.countdownTicks = Math.max(0, data.countdownTicks - step);
 
             int remainingSeconds = data.countdownTicks / 20;
-            progress.setCurrentProgress(45 - remainingSeconds);
+            progress.setCurrentProgress(120 - remainingSeconds);
 
-            // Escalating horn blasts at 30s and 15s
-            if (data.countdownTicks == 30 * 20 || data.countdownTicks == 15 * 20) {
-                level.playSound(null, data.anchor.above(14), SoundEvents.RAID_HORN.value(), SoundSource.HOSTILE, 3.5F, (data.countdownTicks == 15 * 20) ? 1.4F : 1.1F);
+            // Escalating reinforcement waves at 30s and 15s
+            if (data.countdownTicks == 30 * 20 || data.countdownTicks == 80 * 20) {
                 spawnBorderWaveIfReachable(level, regionX, regionZ, subX, subZ, progress, data);
             }
 
@@ -177,9 +194,12 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
                 }
             }
 
-            // If countdown expires before sabotage: horn fires signal and deploys response battalion
+            // If countdown expires before sabotage: deafening war siren triggers and deploys response battalion
             if (data.countdownTicks <= 0) {
-                level.playSound(null, data.anchor.above(14), SoundEvents.RAID_HORN.value(), SoundSource.HOSTILE, 4.0F, 1.6F);
+                BlockPos sirenPos = data.anchor.above(14);
+                level.playSound(null, sirenPos, SoundEvents.GOAT_HORN_SOUND_VARIANTS.get(2).value(), SoundSource.HOSTILE, 64.0F, 1.0F);
+                level.playSound(null, sirenPos, SoundEvents.GOAT_HORN_SOUND_VARIANTS.get(2).value(), SoundSource.HOSTILE, 64.0F, 1.06F);
+                level.playSound(null, sirenPos, SoundEvents.RAID_HORN.value(), SoundSource.HOSTILE, 48.0F, 0.70F);
                 transitionToPhase2(level, regionX, regionZ, subX, subZ, progress, data, false);
             }
         } else if (progress.phaseIndex() == 1) {
@@ -326,6 +346,12 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
         };
         ActiveCampaignMissionManager.notifyAttackingPlayersActionbar(level, regionX, regionZ,
                 "§c📯 Pillager reinforcements marching from the " + borderName + " border!");
+
+        // Play Tri-Tone War Siren Cluster from the tower summit acoustic bell (deafening war siren)
+        BlockPos sirenPos = data.anchor.above(14);
+        level.playSound(null, sirenPos, SoundEvents.GOAT_HORN_SOUND_VARIANTS.get(2).value(), SoundSource.HOSTILE, 128.0F, 1.0F);
+        level.playSound(null, sirenPos, SoundEvents.GOAT_HORN_SOUND_VARIANTS.get(2).value(), SoundSource.HOSTILE, 128.0F, 1.06F);
+        level.playSound(null, sirenPos, SoundEvents.RAID_HORN.value(), SoundSource.HOSTILE, 96.0F, 0.70F);
 
         // Spawn a 3-man strike team: 2 Warriors and 1 Marksman (NO Armored Elites in waves!)
         for (int i = 0; i < 3; i++) {
@@ -521,9 +547,5 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
             MissionEntityTracker.unregisterMissionMob(uuid);
         }
         progress.trackedEntityUuids().clear();
-
-        if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
-        }
     }
 }

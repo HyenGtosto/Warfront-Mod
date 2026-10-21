@@ -1,5 +1,6 @@
 package com.warfront.mission.easy;
 
+import com.warfront.block.SalvageMachineryBlock;
 import com.warfront.entity.ModEntities;
 import com.warfront.entity.PillagerMarksmanEntity;
 import com.warfront.mission.ActiveCampaignMissionManager;
@@ -15,10 +16,12 @@ import com.warfront.spawn.ExplorationSpawnManager;
 import com.warfront.spawn.MissionEntityTracker;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobSpawnType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -54,9 +57,61 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
             return;
         }
 
-        // If observation network has already been constructed, do not build again
+        UUID instanceId = progress.missionInstanceId();
+
+        // If observation network has already been constructed, check if repair & regarrison needed
         if (progress.temporaryStructuresBuilt() || !progress.trackedBlockPositions().isEmpty()) {
             progress.setTemporaryStructuresBuilt(true);
+            boolean hasLivingDefenders = false;
+            for (UUID uuid : progress.trackedEntityUuids()) {
+                Entity e = level.getEntity(uuid);
+                if (e != null && e.isAlive()) {
+                    hasLivingDefenders = true;
+                    break;
+                }
+            }
+
+            if (!hasLivingDefenders && !progress.trackedBlockPositions().isEmpty()) {
+                MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
+                progress.trackedEntityUuids().clear();
+                progress.setCurrentProgress(0);
+
+                for (BlockPos relayPos : progress.trackedBlockPositions()) {
+                    if (level.hasChunkAt(relayPos)) {
+                        BlockPos nestAnchor = relayPos.below(3);
+                        TemporaryStructureBuilder.buildScoutLookoutNest(level, nestAnchor, snapshot);
+                        SalvageMachineryBlock.rearm(level, relayPos);
+
+                        Mob sniper = ModEntities.PILLAGER_MARKSMAN.get().create(level);
+                        if (sniper != null) {
+                            sniper.moveTo(nestAnchor.getX() + 0.5D, nestAnchor.getY() + 3.5D, nestAnchor.getZ() + 0.5D, 0.0F, 0.0F);
+                            net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(sniper, level, level.getCurrentDifficultyAt(relayPos), MobSpawnType.EVENT, null);
+                            if (level.addFreshEntity(sniper)) {
+                                sniper.addTag("warfront_mission");
+                                sniper.getPersistentData().putBoolean("isMissionMob", true);
+                                sniper.getPersistentData().putUUID("missionInstanceId", instanceId);
+                                sniper.getPersistentData().putInt("originRegionX", regionX);
+                                sniper.getPersistentData().putInt("originRegionZ", regionZ);
+                                sniper.getPersistentData().putInt("originSubX", subX);
+                                sniper.getPersistentData().putInt("originSubZ", subZ);
+                                sniper.getPersistentData().putInt("faction", progress.targetFaction().id());
+
+                                MissionEntityTracker.registerMissionMob(sniper, instanceId, regionX, regionZ, subX, subZ, progress.targetFaction());
+                                progress.trackedEntityUuids().add(sniper.getUUID());
+                            }
+                        }
+                    }
+                }
+
+                if (player != null) {
+                    player.displayClientMessage(Component.literal("§c⚠️ Scout observation nests have been re-manned!"), true);
+                }
+                RegionData regions = RegionData.get(level);
+                if (regions != null) {
+                    regions.setDirty();
+                }
+                ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+            }
             return;
         }
 
@@ -67,7 +122,6 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
         int subMinX = regionX * RegionData.REGION_SIZE_BLOCKS + subX * ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS;
         int subMinZ = regionZ * RegionData.REGION_SIZE_BLOCKS + subZ * ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS;
 
-        UUID instanceId = progress.missionInstanceId();
         MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
 
         int targetNestCount = Math.max(3, progress.targetProgress());
@@ -222,8 +276,13 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
+        for (UUID uuid : progress.trackedEntityUuids()) {
+            Entity ent = level.getEntity(uuid);
+            if (ent != null && ent.isAlive()) {
+                ent.discard();
+            }
+            MissionEntityTracker.unregisterMissionMob(uuid);
         }
+        progress.trackedEntityUuids().clear();
     }
 }

@@ -17,6 +17,9 @@ public class PillagerScoutModel extends DefaultedEntityGeoModel<PillagerScoutEnt
         super.setCustomAnimations(animatable, instanceId, animationState);
 
         byte action = animatable.getActionState();
+        boolean isLooking = action == PillagerScoutEntity.ACTION_LOOK;
+        getBone("spyglass_held").ifPresent(b -> b.setHidden(!isLooking));
+
         if (action == PillagerScoutEntity.ACTION_UNSHEATHE || action == PillagerScoutEntity.ACTION_SHEATHE) {
             getBone("kniferightheld").ifPresent(b -> b.setHidden(false));
             getBone("knifeleftheld").ifPresent(b -> b.setHidden(false));

@@ -2879,6 +2879,341 @@
 					}
 				}
 			}
+		},
+		"stab_windup": {
+			"animation_length": 0.75,
+			"bones": {
+				"head": {
+					"rotation": {
+						"0.0": {
+							"vector": [5, 2.5, 0]
+						},
+						"0.5": {
+							"vector": [15, -15, 0],
+							"easing": "easeOutQuart"
+						}
+					}
+				},
+				"body": {
+					"rotation": {
+						"0.0": {
+							"vector": [5, 5, 0]
+						},
+						"0.5": {
+							"vector": [10, 12.5, 0],
+							"easing": "easeOutQuart"
+						}
+					}
+				},
+				"right_arm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-225.88, 208.68, -153.65]
+						},
+						"0.5": {
+							"vector": [-155.88, 181.18, -111.15],
+							"easing": "easeOutQuart"
+						}
+					},
+					"position": {
+						"vector": [0, 0, -1]
+					}
+				},
+				"left_arm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-40, 0, 22.5]
+						},
+						"0.5": {
+							"vector": [-40, 0, 80],
+							"easing": "easeOutQuint"
+						}
+					},
+					"position": {
+						"vector": [0, 0, -1]
+					}
+				},
+				"rightforearm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-6.23, 19.56, -16.81]
+						},
+						"0.5": {
+							"vector": [-138.73, 19.56, 8.19],
+							"easing": "easeOutQuart"
+						}
+					}
+				},
+				"left forearm": {
+					"rotation": {
+						"0.0": {
+							"vector": [10, 0, 40]
+						},
+						"0.5": {
+							"vector": [17.5, 0, 30],
+							"easing": "easeOutQuint"
+						}
+					}
+				},
+				"sword_held": {
+					"rotation": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"0.5": {
+							"vector": [-5, 90, -12.5],
+							"easing": "easeOutQuart"
+						}
+					}
+				}
+			}
+		},
+		"stab_charge": {
+			"loop": true,
+			"animation_length": 0.5,
+			"bones": {
+				"head": {
+					"rotation": {
+						"0.0": {
+							"vector": [15, -15, 0],
+							"easing": "easeOutQuart"
+						},
+						"0.25": {
+							"vector": [10, -15, 0]
+						},
+						"0.5": {
+							"vector": [15, -15, 0],
+							"easing": "linear"
+						}
+					}
+				},
+				"body": {
+					"rotation": {
+						"0.0": {
+							"vector": [10, 12.5, 0],
+							"easing": "easeOutQuart"
+						},
+						"0.25": {
+							"vector": [7.5, 12.5, 0]
+						},
+						"0.5": {
+							"vector": [10, 12.5, 0],
+							"easing": "linear"
+						}
+					}
+				},
+				"right_arm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-155.88, 181.18, -111.15],
+							"easing": "easeOutQuart"
+						},
+						"0.25": {
+							"vector": [-155.88, 181.18, -118.65]
+						},
+						"0.5": {
+							"vector": [-155.88, 181.18, -111.15],
+							"easing": "linear"
+						}
+					}
+				},
+				"left_arm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-40, 0, 80],
+							"easing": "easeOutQuint"
+						},
+						"0.25": {
+							"vector": [-40, 0, 90]
+						},
+						"0.5": {
+							"vector": [-40, 0, 80],
+							"easing": "linear"
+						}
+					}
+				},
+				"rightforearm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-138.73, 19.56, 8.19],
+							"easing": "easeOutQuart"
+						},
+						"0.5": {
+							"vector": [-138.73, 19.56, 8.19],
+							"easing": "linear"
+						}
+					}
+				},
+				"left forearm": {
+					"rotation": {
+						"0.0": {
+							"vector": [17.5, 0, 30],
+							"easing": "easeOutQuint"
+						},
+						"0.5": {
+							"vector": [17.5, 0, 30],
+							"easing": "linear"
+						}
+					}
+				},
+				"sword_held": {
+					"rotation": {
+						"0.0": {
+							"vector": [-5, 90, -12.5],
+							"easing": "easeOutQuart"
+						},
+						"0.5": {
+							"vector": [-5, 90, -12.5],
+							"easing": "linear"
+						}
+					}
+				}
+			}
+		},
+		"stab_thrust": {
+			"animation_length": 0.75,
+			"bones": {
+				"head": {
+					"rotation": {
+						"0.0": {
+							"vector": [15, -15, 0],
+							"easing": "linear"
+						},
+						"0.3333": {
+							"vector": [15, 5, 0],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [5, 2.5, 0],
+							"easing": "easeInQuart"
+						}
+					}
+				},
+				"body": {
+					"rotation": {
+						"0.0": {
+							"vector": [10, 12.5, 0],
+							"easing": "linear"
+						},
+						"0.3333": {
+							"vector": [7.5, -10, 0],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [5, 5, 0],
+							"easing": "easeInQuart"
+						}
+					}
+				},
+				"right_arm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-155.88, 181.18, -111.15],
+							"easing": "linear"
+						},
+						"0.3333": {
+							"vector": [-258.38, 186.18, -96.15],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [-225.88, 208.68, -153.65],
+							"easing": "easeInQuart"
+						}
+					},
+					"position": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"0.3333": {
+							"vector": [0, 0, -2],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [0, 0, -1],
+							"easing": "easeInQuart"
+						}
+					}
+				},
+				"left_arm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-40, 0, 80],
+							"easing": "linear"
+						},
+						"0.3333": {
+							"vector": [-67.5, 0, 92.5],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [-40, 0, 22.5],
+							"easing": "easeInQuart"
+						}
+					},
+					"position": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"0.3333": {
+							"vector": [0, 0, -2]
+						},
+						"0.75": {
+							"vector": [0, 0, -1],
+							"easing": "easeInQuart"
+						}
+					}
+				},
+				"rightforearm": {
+					"rotation": {
+						"0.0": {
+							"vector": [-138.73, 19.56, 8.19],
+							"easing": "linear"
+						},
+						"0.3333": {
+							"vector": [-18.73, 19.56, 8.19],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [-6.23, 19.56, -16.81],
+							"easing": "easeInQuart"
+						}
+					}
+				},
+				"left forearm": {
+					"rotation": {
+						"0.0": {
+							"vector": [17.5, 0, 30],
+							"easing": "linear"
+						},
+						"0.3333": {
+							"vector": [17.5, 0, 15],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [10, 0, 40],
+							"easing": "easeInQuart"
+						}
+					}
+				},
+				"sword_held": {
+					"rotation": {
+						"0.0": {
+							"vector": [-5, 90, -12.5],
+							"easing": "linear"
+						},
+						"0.0417": {
+							"vector": [2.5, 97.46, -8.02]
+						},
+						"0.3333": {
+							"vector": [-5, 102.5, -5],
+							"easing": "easeOutQuint"
+						},
+						"0.75": {
+							"vector": [0, 0, 0],
+							"easing": "easeInQuart"
+						}
+					}
+				}
+			}
 		}
 	}
 }

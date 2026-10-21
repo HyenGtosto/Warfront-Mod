@@ -34,6 +34,10 @@ public final class MissionHandlerRegistry {
         HANDLERS.put(MissionType.ARTILLERY_BATTERY, com.warfront.mission.hard.ArtilleryBatteryMissionHandler.getInstance());
         HANDLERS.put(MissionType.WAR_HORN_RELAY, com.warfront.mission.hard.WarHornRelayMissionHandler.getInstance());
         HANDLERS.put(MissionType.CUT_THE_SUPPLY_LINE, com.warfront.mission.hard.WarHornRelayMissionHandler.getInstance());
+
+        // Defense Mission Handlers (Zero-Structure Defend Operations)
+        HANDLERS.put(MissionType.DEFEAT_INVADING_FORCES, com.warfront.mission.defense.DefeatInvadingForcesMissionHandler.getInstance());
+        HANDLERS.put(MissionType.HOLD_THE_CHOKEPOINT, com.warfront.mission.defense.HoldTheChokepointMissionHandler.getInstance());
     }
 
     private MissionHandlerRegistry() {

@@ -371,7 +371,7 @@ public final class AIAttackManager {
             SiegeDetails details = calculateSiegeDetails(level, regions, chosen.targetRegionX(), chosen.targetRegionZ(),
                     chosen.sourceRegionX(), chosen.sourceRegionZ(), faction);
 
-            long durationTicks = regions.calculateDefenseDurationTicks(chosen.targetRegionX(), chosen.targetRegionZ(), details.attackValue(), details.encircled(), details.sources());
+            long durationTicks = regions.calculateDefenseDurationTicks(chosen.targetRegionX(), chosen.targetRegionZ(), details.encircled(), details.sources());
 
             long attackerClusterId = chosen.attackerClusterId();
             if (attackerClusterId == 0L && faction.isAI()) {
@@ -382,7 +382,6 @@ public final class AIAttackManager {
                     faction, // Explicit AI attacker identifier
                     chosen.targetRegionX(), chosen.targetRegionZ(),
                     details.sources(),
-                    details.attackValue(),
                     details.encircled(),
                     level.getGameTime(),
                     durationTicks,
@@ -402,19 +401,19 @@ public final class AIAttackManager {
 
             String logMsg;
             if (details.encircled()) {
-                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s, attack value %d, encircled.",
-                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue());
+                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s, encircled.",
+                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo);
             } else if (details.sources().size() > 1) {
-                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s, attack value %d, %d sources.",
-                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue(), details.sources().size());
+                logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s, %d sources.",
+                        faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.sources().size());
             } else {
                 logMsg = String.format("§cAttack launched: %s → Region (%d, %d) %s.",
                         faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo);
             }
             regions.addLog(level, logMsg);
 
-            Warfront.LOGGER.info("Attack launched: {} → Region ({}, {}) {}, attack value {}, {} sources.",
-                    faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo, details.attackValue(),
+            Warfront.LOGGER.info("Attack launched: {} → Region ({}, {}) {}, {} sources.",
+                    faction.commandName(), chosen.targetRegionX(), chosen.targetRegionZ(), defenderInfo,
                     details.sources().size());
         }
 
@@ -426,7 +425,7 @@ public final class AIAttackManager {
 
     private record StrategicActor(Faction faction, long clusterId) {}
 
-    private record SiegeDetails(int attackValue, List<RegionData.SourcePos> sources, boolean encircled) {
+    private record SiegeDetails(List<RegionData.SourcePos> sources, boolean encircled) {
     }
 
     private static RegionData.RegionState getRawOrSavedRegionState(ServerLevel level, RegionData regions, int rx, int rz) {
@@ -465,13 +464,7 @@ public final class AIAttackManager {
         }
 
         boolean encircled = (hostileNeighborCount >= 4);
-        int attackValue = sources.size();
-
-        if (encircled) {
-            attackValue += 20; // Absurd threat multiplier for encircled region
-        }
-
-        return new SiegeDetails(attackValue, sources, encircled);
+        return new SiegeDetails(sources, encircled);
     }
 
     private static void findFrontlineAttackCandidatesDualZone(ServerLevel level, RegionData regions, Faction attacker, long clusterId,

@@ -54,13 +54,28 @@ public final class MissionSiteSnapshotManager {
 
             // Distant structures finish quickly; nearby structures dissolve gradually with POOF particles (2 blocks/tick)
             int batchSize = hasPlayerNearby ? 2 : 25;
+            int processedThisTick = 0;
 
-            for (int i = 0; i < batchSize && currentIndex < entries.size(); i++) {
+            while (processedThisTick < batchSize && currentIndex < entries.size()) {
                 MissionSiteSnapshot.BlockRestoreEntry entry = entries.get(currentIndex++);
                 BlockPos pos = entry.pos();
                 BlockState targetState = entry.targetState() != null ? entry.targetState() : Blocks.AIR.defaultBlockState();
 
-                if (hasPlayerNearby) {
+                if (!level.hasChunkAt(pos)) {
+                    continue;
+                }
+
+                BlockState current = level.getBlockState(pos);
+                // If the block in the world already matches the target state, skip immediately without consuming batch quota
+                if (current.is(targetState.getBlock())) {
+                    continue;
+                }
+
+                processedThisTick++;
+
+                boolean isAir = targetState.isAir();
+                // Play POOF particle and sound feedback ONLY when an actual physical block is being demolished into air
+                if (hasPlayerNearby && !current.isAir() && isAir) {
                     level.sendParticles(
                             ParticleTypes.POOF,
                             pos.getX() + 0.5D,
@@ -69,7 +84,7 @@ public final class MissionSiteSnapshotManager {
                             6,
                             0.25D, 0.25D, 0.25D, 0.04D
                     );
-                    if (i == 0 || (currentIndex % 6 == 0)) {
+                    if (processedThisTick == 1 || (currentIndex % 6 == 0)) {
                         level.playSound(null, pos, SoundEvents.CHICKEN_EGG, SoundSource.BLOCKS, 0.6F, 1.2F);
                     }
                 }
@@ -84,7 +99,9 @@ public final class MissionSiteSnapshotManager {
                 MissionSiteSnapshot.BlockRestoreEntry entry = entries.get(currentIndex++);
                 BlockPos pos = entry.pos();
                 BlockState targetState = entry.targetState() != null ? entry.targetState() : Blocks.AIR.defaultBlockState();
-                level.setBlock(pos, targetState, 3);
+                if (level.hasChunkAt(pos) && !level.getBlockState(pos).is(targetState.getBlock())) {
+                    level.setBlock(pos, targetState, 3);
+                }
             }
         }
     }
@@ -135,9 +152,39 @@ public final class MissionSiteSnapshotManager {
         if (missionInstanceId == null || level == null) return;
         MissionSiteSnapshot snapshot = ACTIVE_SNAPSHOTS.remove(missionInstanceId);
         if (snapshot != null) {
-            List<MissionSiteSnapshot.BlockRestoreEntry> entries = snapshot.getSortedRestoreEntries();
-            if (!entries.isEmpty()) {
-                BlockPos center = centerPos != null ? centerPos : entries.get(0).pos();
+            List<MissionSiteSnapshot.BlockRestoreEntry> rawEntries = snapshot.getSortedRestoreEntries();
+            if (!rawEntries.isEmpty()) {
+                BlockPos center = centerPos != null ? centerPos : rawEntries.get(0).pos();
+                int floorY = center.getY();
+                // Filter out entries where current world block and target state are already both AIR,
+                // and ensure sub-surface foundation and basement positions are never left as hollow AIR
+                List<MissionSiteSnapshot.BlockRestoreEntry> entries = rawEntries.stream()
+                        .filter(entry -> {
+                            BlockPos p = entry.pos();
+                            BlockState s = entry.targetState();
+                            if (level.hasChunkAt(p)) {
+                                BlockState current = level.getBlockState(p);
+                                if (current.isAir() && (s == null || s.isAir())) {
+                                    return false; // Skip empty air completely
+                                }
+                            }
+                            return true;
+                        })
+                        .map(entry -> {
+                            BlockPos p = entry.pos();
+                            BlockState s = entry.targetState();
+                            if (p.getY() < floorY && (s == null || s.isAir())) {
+                                if (p.getY() == floorY - 1) {
+                                    return new MissionSiteSnapshot.BlockRestoreEntry(p, Blocks.GRASS_BLOCK.defaultBlockState());
+                                } else if (p.getY() >= floorY - 4) {
+                                    return new MissionSiteSnapshot.BlockRestoreEntry(p, Blocks.DIRT.defaultBlockState());
+                                } else {
+                                    return new MissionSiteSnapshot.BlockRestoreEntry(p, Blocks.STONE.defaultBlockState());
+                                }
+                            }
+                            return entry;
+                        })
+                        .toList();
                 ACTIVE_TASKS.add(new ActiveDemolitionTask(level, entries, center));
                 return;
             }
@@ -150,12 +197,27 @@ public final class MissionSiteSnapshotManager {
     /**
      * Queues an arbitrary set of block positions (e.g. remaining outpost structure blocks)
      * for gradual top-to-bottom demolition with POOF particles.
+     * Prevents crater formation by backfilling sub-surface foundation blocks with solid ground.
      */
     public static void queueGradualDemolition(ServerLevel level, Collection<BlockPos> positions, BlockPos centerPos) {
         if (level == null || positions == null || positions.isEmpty()) return;
+        int floorY = centerPos != null ? centerPos.getY() : Integer.MIN_VALUE;
         List<MissionSiteSnapshot.BlockRestoreEntry> entries = positions.stream()
                 .sorted((a, b) -> Integer.compare(b.getY(), a.getY()))
-                .map(pos -> new MissionSiteSnapshot.BlockRestoreEntry(pos, Blocks.AIR.defaultBlockState()))
+                .map(pos -> {
+                    if (floorY != Integer.MIN_VALUE && pos.getY() < floorY) {
+                        // Sub-surface foundations and basements must NEVER be replaced with AIR!
+                        // Backfill with natural ground flush with surface.
+                        if (pos.getY() == floorY - 1) {
+                            return new MissionSiteSnapshot.BlockRestoreEntry(pos, Blocks.GRASS_BLOCK.defaultBlockState());
+                        } else if (pos.getY() >= floorY - 4) {
+                            return new MissionSiteSnapshot.BlockRestoreEntry(pos, Blocks.DIRT.defaultBlockState());
+                        } else {
+                            return new MissionSiteSnapshot.BlockRestoreEntry(pos, Blocks.STONE.defaultBlockState());
+                        }
+                    }
+                    return new MissionSiteSnapshot.BlockRestoreEntry(pos, Blocks.AIR.defaultBlockState());
+                })
                 .toList();
         BlockPos center = centerPos != null ? centerPos : entries.get(0).pos();
         ACTIVE_TASKS.add(new ActiveDemolitionTask(level, entries, center));

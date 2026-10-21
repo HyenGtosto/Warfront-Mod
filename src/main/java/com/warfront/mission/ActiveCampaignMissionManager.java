@@ -214,6 +214,13 @@ public final class ActiveCampaignMissionManager {
                     return "Eliminate Battalion: " + currentProgress + " / " + targetProgress;
                 }
             }
+            if (missionType == MissionType.DEFEAT_INVADING_FORCES) {
+                return "Repelled: " + currentProgress + " / " + targetProgress;
+            }
+            if (missionType == MissionType.HOLD_THE_CHOKEPOINT) {
+                int wave = Math.min(3, Math.max(1, phaseIndex));
+                return "Integrity: " + currentProgress + "% (Wave " + wave + "/3)";
+            }
             return currentProgress + " / " + targetProgress;
         }
 
@@ -422,9 +429,16 @@ public final class ActiveCampaignMissionManager {
         long missionSeed = (regions != null) ? regions.calculateMissionSeed(regionX, regionZ) : 0L;
         RegionData.Region reg = (regions != null) ? regions.regionAt(regionX, regionZ) : null;
         BlockPos baseAnchor = (reg != null) ? reg.baseAnchor() : null;
+        boolean isDefense = false;
+        if (regions != null) {
+            RegionData.SiegeCampaign siege = regions.getSiege(regionX, regionZ);
+            if (siege != null && siege.attacker() != Faction.HUMANITY) {
+                isDefense = true;
+            }
+        }
 
         SubRegionMission[] generatedMissions = MissionProfile.generateForRegion(
-                regionX, regionZ, targetFaction, baseType, resistance, stability, missionSeed, baseAnchor);
+                regionX, regionZ, targetFaction, baseType, resistance, stability, missionSeed, baseAnchor, isDefense);
 
         Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.computeIfAbsent(regionKey, k -> new HashMap<>());
 
@@ -436,6 +450,16 @@ public final class ActiveCampaignMissionManager {
             if ((activeSubRegionsMask & (1 << bit)) != 0) {
                 ActiveSubRegionProgress existing = subMissions.get(bit);
                 if (existing != null) {
+                    if (existing.isCompleted()) {
+                        // Relaunching a previously failed or completed mission during an ongoing campaign:
+                        // Reset progress state in-place while keeping existing missionSiteAnchor,
+                        // trackedBlockPositions, and temporaryStructuresBuilt flag intact to prevent height shifts and cratering.
+                        existing.setCompleted(false);
+                        existing.setCurrentProgress(0);
+                        existing.setPhaseIndex(0);
+                        existing.trackedEntityUuids().clear();
+                        broadcastHudUpdate(level, regionX, regionZ, subX, subZ, existing);
+                    }
                     continue;
                 }
                 SubRegionMission gen = generatedMissions[i];

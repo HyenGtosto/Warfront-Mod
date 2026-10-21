@@ -66,4 +66,22 @@ public interface FactionMissionGenerator {
     ) {
         return generateMissionsWithBiome(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory);
     }
+
+    /**
+     * Primary modern entry point with defense flag: Generates 4 deterministic subregion missions
+     * incorporating world seed/salt, base anchor, and defense state.
+     */
+    default SubRegionMission[] generateMissionsWithSeedAndBase(
+            int regionX, int regionZ,
+            Faction faction,
+            BaseType baseType,
+            float resistance,
+            float stability,
+            BiomeCategory biomeCategory,
+            long seed,
+            BlockPos baseAnchor,
+            boolean isDefense
+    ) {
+        return generateMissionsWithSeedAndBase(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor);
+    }
 }

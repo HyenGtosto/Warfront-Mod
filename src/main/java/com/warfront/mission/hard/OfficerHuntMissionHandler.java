@@ -92,16 +92,37 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
             if (progress.temporaryStructuresBuilt() || (progress.missionSiteAnchor() != null && !progress.trackedBlockPositions().isEmpty())) {
                 progress.setTemporaryStructuresBuilt(true);
                 BlockPos anc = progress.missionSiteAnchor();
-                BlockPos deskPos = null;
-                List<BlockPos> deskList = new ArrayList<>();
-                for (BlockPos p : progress.trackedBlockPositions()) {
-                    if (level.hasChunkAt(p) && (level.getBlockState(p).is(com.warfront.block.WarfrontBlocks.COMMANDER_WAR_DESK.get()) || level.getBlockState(p).getBlock() instanceof SalvageMachineryBlock)) {
-                        deskList.add(p);
-                        if (deskPos == null) deskPos = p;
-                    }
+                MissionSiteSnapshot snapshot = MissionSiteSnapshotManager.getOrCreate(instanceId, regionX, regionZ, subX, subZ);
+                TemporaryStructureBuilder.OfficerCampResult result = TemporaryStructureBuilder.buildOfficerCamp(level, anc, snapshot);
+
+                if (result.warDeskPos() != null) {
+                    SalvageMachineryBlock.rearm(level, result.warDeskPos());
                 }
-                data = new OfficerHuntData(anc, deskPos != null ? deskPos : anc, deskList);
+                for (BlockPos dp : result.warDeskPositions()) {
+                    SalvageMachineryBlock.rearm(level, dp);
+                }
+
+                data = new OfficerHuntData(anc, result.warDeskPos(), result.warDeskPositions());
                 huntDataMap.put(instanceId, data);
+
+                progress.trackedBlockPositions().clear();
+                progress.trackedBlockPositions().addAll(result.structureBlocks());
+                progress.setPhaseIndex(0); // Phase 1: Assassination
+                progress.setTargetProgress(1);
+                progress.setCurrentProgress(0);
+                progress.trackedEntityUuids().clear();
+
+                spawnCampEntities(level, result, instanceId, regionX, regionZ, subX, subZ, progress, data);
+
+                if (player != null) {
+                    player.displayClientMessage(Component.literal("§c⚠️ Field Commander camp has been repaired and reinforced!"), true);
+                }
+                RegionData regions = RegionData.get(level);
+                if (regions != null) {
+                    regions.setDirty();
+                }
+                ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
+                return;
             } else {
                 RegionData regions = RegionData.get(level);
                 long missionSeed = (regions != null) ? regions.calculateMissionSeed(regionX, regionZ) : 0L;
@@ -122,68 +143,7 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
                 progress.setTargetProgress(1);
                 progress.setCurrentProgress(0);
 
-                // Spawn Commander inside Big Tent in front of War Desk with boosted armor & stats
-                Mob commander = ModEntities.PILLAGER_COMMANDER.get().create(level);
-                if (commander != null) {
-                    commander.moveTo(result.commanderSpawnPos().getX() + 0.5D, result.commanderSpawnPos().getY(), result.commanderSpawnPos().getZ() + 0.5D, 0.0F, 0.0F);
-
-                    var armorAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
-                    if (armorAttr != null) armorAttr.setBaseValue(16.0D); // Reinforced heavy armor plating
-
-                    var toughnessAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR_TOUGHNESS);
-                    if (toughnessAttr != null) toughnessAttr.setBaseValue(8.0D);
-
-                    var healthAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH);
-                    if (healthAttr != null) {
-                        healthAttr.setBaseValue(65.0D);
-                        commander.setHealth(65.0F);
-                    }
-
-                    var kbAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE);
-                    if (kbAttr != null) kbAttr.setBaseValue(0.60D);
-
-                    commander.setCustomName(Component.literal("§cField Commander §4[Target]"));
-                    commander.setCustomNameVisible(true);
-
-                    net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(commander, level, level.getCurrentDifficultyAt(result.commanderSpawnPos()), MobSpawnType.EVENT, null);
-                    if (level.addFreshEntity(commander)) {
-                        setupMob(commander, instanceId, regionX, regionZ, subX, subZ, progress);
-                        commander.setPersistenceRequired();
-                        commander.getPersistentData().putBoolean("preventActiveDespawn", true);
-                        commander.goalSelector.addGoal(1, new MissionPostGuardGoal(commander, result.warDeskPos() != null ? result.warDeskPos() : result.commanderSpawnPos(), 20.0D, 1.15D));
-                        data.commanderUuid = commander.getUUID();
-                    }
-                }
-
-                // Spawn 2 Armored Elite bodyguards inside the tent
-                for (BlockPos bgPos : result.bodyguardSpawnPositions()) {
-                    Mob bodyguard = ModEntities.PILLAGER_ELITE.get().create(level);
-                    if (bodyguard != null) {
-                        bodyguard.moveTo(bgPos.getX() + 0.5D, bgPos.getY(), bgPos.getZ() + 0.5D, 0.0F, 0.0F);
-                        net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(bodyguard, level, level.getCurrentDifficultyAt(bgPos), MobSpawnType.EVENT, null);
-                        if (level.addFreshEntity(bodyguard)) {
-                            setupMob(bodyguard, instanceId, regionX, regionZ, subX, subZ, progress);
-                            bodyguard.setPersistenceRequired();
-                            bodyguard.getPersistentData().putBoolean("preventActiveDespawn", true);
-                            bodyguard.goalSelector.addGoal(1, new MissionPostGuardGoal(bodyguard, bgPos, 20.0D, 1.15D));
-                        }
-                    }
-                }
-
-                // Spawn outer tent / campfire sentries
-                for (BlockPos pPos : result.outerPatrolSpawnPositions()) {
-                    Mob guard = ModEntities.PILLAGER_WARRIOR.get().create(level);
-                    if (guard != null) {
-                        guard.moveTo(pPos.getX() + 0.5D, pPos.getY(), pPos.getZ() + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
-                        net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(guard, level, level.getCurrentDifficultyAt(pPos), MobSpawnType.EVENT, null);
-                        if (level.addFreshEntity(guard)) {
-                            setupMob(guard, instanceId, regionX, regionZ, subX, subZ, progress);
-                            guard.setPersistenceRequired();
-                            guard.getPersistentData().putBoolean("preventActiveDespawn", true);
-                            guard.goalSelector.addGoal(1, new MissionPostGuardGoal(guard, pPos, 16.0D, 1.10D));
-                        }
-                    }
-                }
+                spawnCampEntities(level, result, instanceId, regionX, regionZ, subX, subZ, progress, data);
 
                 if (regions != null) {
                     regions.setDirty();
@@ -359,6 +319,79 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
         ActiveCampaignMissionManager.completeMission(level, regionX, regionZ, subX, subZ, progress);
     }
 
+    private void spawnCampEntities(
+            ServerLevel level,
+            TemporaryStructureBuilder.OfficerCampResult result,
+            UUID instanceId,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            ActiveCampaignMissionManager.ActiveSubRegionProgress progress,
+            OfficerHuntData data
+    ) {
+        // Spawn Commander inside Big Tent in front of War Desk with boosted armor & stats
+        Mob commander = ModEntities.PILLAGER_COMMANDER.get().create(level);
+        if (commander != null) {
+            commander.moveTo(result.commanderSpawnPos().getX() + 0.5D, result.commanderSpawnPos().getY(), result.commanderSpawnPos().getZ() + 0.5D, 0.0F, 0.0F);
+
+            var armorAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR);
+            if (armorAttr != null) armorAttr.setBaseValue(16.0D); // Reinforced heavy armor plating
+
+            var toughnessAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.ARMOR_TOUGHNESS);
+            if (toughnessAttr != null) toughnessAttr.setBaseValue(8.0D);
+
+            var healthAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.MAX_HEALTH);
+            if (healthAttr != null) {
+                healthAttr.setBaseValue(65.0D);
+                commander.setHealth(65.0F);
+            }
+
+            var kbAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE);
+            if (kbAttr != null) kbAttr.setBaseValue(0.60D);
+
+            commander.setCustomName(Component.literal("§cField Commander §4[Target]"));
+            commander.setCustomNameVisible(true);
+
+            net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(commander, level, level.getCurrentDifficultyAt(result.commanderSpawnPos()), MobSpawnType.EVENT, null);
+            if (level.addFreshEntity(commander)) {
+                setupMob(commander, instanceId, regionX, regionZ, subX, subZ, progress);
+                commander.setPersistenceRequired();
+                commander.getPersistentData().putBoolean("preventActiveDespawn", true);
+                commander.goalSelector.addGoal(1, new MissionPostGuardGoal(commander, result.warDeskPos() != null ? result.warDeskPos() : result.commanderSpawnPos(), 20.0D, 1.15D));
+                data.commanderUuid = commander.getUUID();
+            }
+        }
+
+        // Spawn 2 Armored Elite bodyguards inside the tent
+        for (BlockPos bgPos : result.bodyguardSpawnPositions()) {
+            Mob bodyguard = ModEntities.PILLAGER_ELITE.get().create(level);
+            if (bodyguard != null) {
+                bodyguard.moveTo(bgPos.getX() + 0.5D, bgPos.getY(), bgPos.getZ() + 0.5D, 0.0F, 0.0F);
+                net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(bodyguard, level, level.getCurrentDifficultyAt(bgPos), MobSpawnType.EVENT, null);
+                if (level.addFreshEntity(bodyguard)) {
+                    setupMob(bodyguard, instanceId, regionX, regionZ, subX, subZ, progress);
+                    bodyguard.setPersistenceRequired();
+                    bodyguard.getPersistentData().putBoolean("preventActiveDespawn", true);
+                    bodyguard.goalSelector.addGoal(1, new MissionPostGuardGoal(bodyguard, bgPos, 20.0D, 1.15D));
+                }
+            }
+        }
+
+        // Spawn outer tent / campfire sentries
+        for (BlockPos pPos : result.outerPatrolSpawnPositions()) {
+            Mob guard = ModEntities.PILLAGER_WARRIOR.get().create(level);
+            if (guard != null) {
+                guard.moveTo(pPos.getX() + 0.5D, pPos.getY(), pPos.getZ() + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
+                net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(guard, level, level.getCurrentDifficultyAt(pPos), MobSpawnType.EVENT, null);
+                if (level.addFreshEntity(guard)) {
+                    setupMob(guard, instanceId, regionX, regionZ, subX, subZ, progress);
+                    guard.setPersistenceRequired();
+                    guard.getPersistentData().putBoolean("preventActiveDespawn", true);
+                    guard.goalSelector.addGoal(1, new MissionPostGuardGoal(guard, pPos, 16.0D, 1.10D));
+                }
+            }
+        }
+    }
+
     @Override
     public void onCleanup(
             ServerLevel level,
@@ -383,9 +416,5 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
             MissionEntityTracker.unregisterMissionMob(uuid);
         }
         progress.trackedEntityUuids().clear();
-
-        if (!progress.isCompleted()) {
-            MissionSiteSnapshotManager.restoreAndRemove(level, progress.missionInstanceId(), progress.trackedBlockPositions(), progress.missionSiteAnchor());
-        }
     }
 }

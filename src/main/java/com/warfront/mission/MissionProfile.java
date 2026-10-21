@@ -67,8 +67,27 @@ public final class MissionProfile {
     public static SubRegionMission[] generateForRegion(
             int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability,
             BiomeCategory biomeCategory, long seed, BlockPos baseAnchor) {
+        return generateForRegion(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor, false);
+    }
+
+    /**
+     * Comprehensive entry point with defense flag: Generates 4 deterministic subregion missions
+     * with biome, seed, base anchor, and defense state.
+     */
+    public static SubRegionMission[] generateForRegion(
+            int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability,
+            BiomeCategory biomeCategory, long seed, BlockPos baseAnchor, boolean isDefense) {
         return getGenerator(faction).generateMissionsWithSeedAndBase(
-                regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor);
+                regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor, isDefense);
+    }
+
+    /**
+     * Generates 4 deterministic subregion missions with seed, base anchor, and defense flag.
+     */
+    public static SubRegionMission[] generateForRegion(
+            int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability,
+            long seed, BlockPos baseAnchor, boolean isDefense) {
+        return generateForRegion(regionX, regionZ, faction, baseType, resistance, stability, BiomeCategory.STANDARD, seed, baseAnchor, isDefense);
     }
 
     /**

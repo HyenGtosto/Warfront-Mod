@@ -123,4 +123,17 @@ public class SalvageMachineryBlock extends Block {
             level.playSound(null, pos, SoundEvents.ANVIL_USE, SoundSource.BLOCKS, 0.6F, 1.4F);
         }
     }
+
+    /**
+     * Rearms the machinery block at the given position, locking it for combat.
+     */
+    public static void rearm(ServerLevel level, BlockPos pos) {
+        if (level == null || pos == null || !level.hasChunkAt(pos)) {
+            return;
+        }
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof SalvageMachineryBlock && state.getValue(DISARMED)) {
+            level.setBlock(pos, state.setValue(DISARMED, false), Block.UPDATE_ALL);
+        }
+    }
 }

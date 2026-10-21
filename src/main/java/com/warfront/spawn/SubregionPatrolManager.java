@@ -4,6 +4,9 @@ import com.warfront.Warfront;
 import com.warfront.ai.goal.SubregionPatrolGoal;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
+import com.warfront.entity.ModEntities;
+import com.warfront.entity.PillagerScoutEntity;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -47,10 +50,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class SubregionPatrolManager {
 
     public static final int SUBREGION_SIZE_BLOCKS = 64;
-    public static final int MAX_SQUADS_PER_SUBREGION = 2;
+    public static final int MAX_SQUADS_PER_SUBREGION = 3;
     public static final long SPAWN_COOLDOWN_TICKS = 90L * 20L; // 90 seconds = 1800 ticks
     public static final double MIN_WAYPOINT_DIST = 48.0D;
     public static final int HOLD_GROUND_DURATION_TICKS = 15 * 20; // 15 seconds = 300 ticks
+
+    public static final long SCOUT_SPAWN_COOLDOWN_TICKS = 5L * 60L * 20L; // 5 minutes = 6000 ticks
 
     private static final int EVAL_INTERVAL_TICKS = 20; // 1 second evaluation cadence
     private static final int PLAYER_SCAN_RADIUS_BLOCKS = 128;
@@ -128,11 +133,27 @@ public final class SubregionPatrolManager {
             return living;
         }
 
+        private UUID homingPlayerUuid = null;
+
+        public void enableHoming(UUID playerUuid) {
+            this.homingPlayerUuid = playerUuid;
+            this.holdingGround = false;
+            this.holdTicksRemaining = 0;
+        }
+
+        public boolean isHoming() {
+            return homingPlayerUuid != null;
+        }
+
+        public UUID getHomingPlayerUuid() {
+            return homingPlayerUuid;
+        }
+
         /**
          * Called when members arrive at the current waypoint. Transitions squad to 15s hold ground.
          */
         public synchronized void notifyArrival(Level level) {
-            if (!holdingGround) {
+            if (!holdingGround && homingPlayerUuid == null) {
                 holdingGround = true;
                 holdTicksRemaining = HOLD_GROUND_DURATION_TICKS;
             }
@@ -142,6 +163,16 @@ public final class SubregionPatrolManager {
          * Ticks the squad's hold timer and picks the next waypoint when elapsed.
          */
         public synchronized void tickHoldTimer(ServerLevel level) {
+            if (homingPlayerUuid != null) {
+                Entity e = level.getEntity(homingPlayerUuid);
+                if (e instanceof Player p && p.isAlive()) {
+                    this.currentWaypoint = p.blockPosition();
+                    alertSquadToTarget(level, p);
+                    return;
+                } else {
+                    this.homingPlayerUuid = null;
+                }
+            }
             if (holdingGround) {
                 holdTicksRemaining -= EVAL_INTERVAL_TICKS;
                 if (holdTicksRemaining <= 0) {
@@ -199,6 +230,37 @@ public final class SubregionPatrolManager {
     /** Last spawn game time per subregion: SubKey -> GameTime */
     private static final Map<Long, Long> LAST_SPAWN_TIME = new ConcurrentHashMap<>();
 
+    /** Active autonomous scout per subregion: SubKey -> Scout Mob UUID */
+    private static final Map<Long, UUID> ACTIVE_SCOUTS = new ConcurrentHashMap<>();
+
+    /** Last autonomous scout spawn game time per subregion: SubKey -> GameTime */
+    private static final Map<Long, Long> LAST_SCOUT_SPAWN_TIME = new ConcurrentHashMap<>();
+
+    /** Natural patrol spawn suppression until game time: SubKey -> GameTime */
+    private static final Map<Long, Long> NATURAL_SPAWN_SUPPRESSION_UNTIL = new ConcurrentHashMap<>();
+
+    /** Scheduled reinforcement actions from scout horn alerts */
+    public static class ScheduledReinforcementTask {
+        public final long executeAtTick;
+        public final int rx, rz, sx, sz;
+        public final UUID targetPlayerUuid;
+        public final boolean isSpawn;
+        public final UUID squadIdToAggro;
+
+        public ScheduledReinforcementTask(long executeAtTick, int rx, int rz, int sx, int sz, UUID targetPlayerUuid, boolean isSpawn, UUID squadIdToAggro) {
+            this.executeAtTick = executeAtTick;
+            this.rx = rx;
+            this.rz = rz;
+            this.sx = sx;
+            this.sz = sz;
+            this.targetPlayerUuid = targetPlayerUuid;
+            this.isSpawn = isSpawn;
+            this.squadIdToAggro = squadIdToAggro;
+        }
+    }
+
+    private static final List<ScheduledReinforcementTask> PENDING_REINFORCEMENTS = new CopyOnWriteArrayList<>();
+
     private SubregionPatrolManager() {
     }
 
@@ -218,6 +280,10 @@ public final class SubregionPatrolManager {
         long subKey = makeSubKey(rx, rz, sx, sz);
         List<PatrolSquad> squads = ACTIVE_PATROLS.remove(subKey);
         LAST_SPAWN_TIME.remove(subKey);
+        ACTIVE_SCOUTS.remove(subKey);
+        LAST_SCOUT_SPAWN_TIME.remove(subKey);
+        NATURAL_SPAWN_SUPPRESSION_UNTIL.remove(subKey);
+        PENDING_REINFORCEMENTS.removeIf(task -> task.rx == rx && task.rz == rz && task.sx == sx && task.sz == sz);
         if (squads != null) {
             for (PatrolSquad squad : squads) {
                 for (UUID id : squad.memberUuids) {
@@ -292,6 +358,46 @@ public final class SubregionPatrolManager {
             }
         }
 
+        // 0. Process scheduled scout reinforcements
+        if (!PENDING_REINFORCEMENTS.isEmpty()) {
+            List<ScheduledReinforcementTask> ready = new ArrayList<>();
+            for (ScheduledReinforcementTask task : PENDING_REINFORCEMENTS) {
+                if (gameTime >= task.executeAtTick) {
+                    ready.add(task);
+                }
+            }
+            for (ScheduledReinforcementTask task : ready) {
+                PENDING_REINFORCEMENTS.remove(task);
+                ServerPlayer targetPlayer = level.getServer().getPlayerList().getPlayer(task.targetPlayerUuid);
+                if (targetPlayer == null || !targetPlayer.isAlive()) continue;
+
+                long taskSubKey = makeSubKey(task.rx, task.rz, task.sx, task.sz);
+                List<PatrolSquad> subSquads = ACTIVE_PATROLS.computeIfAbsent(taskSubKey, k -> new CopyOnWriteArrayList<>());
+                subSquads.removeIf(s -> s.countLiving(level) == 0);
+
+                if (task.isSpawn) {
+                    RegionData regions = RegionData.get(level);
+                    PatrolSquad spawned = spawnPatrolSquad(level, regions, task.rx, task.rz, task.sx, task.sz, Faction.PILLAGER_CONQUERORS);
+                    if (spawned != null) {
+                        subSquads.add(spawned);
+                        LAST_SPAWN_TIME.put(taskSubKey, gameTime);
+                        dispatchSquadHoming(level, spawned, targetPlayer);
+                        Warfront.LOGGER.info("[SCOUT REINFORCE] Spawned reinforcement squad {} against player {}",
+                                spawned.getSquadId(), targetPlayer.getName().getString());
+                    }
+                } else {
+                    for (PatrolSquad s : subSquads) {
+                        if (s.getSquadId().equals(task.squadIdToAggro) && s.countLiving(level) > 0) {
+                            dispatchSquadHoming(level, s, targetPlayer);
+                            Warfront.LOGGER.info("[SCOUT REINFORCE] Dispatched existing squad {} against player {}",
+                                    s.getSquadId(), targetPlayer.getName().getString());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         if (gameTime % EVAL_INTERVAL_TICKS != 0) return;
 
         RegionData regions = RegionData.get(level);
@@ -338,12 +444,22 @@ public final class SubregionPatrolManager {
             }
         }
 
-        // 3. Evaluate each nearby subregion for spawning
+        // 3. Evaluate each nearby subregion for natural patrol spawning
         for (int[] sub : nearbySubRegions.values()) {
             int rx = sub[0];
             int rz = sub[1];
             int sx = sub[2];
             int sz = sub[3];
+
+            long subKey = makeSubKey(rx, rz, sx, sz);
+            Long suppressedUntil = NATURAL_SPAWN_SUPPRESSION_UNTIL.get(subKey);
+            if (suppressedUntil != null) {
+                if (gameTime < suppressedUntil) {
+                    continue; // Natural squads suppressed during scout reinforcement phase
+                } else {
+                    NATURAL_SPAWN_SUPPRESSION_UNTIL.remove(subKey);
+                }
+            }
 
             RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
             com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress progress =
@@ -373,7 +489,7 @@ public final class SubregionPatrolManager {
                     cooldownTicks = 90L * 20L; // 90 seconds = 1800 ticks
                 }
             } else {
-                // Out-of-war Subregion: 2 max squads, 90s cooldown
+                // Out-of-war Subregion: 3 max squads, 90s cooldown
                 Faction owner = state.owner();
                 if (!owner.isAI() || state.underSiege()) {
                     continue; // Skip non-hostile subregions or subregions under siege
@@ -383,7 +499,6 @@ public final class SubregionPatrolManager {
                 cooldownTicks = SPAWN_COOLDOWN_TICKS; // 90 seconds = 1800 ticks
             }
 
-            long subKey = makeSubKey(rx, rz, sx, sz);
             List<PatrolSquad> squads = ACTIVE_PATROLS.computeIfAbsent(subKey, k -> new CopyOnWriteArrayList<>());
 
             if (squads.size() < maxSquads) {
@@ -395,6 +510,44 @@ public final class SubregionPatrolManager {
                         LAST_SPAWN_TIME.put(subKey, gameTime);
                         Warfront.LOGGER.info("[PATROL] Spawned squad {} in Subregion ({}, {} - {}, {}). Active squads: {}/{}",
                                 spawned.getSquadId(), rx, rz, sx, sz, squads.size(), maxSquads);
+                    }
+                }
+            }
+        }
+
+        // 4. Autonomous Pillager Scout Spawning (1 per subregion, 5-minute cooldown)
+        for (int[] sub : nearbySubRegions.values()) {
+            int rx = sub[0];
+            int rz = sub[1];
+            int sx = sub[2];
+            int sz = sub[3];
+
+            RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
+            if (state.owner() != Faction.PILLAGER_CONQUERORS) {
+                continue; // Restrict strictly to pillager regions
+            }
+
+            long subKey = makeSubKey(rx, rz, sx, sz);
+            UUID existingScoutId = ACTIVE_SCOUTS.get(subKey);
+            boolean scoutAlive = false;
+            if (existingScoutId != null) {
+                Entity e = level.getEntity(existingScoutId);
+                if (e instanceof PillagerScoutEntity scout && scout.isAlive()) {
+                    scoutAlive = true;
+                } else {
+                    ACTIVE_SCOUTS.remove(subKey);
+                }
+            }
+
+            if (!scoutAlive) {
+                Long lastSpawn = LAST_SCOUT_SPAWN_TIME.get(subKey);
+                if (lastSpawn == null || (gameTime - lastSpawn) >= SCOUT_SPAWN_COOLDOWN_TICKS) {
+                    PillagerScoutEntity spawnedScout = spawnSubregionScout(level, rx, rz, sx, sz);
+                    if (spawnedScout != null) {
+                        ACTIVE_SCOUTS.put(subKey, spawnedScout.getUUID());
+                        LAST_SCOUT_SPAWN_TIME.put(subKey, gameTime);
+                        Warfront.LOGGER.info("[SCOUT] Spawned autonomous scout {} in Subregion ({}, {} - {}, {})",
+                                spawnedScout.getUUID(), rx, rz, sx, sz);
                     }
                 }
             }
@@ -679,6 +832,109 @@ public final class SubregionPatrolManager {
 
         // Console error logging when the check fails
         Warfront.LOGGER.error("[Warfront Convoy] Can't find next waypoint for convoy in Region ({}, {}) Sub ({}, {}) from Pos {}!", rx, rz, sx, sz, fromPos);
+        return null;
+    }
+
+    /**
+     * Called by a Pillager Scout upon concluding a successful spyglass scan on a player.
+     * Evaluates current active squads in the subregion and triggers reinforcements per Scenarios 1, 2, or 3.
+     */
+    public static void triggerScoutReinforcements(ServerLevel level, int rx, int rz, int sx, int sz, Player player) {
+        if (level == null || player == null || !player.isAlive()) return;
+
+        RegionData regions = RegionData.get(level);
+        RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
+        if (state.owner() != Faction.PILLAGER_CONQUERORS) {
+            return; // Restrict strictly to pillager regions
+        }
+
+        long subKey = makeSubKey(rx, rz, sx, sz);
+        List<PatrolSquad> squads = ACTIVE_PATROLS.computeIfAbsent(subKey, k -> new CopyOnWriteArrayList<>());
+        squads.removeIf(s -> s.countLiving(level) == 0);
+        int currentSquadCount = squads.size();
+        long gameTime = level.getGameTime();
+        UUID playerUuid = player.getUUID();
+
+        Warfront.LOGGER.info("[SCOUT REINFORCE] Horn sounded in Subregion ({}, {} - {}, {}). Current squads: {}",
+                rx, rz, sx, sz, currentSquadCount);
+
+        if (currentSquadCount <= 1) {
+            // Scenario 1: Squad count is 0 or 1.
+            // Natural squads suppressed until second squad spawns at +40s (800 ticks).
+            NATURAL_SPAWN_SUPPRESSION_UNTIL.put(subKey, gameTime + 800L);
+            // Squad 1: spawns 10 seconds later (200 ticks)
+            PENDING_REINFORCEMENTS.add(new ScheduledReinforcementTask(gameTime + 200L, rx, rz, sx, sz, playerUuid, true, null));
+            // Squad 2: spawns 40 seconds later (800 ticks)
+            PENDING_REINFORCEMENTS.add(new ScheduledReinforcementTask(gameTime + 800L, rx, rz, sx, sz, playerUuid, true, null));
+        } else if (currentSquadCount == 2) {
+            // Scenario 2: Squad count is 2.
+            // One non-annihilated squad immediately aggroes to player.
+            dispatchSquadHoming(level, squads.get(0), player);
+            // Natural squads suppressed until second squad spawns at +30s (600 ticks).
+            NATURAL_SPAWN_SUPPRESSION_UNTIL.put(subKey, gameTime + 600L);
+            // Another squad spawns 30 seconds later (600 ticks)
+            PENDING_REINFORCEMENTS.add(new ScheduledReinforcementTask(gameTime + 600L, rx, rz, sx, sz, playerUuid, true, null));
+        } else {
+            // Scenario 3: Squad count is maxed (>= 3).
+            // One squad immediately aggroes to player.
+            dispatchSquadHoming(level, squads.get(0), player);
+            // Another squad aggroes 30 seconds later (600 ticks).
+            PatrolSquad secondSquad = squads.size() > 1 ? squads.get(1) : squads.get(0);
+            PENDING_REINFORCEMENTS.add(new ScheduledReinforcementTask(gameTime + 600L, rx, rz, sx, sz, playerUuid, false, secondSquad.getSquadId()));
+        }
+    }
+
+    /**
+     * Directs an entire patrol squad to track and converge directly upon the player's position.
+     */
+    public static void dispatchSquadHoming(ServerLevel level, PatrolSquad squad, Player player) {
+        if (squad == null || player == null || !player.isAlive()) return;
+        squad.enableHoming(player.getUUID());
+        squad.alertSquadToTarget(level, player);
+        for (Mob mob : squad.getLivingMembers(level)) {
+            if (mob.getAttribute(Attributes.FOLLOW_RANGE) != null) {
+                mob.getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(64.0D);
+            }
+            mob.setTarget(player);
+            mob.getNavigation().moveTo(player, 1.25D);
+        }
+    }
+
+    /**
+     * Spawns an autonomous Pillager Scout in the subregion independent of patrol squads.
+     */
+    private static PillagerScoutEntity spawnSubregionScout(ServerLevel level, int rx, int rz, int sx, int sz) {
+        BlockPos borderPoint = pickRandomBorderPoint(level, rx, rz, sx, sz);
+        int spawnX = borderPoint != null ? borderPoint.getX() : (rx * 128 + sx * 64 + 32);
+        int spawnZ = borderPoint != null ? borderPoint.getZ() : (rz * 128 + sz * 64 + 32);
+        int spawnY = EnemyEncounterSpawner.findDryLandSurfaceY(level, spawnX, spawnZ);
+        if (spawnY == Integer.MIN_VALUE) {
+            return null;
+        }
+
+        Entity entity = ModEntities.PILLAGER_SCOUT.get().create(level);
+        if (!(entity instanceof PillagerScoutEntity scout)) {
+            return null;
+        }
+
+        scout.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
+        net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(
+                scout, level, level.getCurrentDifficultyAt(new BlockPos(spawnX, spawnY, spawnZ)), MobSpawnType.EVENT, null);
+
+        if (level.addFreshEntity(scout)) {
+            scout.addTag("warfront_scout");
+            scout.getPersistentData().putBoolean("warfront_roaming", true);
+            scout.getPersistentData().putBoolean("isMissionMob", false);
+            scout.getPersistentData().putBoolean("isScoutMob", true);
+            scout.getPersistentData().putInt("faction", Faction.PILLAGER_CONQUERORS.id());
+            scout.getPersistentData().putInt("originRegionX", rx);
+            scout.getPersistentData().putInt("originRegionZ", rz);
+            scout.getPersistentData().putInt("originSubX", sx);
+            scout.getPersistentData().putInt("originSubZ", sz);
+
+            RoamingEntityTracker.registerWandering(scout, rx, rz, sx, sz, Faction.PILLAGER_CONQUERORS);
+            return scout;
+        }
         return null;
     }
 }

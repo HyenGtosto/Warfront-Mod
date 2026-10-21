@@ -405,12 +405,15 @@ public final class TemporaryStructureBuilder {
         int halfZ = sizeZ / 2;
         BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() - 2, anchor.getZ() - halfZ);
 
-        // Record original block states across structure volume for clean rollback
+        // Record pre-existing non-air block states across structure volume for clean rollback
         for (int x = 0; x < sizeX; x++) {
             for (int y = 0; y < sizeY; y++) {
                 for (int z = 0; z < sizeZ; z++) {
                     BlockPos p = origin.offset(x, y, z);
-                    snapshot.recordOriginalState(p, level.getBlockState(p));
+                    BlockState existing = level.getBlockState(p);
+                    if (!existing.isAir()) {
+                        snapshot.recordOriginalState(p, existing);
+                    }
                 }
             }
         }
@@ -438,6 +441,7 @@ public final class TemporaryStructureBuilder {
                     BlockState state = level.getBlockState(p);
                     if (!state.isAir()) {
                         structureBlocks.add(p.immutable());
+                        snapshot.recordOriginalState(p, Blocks.AIR.defaultBlockState());
                         if (state.is(WarfrontBlocks.COMMANDER_WAR_DESK.get())) {
                             warDeskPositions.add(p.immutable());
                         } else if (state.is(Blocks.CHEST)) {
@@ -561,12 +565,15 @@ public final class TemporaryStructureBuilder {
         int halfZ = sizeZ / 2;
         BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() - 5, anchor.getZ() - halfZ);
 
-        // Record original block states across structure volume for clean rollback
+        // Record pre-existing non-air block states across structure volume for clean rollback
         for (int x = 0; x < sizeX; x++) {
             for (int y = 0; y < sizeY; y++) {
                 for (int z = 0; z < sizeZ; z++) {
                     BlockPos p = origin.offset(x, y, z);
-                    snapshot.recordOriginalState(p, level.getBlockState(p));
+                    BlockState existing = level.getBlockState(p);
+                    if (!existing.isAir()) {
+                        snapshot.recordOriginalState(p, existing);
+                    }
                 }
             }
         }
@@ -591,6 +598,7 @@ public final class TemporaryStructureBuilder {
                     BlockState state = level.getBlockState(p);
                     if (!state.isAir()) {
                         structureBlocks.add(p.immutable());
+                        snapshot.recordOriginalState(p, Blocks.AIR.defaultBlockState());
                         if (state.is(WarfrontBlocks.MORTAR.get())) {
                             mortarPositions.add(p.immutable());
                             // Clear vertical airspace above mortar so firing line is completely clear
@@ -676,12 +684,15 @@ public final class TemporaryStructureBuilder {
         int halfZ = sizeZ / 2;
         BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY(), anchor.getZ() - halfZ);
 
-        // Record original block states across structure volume for clean rollback
+        // Record pre-existing non-air block states across structure volume for clean rollback
         for (int x = 0; x < sizeX; x++) {
             for (int y = 0; y < sizeY; y++) {
                 for (int z = 0; z < sizeZ; z++) {
                     BlockPos p = origin.offset(x, y, z);
-                    snapshot.recordOriginalState(p, level.getBlockState(p));
+                    BlockState existing = level.getBlockState(p);
+                    if (!existing.isAir()) {
+                        snapshot.recordOriginalState(p, existing);
+                    }
                 }
             }
         }
@@ -706,6 +717,7 @@ public final class TemporaryStructureBuilder {
                     BlockState state = level.getBlockState(p);
                     if (!state.isAir()) {
                         structureBlocks.add(p.immutable());
+                        snapshot.recordOriginalState(p, Blocks.AIR.defaultBlockState());
                         if (state.is(WarfrontBlocks.SIGNAL_FUSE_RELAY.get())) {
                             fusePositions.add(p.immutable());
                         } else if (state.is(WarfrontBlocks.ACOUSTIC_HORN_BELL.get())) {

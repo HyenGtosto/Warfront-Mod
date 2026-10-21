@@ -21,10 +21,10 @@ public class PillagerEliteModel extends DefaultedEntityGeoModel<PillagerEliteEnt
 
         // Weapon visibility handling:
         // sword_sheathed: visible only when sword is not drawn
-        // sword_held: visible only when sword is drawn and crossbow is not active
+        // sword_held: visible only when sword is drawn (held in hand across sword and crossbow stances)
         // xbow: visible only when crossbow is active
         getBone("sword_sheathed").ifPresent(b -> b.setHidden(swordDrawn));
-        getBone("sword_held").ifPresent(b -> b.setHidden(!swordDrawn || xbowDrawn));
+        getBone("sword_held").ifPresent(b -> b.setHidden(!swordDrawn));
         getBone("xbow").ifPresent(b -> b.setHidden(!xbowDrawn));
     }
 }

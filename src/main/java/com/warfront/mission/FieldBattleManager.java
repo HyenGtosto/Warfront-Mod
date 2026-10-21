@@ -164,7 +164,7 @@ public final class FieldBattleManager {
                 RegionData.SiegeCampaign updated = new RegionData.SiegeCampaign(
                         siege.attacker(),
                         siege.targetRegionX(), siege.targetRegionZ(),
-                        siege.sources(), siege.attackValue(), siege.encircled(),
+                        siege.sources(), siege.encircled(),
                         siege.startTick(), siege.durationTicks(),
                         siege.activeSubRegionsMask(), siege.attackerClusterId(),
                         attackerPfId, defenderPfId,

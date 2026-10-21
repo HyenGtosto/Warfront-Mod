@@ -184,7 +184,6 @@ public final class RegionData extends SavedData {
                     attacker,
                     sTag.getInt("tgt_rx"), sTag.getInt("tgt_rz"),
                     sources,
-                    sTag.getInt("attack_val"),
                     sTag.getBoolean("encircled"),
                     sTag.getLong("start_tick"),
                     durationTicks,
@@ -340,7 +339,6 @@ public final class RegionData extends SavedData {
             sTag.putInt("attacker_id", sc.attacker().id());
             sTag.putInt("tgt_rx", sc.targetRegionX());
             sTag.putInt("tgt_rz", sc.targetRegionZ());
-            sTag.putInt("attack_val", sc.attackValue());
             sTag.putBoolean("encircled", sc.encircled());
             sTag.putLong("start_tick", sc.startTick());
             sTag.putLong("duration_ticks", sc.durationTicks());
@@ -1003,7 +1001,7 @@ public final class RegionData extends SavedData {
             if (siege == null) {
                 return 2;
             }
-            if (siege.encircled() || siege.attackValue() >= 20 || (siege.sources() != null && siege.sources().size() >= 3)) {
+            if (siege.encircled() || (siege.sources() != null && siege.sources().size() >= 3)) {
                 return 4; // Overwhelming multi-axis offensive or full encirclement
             } else if (siege.sources() != null && siege.sources().size() == 2) {
                 return 3; // 2-source flank attack
@@ -1039,7 +1037,7 @@ public final class RegionData extends SavedData {
      * Base duration is 20 minutes (24,000 ticks) with a strict 10-minute floor (12,000 ticks).
      * High enemy resistance and flank attacks (multi-source / encircled) reduce the defense timer.
      */
-    public long calculateDefenseDurationTicks(int targetRX, int targetRZ, int attackValue, boolean encircled, List<SourcePos> sources) {
+    public long calculateDefenseDurationTicks(int targetRX, int targetRZ, boolean encircled, List<SourcePos> sources) {
         long baseDefenseTicks = 20L * 60L * 20L; // 20 minutes = 24,000 ticks
 
         // Calculate average resistance of attacking source regions
@@ -1209,18 +1207,7 @@ public final class RegionData extends SavedData {
                 if (activeCampaign != null) {
                     int bit = subZ * 2 + subX;
                     int newActiveMask = activeCampaign.activeSubRegionsMask() & ~(1 << bit);
-                    activeSieges.put(regionKey, new SiegeCampaign(
-                            activeCampaign.attacker(),
-                            activeCampaign.targetRegionX(), activeCampaign.targetRegionZ(),
-                            activeCampaign.sources(), activeCampaign.attackValue(), activeCampaign.encircled(),
-                            activeCampaign.startTick(), activeCampaign.durationTicks(),
-                            newActiveMask,
-                            activeCampaign.attackerClusterId(),
-                            activeCampaign.attackerPlayerFactionId(),
-                            activeCampaign.defenderPlayerFactionId(),
-                            activeCampaign.attackerProgress(),
-                            activeCampaign.defenderProgress(),
-                            activeCampaign.isFieldBattle()));
+                    activeSieges.put(regionKey, activeCampaign.withActiveSubRegionsMask(newActiveMask));
                 }
 
                 if (matchingCount >= dominoThreshold && !allMandatoryCompleted) {
@@ -1794,8 +1781,7 @@ public final class RegionData extends SavedData {
                         }
                     }
                     if (changed) {
-                        int newAttackValue = currentValidSources.size();
-                        updatedSieges.put(entry.getKey(), campaign.withSourcesAndAttackValue(currentValidSources, newAttackValue));
+                        updatedSieges.put(entry.getKey(), campaign.withSources(currentValidSources));
                     }
                 }
             } else {
@@ -1810,8 +1796,7 @@ public final class RegionData extends SavedData {
                 if (currentValidSources.isEmpty()) {
                     siegesToCancel.add(entry.getKey());
                 } else if (currentValidSources.size() != campaign.sources().size()) {
-                    int newAttackValue = currentValidSources.size();
-                    updatedSieges.put(entry.getKey(), campaign.withSourcesAndAttackValue(currentValidSources, newAttackValue));
+                    updatedSieges.put(entry.getKey(), campaign.withSources(currentValidSources));
                 }
             }
         }
@@ -1844,12 +1829,12 @@ public final class RegionData extends SavedData {
         }
     }
 
-    private static long subRegionKey(int regionX, int regionZ, int subX, int subZ) {
+    public static long subRegionKey(int regionX, int regionZ, int subX, int subZ) {
         long regionId = ChunkPos.asLong(regionX, regionZ);
         return subRegionKeyFromRegionId(regionId, subX, subZ);
     }
 
-    private static long subRegionKeyFromRegionId(long regionId, int subX, int subZ) {
+    public static long subRegionKeyFromRegionId(long regionId, int subX, int subZ) {
         return (regionId << 2) | ((subZ & 1) << 1) | (subX & 1);
     }
 
@@ -1860,7 +1845,6 @@ public final class RegionData extends SavedData {
             Faction attacker,
             int targetRegionX, int targetRegionZ,
             List<SourcePos> sources,
-            int attackValue,
             boolean encircled,
             long startTick,
             long durationTicks,
@@ -1872,26 +1856,26 @@ public final class RegionData extends SavedData {
             float defenderProgress,
             boolean isFieldBattle
     ) {
-        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L, 0xF, 0L, null, null, 0.0F, 0.0F, false);
+        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, boolean encircled, long startTick) {
+            this(attacker, targetRegionX, targetRegionZ, sources, encircled, startTick, com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L, 0xF, 0L, null, null, 0.0F, 0.0F, false);
         }
 
-        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, 0xF, 0L, null, null, 0.0F, 0.0F, false);
+        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, boolean encircled, long startTick, long durationTicks) {
+            this(attacker, targetRegionX, targetRegionZ, sources, encircled, startTick, durationTicks, 0xF, 0L, null, null, 0.0F, 0.0F, false);
         }
 
-        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, activeSubRegionsMask, 0L, null, null, 0.0F, 0.0F, false);
+        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask) {
+            this(attacker, targetRegionX, targetRegionZ, sources, encircled, startTick, durationTicks, activeSubRegionsMask, 0L, null, null, 0.0F, 0.0F, false);
         }
 
-        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, int attackValue, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask, long attackerClusterId) {
-            this(attacker, targetRegionX, targetRegionZ, sources, attackValue, encircled, startTick, durationTicks, activeSubRegionsMask, attackerClusterId, null, null, 0.0F, 0.0F, false);
+        public SiegeCampaign(Faction attacker, int targetRegionX, int targetRegionZ, List<SourcePos> sources, boolean encircled, long startTick, long durationTicks, int activeSubRegionsMask, long attackerClusterId) {
+            this(attacker, targetRegionX, targetRegionZ, sources, encircled, startTick, durationTicks, activeSubRegionsMask, attackerClusterId, null, null, 0.0F, 0.0F, false);
         }
 
-        public SiegeCampaign withSourcesAndAttackValue(List<SourcePos> newSources, int newAttackValue) {
+        public SiegeCampaign withSources(List<SourcePos> newSources) {
             return new SiegeCampaign(
                     attacker, targetRegionX, targetRegionZ,
-                    newSources, newAttackValue, encircled,
+                    newSources, encircled,
                     startTick, durationTicks, activeSubRegionsMask, attackerClusterId,
                     attackerPlayerFactionId, defenderPlayerFactionId,
                     attackerProgress, defenderProgress, isFieldBattle
@@ -1901,7 +1885,7 @@ public final class RegionData extends SavedData {
         public SiegeCampaign withActiveSubRegionsMask(int newActiveMask) {
             return new SiegeCampaign(
                     attacker, targetRegionX, targetRegionZ,
-                    sources, attackValue, encircled,
+                    sources, encircled,
                     startTick, durationTicks, newActiveMask, attackerClusterId,
                     attackerPlayerFactionId, defenderPlayerFactionId,
                     attackerProgress, defenderProgress, isFieldBattle

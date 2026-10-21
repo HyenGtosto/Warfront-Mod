@@ -71,12 +71,29 @@ Warfront transforms Minecraft's localized mob spawning into a persistent, macro-
 
 ### 3.2. Custom Pillager Roster (GeckoLib 4.7.4)
 1. **Pillager Warrior (`warfront:pillager_warrior`):** Shock infantry with an iron battleaxe and multipart tower shield (`PillagerWarriorShieldPart`). Physical shield hitbox absorbs bullets, arrows, and melee attacks; axe hits disable shield for 10 seconds (`shieldDisableTicks = 200`). Strikes actively while shield is raised (`performShieldAttack`).
-2. **Pillager Scout (`warfront:pillager_scout`):** Agile flanker with an iron dagger. High movement speed, evasive retreat leaps when wounded, rapid 2-hit combo slashes.
+2. **Pillager Scout (`warfront:pillager_scout`):** Autonomous reconnaissance skirmisher. Spawns independently (1 per subregion, 5-minute cooldown in Pillager territory). Conducts swift patrols and horizon spyglass scans (150° arc, 30m range). Sighting a player sounds the Goat Horn ("Seek") to dispatch multi-squad reinforcements (staged across 10–40s), then draws daggers to engage in rapid 2-hit combat with evasive retreat leaps to stall the player until reinforcements arrive. Attacking the Scout during its scan interrupts the alarm.
 3. **Pillager Marksman (`warfront:pillager_marksman`):** Long-range sniper crossbowman with 3-stage combat state machine (Aim $\rightarrow$ Shoot $\rightarrow$ Reload) and tactical distancing AI.
 4. **Pillager Commander (`warfront:pillager_commander`):** Tactical field officer wielding a saber and back standard. Squad leader AI, rally horn buffs, and stationary war desk guard.
 5. **Pillager Armored Elite (`warfront:pillager_armored_elite`):** Heavy frontline juggernaut with plate armor, high knockback resistance, and steady advance.
 
-### 3.3. Friendly Fire & Alliance Invariants
+### 3.3. Zombie Horde Ecosystem & Spawning Architecture (Horde Shooter Model)
+* **Zero Squad Marching / Ambient Occupation:** Replaces military squads and border waypoint patrols with ambient occupancy managed by `ZombieInfestationManager`. Zombies mill about and occupy terrain organically.
+* **Continuous Subregion Density Scaling ($64 \times 64$):**
+  - **Total Mob Cap ($C_{\text{total}}$):** Scales continuously with Resistance ($0 \le R \le 100$): $C_{\text{total}} = 15 + \lfloor R \times 0.55 \rfloor$ ($15$ at $0\text{ R}$ up to $70$ at $100\text{ R}$).
+  - **Shared Elite Budget ($C_{\text{elite}}$):** Scales continuously with Resistance: $C_{\text{elite}} = \lfloor R \times 0.12 \rfloor$ ($0$ at $0\text{ R}$ up to $12$ at $100\text{ R}$).
+  - **Fodder Population:** Fills all remaining subregion capacity ($C_{\text{total}} - N_{\text{current\_elites}}$).
+* **Dedicated Custom Entity Taxonomy:**
+  - Dedicated entity classes for Fodder and specialized Elites: **Hunter** (fast lunging stalker), **Bile Spitter** (ranged area denial caustic clouds), **Hivemind Screamer** (horde buff and macro alert howling), and **Tank/Brute** (heavy knockback-resistant vanguard).
+* **Dual-Tier Spatial Leashing:**
+  - **Idle / Ambient Roaming:** Strict $64 \times 64$ subregion tether. Random wander targets are selected strictly within the subregion bounding box.
+  - **Active Combat Pursuit:** Expands to a soft $128 \times 128$ macro-region boundary. Pursuing zombies can chase targets across internal subregions, but break pursuit and return if the target crosses outside the regional borders.
+* **Drip-Replenishment & Anti-Pop-in:**
+  - Infestation deficits are replenished in small drip bursts (2–4 entities every 40–60 ticks) outside immediate player line-of-sight and $>20\text{m}$ distance, preserving continuous horde pressure without visual pop-in or tick spikes.
+* **Swarm Agitation Cascade:**
+  - Ambient zombies idle or wander sluggishly until triggered. Weapon fire, sprint proximity ($\le 12\text{m}$), or injury broadcasts an alert groan rallying zombies within $24\text{m}$.
+  - Screamer Elites elevate this agitation radius to $48\text{m}$, coordinating subregion-wide swarms.
+
+### 3.4. Friendly Fire & Alliance Invariants
 * `AlliedFactionHelper.isAllied(...)` evaluates alliance via:
   1. `isPillager(a) && isPillager(b)`
   2. `a instanceof Zombie && b instanceof Zombie`
@@ -115,11 +132,17 @@ Warfront transforms Minecraft's localized mob spawning into a persistent, macro-
 
 ## 6. Base Fortresses, Garrisons & Protection
 
-### 6.1. Base Tiers & Footprints
+### 6.1. Base Tiers, Footprints & Faction Themes
 * **Mega Base (Size 3):** $96 \times 96$ footprint ($6 \times 6$ chunks), 15% roll, requires MD $\le 3$ land domain.
+  - *Pillager:* Imperial Fortress / Citadel.
+  - *Zombie Horde:* **Heart of Infection** (primordial hive anchor).
 * **Headquarters (Size 2):** $64 \times 64$ footprint ($4 \times 4$ chunks), 60% roll, requires MD $\le 2$ land domain.
+  - *Pillager:* Military Headquarters.
+  - *Zombie Horde:* **Brood Cyst** (secondary biological growth hub).
 * **Outpost (Size 1):** $32 \times 32$ to $64 \times 64$ footprint, 25% roll.
-* **None:** Territory claim without a physical fortress structure.
+  - *Pillager:* Outpost Watchtower ($29 \times 25 \times 29$).
+  - *Zombie Horde:* **Gore Nest** (forward biological spore spire).
+* **None:** Territory claim without a physical fortress structure (Wilderness).
 
 ### 6.2. Placement & River Filtering Rules
 * **Land Viability:** Inner $4 \times 4$ chunks sampled; rejected if aquatic ratio $> 50\%$.
@@ -176,6 +199,24 @@ Warfront transforms Minecraft's localized mob spawning into a persistent, macro-
   - **Salvage Prize Blocks:** Armored machinery (Mortar Cannon, Machinery Vault, War Desk, Horn Bell) unbreakable during combat (`DISARMED = false`), disarming on victory to drop pristine cores (`SALVAGED_MORTAR_CORE`, `HEAVY_PIVOT_BEARING`, `REINFORCED_REDOUBT_PLATE`, `ACOUSTIC_WAR_HORN_RELAY`, `COMMANDER_BATTLE_STANDARD`).
 * **War Commitment:** Voluntary cancel button removed. Assault timeout results in defending sector hardening (+10 Resistance & +10 Stability).
 
+### 7.4. Unified Regional Zombie Defense (Horde Incursion Battles)
+Contrasting Pillager subregion tactical missions, defensive sieges against the Zombie Horde eliminate subregion partitioning, converting the entire $128 \times 128$ territory into a unified sandbox horde defense arena.
+* **Strategic Border Incursion Vectors (Option 1A):** Swarms spawn along exterior perimeter borders that directly touch adjacent Zombie Horde-controlled regions (e.g., North and East vectors; 360° encirclement occurs strictly when completely surrounded by hostile territory).
+* **Staged Incursion Surges & Breathers (Option 2B):** Assaults advance in 3–4 escalating wave surges with ~30-second intermission lulls between waves for repairs, ammo management, barricading, and tactical fortification.
+* **Dual Defeat & Target Invariants (Fortified vs. Wilderness):**
+  - **Fortified Regions (Claim Core / Base Present — Option 3A):** Horde forces march directly to breach and overrun the central Claim Core / Base Anchor. Players lose if the core structure is destroyed or held uncontested.
+  - **Wilderness Regions (`BaseType.NONE` / Unclaimed Fringe):** No physical core exists. Zombies march inward from the borders individually/in loose columns, converging on defending players upon entering an engagement detection radius. The breach failure goal is disabled; survival and quota elimination against the active **war timer** governs victory.
+* **Sandbox Freedom:** Mobs possess no complex military objectives or sabotage tasks; defensive depth relies entirely on player-constructed fortifications, chokepoints, kill zones, and ballistas.
+
+### 7.5. Subregion Territory Defense Missions (Zero-Structure Defend Operations)
+Defensive campaigns in player-held / Humanity territory provide tactical defense sorties without disturbing player builds.
+* **Zero Structure Generation Invariant (Strict):** Defense missions strictly prohibit generating, pasting, or spawning physical block structures or NBT templates into player territory. Defending players utilize the existing terrain and their own player-built structures, barricades, and defenses.
+* **Border Corridor Incursion Vectors:** Invading assault waves spawn strictly along the subregion perimeter border oriented toward the attacking source region (`SourcePos`), advancing inward toward the subregion center via directional pathfinding (`AdvanceToLocationGoal`).
+* **Co-Fallback Mission Suite (50/50 Deterministic Roll):**
+  - **`DEFEAT_INVADING_FORCES` (`ObjectiveType.ELIMINATE_TARGETS`):** Sequential assault waves advancing from the border perimeter into the subregion interior. Victory is achieved by neutralizing all invading waves.
+  - **`HOLD_THE_CHOKEPOINT` (`ObjectiveType.SURVIVE_ASSAULT`):** Improvised perimeter defense (18m radius) around the subregion central waypoint. Features an abstract **Defense Integrity** meter (100%): decays (-1%/sec/mob) when unengaged hostiles enter the perimeter while uncontested; stabilizes and recovers (+1%/sec or +3%/kill) when players engage hostiles inside. Repelling 3 escalating assault waves while maintaining integrity > 0% secures victory.
+* **Archaic Attack Value Purge:** All strategic sieges, duration calculations, and domino collapse thresholds are governed strictly by active attack `sources` (count and cardinal positions), encirclement flags, and target resistance; the obsolete integer `attack_value` has been purged across all data models and network codecs.
+
 ---
 
 ## 8. Encountered & Fixed Pitfalls (Heads-Up for Developers & Agents)
@@ -227,6 +268,24 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 15. **Idle Goal Contention in Tick-Driven Custom AI:**
     - *Problem:* Unconditioned idle goals (`RandomStrollGoal`, `RandomLookAroundGoal`) in `goalSelector` randomly triggered during combat, turning duelists away from targets and causing attacks to swing into empty space.
     - *Rule:* Condition all idle movement and look goals on `!mob.isAggressive() && mob.getTarget() == null`. Explicitly synchronize body and head yaw (`yBodyRot`, `yHeadRot`, `setYRot`) directly to targets during active combat ticks so swings and lunges face opponents.
+16. **Structure Generation in Defended Player Territory:**
+    - *Problem:* Generating procedural base templates or temporary mission props into defending player subregions destroyed custom player structures and altered player-built terrain.
+    - *Rule:* Defense missions must strictly observe the Zero Structure Generation invariant. Defenses rely entirely on player-constructed fortifications, existing terrain, and abstract integrity tracking.
+17. **Archaic Attack Value Duplicate State:**
+    - *Problem:* The legacy integer `attack_value` was redundant with siege source vectors and encirclement status, risking desynchronization between map arrows, siege durations, and domino thresholds.
+    - *Rule:* Strategic defense duration and domino thresholds evaluate directly from active attacking `sources` and the `encircled` boolean flag; do not re-introduce arbitrary scalar attack power numbers.
+18. **GeckoLib Action Controller Stagnation & Goal Tick Desynchronization:**
+    - *Problem:* Non-looping GeckoLib action animations stop upon completion; returning `PlayState.CONTINUE` while idle left controllers stagnant, causing subsequent identical animations (e.g. scout spyglass scan) to fail to replay. Additionally, entity-level action decrementing running 1 tick ahead of goal selectors caused premature state clearing right before goal completion blocks executed.
+    - *Rule:* Explicitly invoke `controller.forceAnimationReset()` on action state transitions and return `PlayState.STOP` during idle. Anchor multi-tick custom entity actions with tick safety buffers so AI goals authoritatively conclude before entity-level state timers lapse.
+19. **Descending Height Cascades & Foundation Demolition Craters:**
+    - *Problem:* Demolishing mission structures by setting all tracked positions to `AIR` excavated sub-surface foundations, creating deep craters. Subsequent surface raycasts anchored new retries inside the crater bottom, cascading the structure lower on each retry. Additionally, client bitwise-OR caching prevented the war map from clearing lost mission buttons.
+    - *Rule:* Retain physical structures and anchors on campaign subregion failure/abandonment; repair and regarrison on mission relaunch without re-anchoring. When terminal demolition occurs, sub-surface foundation blocks must be backfilled to solid ground (`GRASS_BLOCK`/`DIRT`/`STONE`) flush with the surface—never hollowed to `AIR`. Client maps must authoritatively synchronize active siege masks from server snapshots.
+20. **Premature Base Demolition, Floor Slab Omission & Patrol Leash Air Teleport Loops:**
+    - *Problem:* Filtering base demolition by $Y \ge \text{anchor}.getY()$ omitted the $Y = \text{anchor}.getY() - 1$ template layer, leaving exposed cobblestone while hollowing the ground floor to air. Unconditional marksman leashing caused infinite mid-air teleport loops when platforms were destroyed, and surviving garrison mobs persisted post-victory. Outposts were demolished immediately upon conquest without gating for unlooted chests, while decorative barrels blocked camp decay.
+    - *Rule:* Demolition must include all template footprint and foundation blocks down to $Y = \text{anchor}.getY() - 1$ and deeper, backfilling topsoil flush to natural ground (`GRASS_BLOCK`) and foundation columns to `DIRT`/`STONE`. Height-leashed patrol goals must abort when motion-blocking support underneath vanishes. Base conquest must immediately disperse surviving defenders, gate post-war demolition via `PendingSalvageManager` until all prize chests are harvested, and restrict salvage tracking strictly to chests and machinery.
+21. **Blind Volumetric Snapshot Capture & Phantom Air Demolition:**
+    - *Problem:* Scanning an entire 3D structure volume ($27 \times 13 \times 31$) before template placement recorded thousands of empty sky coordinates as `AIR`. During terminal demolition, `ActiveDemolitionTask` checked `targetState.isAir()` instead of verifying if a physical world block was actively being removed (`!current.isAir() && targetState.isAir()`), causing minutes of phantom POOF particles and pop audio in empty air.
+    - *Rule:* Structure templates must record pre-existing terrain only if non-air (`!existing.isAir()`) and assign air revert targets strictly to physical placed structure blocks (`!state.isAir()`). Demolition tasks must skip identical block states immediately and play particle/sound feedback only when solid blocks are actively destroyed into air.
 
 ---
 
@@ -255,8 +314,15 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 - [x] **Pillager Outpost Structure & Garrison Ecosystem:** $29 \times 25 \times 29$ native NBT template, 17-mob structured garrison, wall patrol routines, 3-minute passive respawns, instant repair on sortie start, poof cleanup on conquest, and curated loot tables.
 - [x] **Melee Combat Engagement Management & Anti-Lynching Slots:** Centralized 2-slot melee engagement system between Warriors and Elites (`MeleeEngagementManager`), 5–6 block perimeter holding ground, Warrior shield perimeter defense, and Elite death replacement priority.
 - [x] **Crossbow Marksman Aiming & Retreat Decoupling:** Stationary aim-and-shoot body alignment towards player with tactical spacing and retreat relegated strictly to reloading windows.
-- [x] **Pillager Elite Duelist 4-Stage Combo Chain:** Multi-stage greatsword combo chain (`attack_1` through `attack_4` finisher) with distance-based combo chaining ($\le 3.5\text{m}$), forward lunge impulses, directional frontal damage arcs, finisher recovery freeze, and dynamic stance switching between greatsword and repeating crossbow.
-- [x] **Pillager Elite Shield-Punish Kick Attack:** 50% replacement roll against shield-wielding targets; at $0.60\text{s}$ contact disables blocking shields (5.0s cooldown), deals 1.0 damage, and inflicts 4 blocks of knockback. Whiffing against lowered shields incurs an extended 1.75s vulnerability freeze.
+- [x] **Pillager Elite Duelist 4-Stage Combo Chain:** Multi-stage greatsword combo chain (`attack_1` through `attack_4` finisher) with distance-based combo chaining ($\le 3.5\text{m}$), forward lunge impulses, bespoke per-hit directional frontal damage arcs ($110^\circ, 150^\circ, 80^\circ, 40^\circ$), finisher recovery freeze, and dynamic stance switching between greatsword and repeating crossbow.
+- [x] **Pillager Elite Shield-Punish Kick Attack:** 30% replacement roll on any hit in the chain (Hit 1 through 4) when target is actively blocking with a shield; at $0.60\text{s}$ contact disables blocking shields (5.0s cooldown), deals 1.0 damage, and inflicts 4 blocks of knockback. Whiffing against lowered shields incurs an extended 1.75s vulnerability freeze.
+- [x] **Pillager Elite Steerable Charged Stab Attack:** Grounded heavy gap-closer replacing leap attack; features 10-tick windup telegraph, 25-tick steerable sprint ($9.2\text{ m/s}$) with $2.3\times$ synchronized sprint animation and angular velocity capped at $\pm 6.0^\circ/\text{tick}$ (enabling lateral sidestep evasion counterplay), and a 15-tick thrust finisher inflicting 11.0 HP piercing damage and 0.75D knockback at contact frame $0.20\text{s}$ (Tick 4). Whiffing incurs a 1.0s recovery freeze.
+- [x] **Pillager Scout Reconnaissance & Reinforcement Orchestration:** Autonomous 1-per-subregion spawning with 5-minute cooldown, 150-degree 30-block spyglass cone detection, interruptible scan counterplay, Goat Horn "Seek" alarm, and 3-scenario progressive squad reinforcements (0-1 squads: +10s / +40s; 2 squads: immediate + +30s; maxed: immediate + +30s) with homing pursuit and natural spawn suppression.
+- [x] **Zero-Structure Territory Defense Missions:** Co-fallback defense suite (`DEFEAT_INVADING_FORCES` & `HOLD_THE_CHOKEPOINT`) with border corridor invasion vectors, abstract defense integrity decay/stabilization, and zero structure generation in player territory.
+- [x] **Archaic Attack Value Purge:** Complete removal of obsolete `attack_value` across network payloads, siege records, domino calculations, and AI manager.
+- [x] **Structure Preservation, Retry Repair & Crater-Free Demolition:** Preserves physical structure anchors and block footprints upon mission loss during active regional wars; repairs broken sabotage/salvage blocks and respawns defender garrisons on retry. Sub-surface foundation demolition backfills flush to natural solid ground, preventing crater formation and downward height cascades. Authoritative map button synchronization resolves client green border stagnation.
+- [x] **Outpost Salvage Lifecycle, Floor Demolition & Anti-Loop Safeguards:** Integrated Outpost chests into `PendingSalvageManager`, deferring base demolition until all loot chests are harvested. Demolition cleanly replaces base footprints and foundation columns flush with natural topsoil (`GRASS_BLOCK`). Marksman patrol AI checks motion-blocking platform support before repositioning, preventing mid-air teleport loops on demolished watchtowers. Enlisted garrison defenders immediately disperse upon outpost conquest, and decorative prop barrels are excluded from salvage objectives.
+- [x] **Volumetric Demolition Optimization & Phantom Air Suppression:** Suppressed blind volumetric air recording in temporary structure templates (`OfficerCamp`, `ArtilleryBattery`, `WarHornTower`). Site snapshots strictly record overwritten natural terrain and physical placed structure blocks. Demolition tasks instantly bypass identical blocks and trigger POOF feedback strictly on physical block demolition, eliminating phantom air popping.
 
 ---
 
@@ -271,11 +337,14 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
   - Stat Impact: Raises region Resistance to 80–90 levels and multiplies attack value in offensive sieges.
   - Decapitation Rule: Capturing parent HQ cuts army stat bonus in half (40–45 Resistance).
   - Combat Encounter: Replaces 4 subregion missions with a single region-wide "Field Battle / Army Extermination" mission.
+  - Faction Army Nomenclature:
+    - **Pillager Conquerors (Imperial Legions):** Classical military legionary naming (`[Ordinal] [Epithet] Legion / Cohort`, e.g., *1st Iron Legion*, *3rd Vanguard Cohort*, *7th Ravager Legion*).
+    - **Zombie Horde (Viral Strains):** Epidemiological biohazard classification (`Horde [Greek Letter]`, e.g., *Horde Alpha*, *Horde Delta*, *Horde Omicron*).
 - [ ] **Mob Component Drops & Bulk Logistics Loot Tables:** Tiered military component drops for mobs (rivets, fletchings, prisms, ciphers) and bulk engineering logistics loot tables for Supply Wagons.
 
 ### Planned Milestones:
 - [ ] **Physical Player Fortifications:** Salvaged installation cores (mortar cores, redoubt plates, war horn relays) used to construct watchtowers, mounted ballistas, and artillery to fortify player territory beyond 20/20.
-- [ ] **Zombie Horde Custom GeckoLib Roster:** Custom models, animations, and combat AI (Fodder, Chaser, Spewer, Tank, Hivemind Controller) replacing vanilla placeholders.
+- [ ] **Zombie Horde Infestation System & Custom Entities:** `ZombieInfestationManager` ambient saturation engine, continuous density scaling ($15 \rightarrow 70$), shared elite pool ($0 \rightarrow 12$), dual-tier spatial leashing, drip replenishment, swarm agitation cascade, and custom entity classes (Fodder, Hunter, Spitter, Screamer, Tank).
 - [ ] **Future Incursion Factions (Piglin Expedition, Ender Eclipse):** Unclaimed frontier portal incursions, mercenary bartering, and reality-bending endgame siege mechanics.
 - [ ] **Kinetic Military Automation Hooks:** Optional mechanical automation interfaces for player fortifications (Create mod compatibility).
 

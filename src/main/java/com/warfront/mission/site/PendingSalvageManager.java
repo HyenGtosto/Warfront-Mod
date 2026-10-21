@@ -117,6 +117,18 @@ public final class PendingSalvageManager {
     }
 
     /**
+     * Checks if there is an active pending salvage site waiting for loot collection in the given region.
+     */
+    public static boolean hasPendingSiteForRegion(int regionX, int regionZ) {
+        for (PendingSalvageSite site : PENDING_SITES.values()) {
+            if (site.regionX() == regionX && site.regionZ() == regionZ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Inspects placed blocks in a temporary structure to find remaining salvage/loot blocks.
      * Automatically disarms any locked SalvageMachineryBlocks so they are harvestable post-victory.
      */
@@ -132,7 +144,7 @@ public final class PendingSalvageManager {
                 SalvageMachineryBlock.disarm(level, pos);
                 salvage.add(pos.immutable());
             } else if (state.is(WarfrontBlocks.MORTAR.get()) || state.is(WarfrontBlocks.AMMO_RACK.get())
-                    || state.is(Blocks.CHEST) || state.is(Blocks.BARREL) || state.is(Blocks.TRAPPED_CHEST)) {
+                    || state.is(Blocks.CHEST) || state.is(Blocks.TRAPPED_CHEST)) {
                 salvage.add(pos.immutable());
             }
         }
@@ -214,7 +226,6 @@ public final class PendingSalvageManager {
                         && !state.is(WarfrontBlocks.MORTAR.get())
                         && !state.is(WarfrontBlocks.AMMO_RACK.get())
                         && !state.is(Blocks.CHEST)
-                        && !state.is(Blocks.BARREL)
                         && !state.is(Blocks.TRAPPED_CHEST);
             });
 

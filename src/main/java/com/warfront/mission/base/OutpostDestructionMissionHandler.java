@@ -135,11 +135,11 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
         }
 
         progress.setMissionSiteAnchor(anchor);
+        progress.setTemporaryStructuresBuilt(true);
         UUID instanceId = progress.missionInstanceId();
 
         // 3. Scan the outpost bounding box and register all structure blocks
         // Outpost size is 29x25x29 centered on anchor.
-        // CAUTION: Floor/foundation beneath ground level (y < anchor.getY()) is strictly excluded from demolition goal
         progress.trackedBlockPositions().clear();
 
         RegionData.RegionState regState = (state != null) ? state : new RegionData.RegionState(
@@ -154,16 +154,22 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
         java.util.Map<BlockPos, BlockState> blueprint = com.warfront.region.base.PersistentBaseProtectionManager
                 .getOrComputePristineBlocks(level, regionX, regionZ, regState);
 
+        int foundationMinY = anchor.getY() - 1;
+        int aboveGroundCount = 0;
+
         if (blueprint != null && !blueprint.isEmpty()) {
             for (BlockPos pos : blueprint.keySet()) {
-                if (pos.getY() >= anchor.getY() && !level.getBlockState(pos).isAir()) {
+                if (pos.getY() >= foundationMinY && !level.getBlockState(pos).isAir()) {
                     progress.trackedBlockPositions().add(pos.immutable());
+                    if (pos.getY() >= anchor.getY()) {
+                        aboveGroundCount++;
+                    }
                 }
             }
         } else {
             int halfX = 14;
             int halfZ = 14;
-            int minY = anchor.getY(); // Strictly at or above ground level; foundation/floor columns beneath are excluded
+            int minY = foundationMinY;
             int maxY = Math.min(level.getMaxBuildHeight(), anchor.getY() + 25);
 
             for (int x = anchor.getX() - halfX; x <= anchor.getX() + halfX; x++) {
@@ -177,30 +183,25 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
                                 && !bs.is(Blocks.STONE) && !bs.is(Blocks.DEEPSLATE)
                                 && bs.getFluidState().isEmpty()) {
                             progress.trackedBlockPositions().add(pos.immutable());
+                            if (pos.getY() >= anchor.getY()) {
+                                aboveGroundCount++;
+                            }
                         }
                     }
                 }
             }
         }
 
-        int totalBlocks = progress.trackedBlockPositions().size();
-        if (totalBlocks == 0) {
-            // Fallback scan: track non-air above ground level
-            for (int x = anchor.getX() - 10; x <= anchor.getX() + 10; x++) {
-                for (int z = anchor.getZ() - 10; z <= anchor.getZ() + 10; z++) {
-                    for (int y = anchor.getY(); y <= anchor.getY() + 15; y++) {
-                        BlockPos pos = new BlockPos(x, y, z);
-                        if (!level.getBlockState(pos).isAir()) {
-                            progress.trackedBlockPositions().add(pos.immutable());
-                        }
-                    }
-                }
-            }
-            totalBlocks = progress.trackedBlockPositions().size();
-            if (totalBlocks == 0) totalBlocks = 60;
+        // Ensure all outpost loot chests are registered in tracked blocks for post-war salvage
+        for (BlockPos chestPos : OutpostLootManager.getAllOutpostChestPositions(anchor)) {
+            progress.trackedBlockPositions().add(chestPos.immutable());
         }
 
-        int target = (int) Math.max(1, Math.ceil(totalBlocks * 0.50D));
+        if (aboveGroundCount == 0) {
+            aboveGroundCount = Math.max(30, progress.trackedBlockPositions().size());
+        }
+
+        int target = (int) Math.max(1, Math.ceil(aboveGroundCount * 0.50D));
         progress.setTargetProgress(target);
         progress.setCurrentProgress(0);
         progress.setPhaseIndex(1);
@@ -287,19 +288,55 @@ public final class OutpostDestructionMissionHandler implements MissionObjectiveH
             int subX, int subZ,
             ActiveCampaignMissionManager.ActiveSubRegionProgress progress
     ) {
-        progress.trackedBlockPositions().clear();
-
         BlockPos anchor = progress.missionSiteAnchor();
-        if (anchor != null) {
-            if (!progress.isCompleted()) {
-                // Mission ended without win -> clear loot from all chests with zero drops
-                OutpostLootManager.clearOutpostChests(level, anchor);
-            } else {
-                // Mission was won -> ensure command desks are disarmed
+
+        if (progress.isCompleted()) {
+            if (anchor != null) {
                 disarmCommandDesks(level, anchor);
+                // Retain all remaining unopened chests in tracked blocks for PendingSalvageManager
+                for (BlockPos chestPos : OutpostLootManager.getAllOutpostChestPositions(anchor)) {
+                    if (level.hasChunkAt(chestPos) && level.getBlockState(chestPos).is(Blocks.CHEST)) {
+                        progress.trackedBlockPositions().add(chestPos.immutable());
+                    }
+                }
+            }
+
+            // Immediately disperse all surviving enlisted defenders with POOF
+            for (UUID uuid : progress.trackedEntityUuids()) {
+                net.minecraft.world.entity.Entity e = level.getEntity(uuid);
+                if (e instanceof Mob mob && mob.isAlive()) {
+                    level.sendParticles(ParticleTypes.POOF, mob.getX(), mob.getY() + 0.5D, mob.getZ(), 12, 0.3D, 0.5D, 0.3D, 0.05D);
+                    level.playSound(null, mob.blockPosition(), SoundEvents.CHICKEN_EGG, SoundSource.NEUTRAL, 0.7F, 1.2F);
+                    mob.discard();
+                }
+                MissionEntityTracker.unregisterMissionMob(uuid);
+            }
+
+            // Also clear living garrison slots in BaseGarrisonData for this outpost
+            com.warfront.region.base.garrison.BaseGarrisonData gData = com.warfront.region.base.garrison.BaseGarrisonData.get(level);
+            if (gData != null) {
+                com.warfront.region.base.garrison.BaseGarrisonState gState = gData.getGarrison(regionX, regionZ);
+                if (gState != null) {
+                    for (com.warfront.region.base.garrison.GarrisonSlot slot : gState.getSlots()) {
+                        UUID gUuid = slot.getEntityUuid();
+                        if (gUuid != null) {
+                            net.minecraft.world.entity.Entity gEntity = level.getEntity(gUuid);
+                            if (gEntity instanceof Mob gMob && gMob.isAlive()) {
+                                level.sendParticles(ParticleTypes.POOF, gMob.getX(), gMob.getY() + 0.5D, gMob.getZ(), 12, 0.3D, 0.5D, 0.3D, 0.05D);
+                                gMob.discard();
+                            }
+                            slot.setEntityUuid(null);
+                        }
+                    }
+                    gData.setDirty();
+                }
+            }
+        } else {
+            // Mission ended without win -> clear loot from all chests with zero drops and reset tracked blocks
+            progress.trackedBlockPositions().clear();
+            if (anchor != null) {
+                OutpostLootManager.clearOutpostChests(level, anchor);
             }
         }
-
-        // Remaining defenders are automatically handled by MissionEntityTracker with gradual POOF dispersal
     }
 }

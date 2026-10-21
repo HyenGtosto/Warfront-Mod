@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.level.block.state.BlockState;
 
 import javax.annotation.Nullable;
 import java.util.EnumSet;
@@ -80,6 +81,10 @@ public class OutpostMarksmanPatrolGoal extends Goal {
         if (!marksman.isAlive()) {
             return false;
         }
+        BlockState support = marksman.level().getBlockState(postPos.below());
+        if (support.isAir() || !support.blocksMotion()) {
+            return false;
+        }
         LivingEntity target = marksman.getTarget();
         if (target != null && target.isAlive()) {
             // If knocked off or outside vertical bounds, recover control to rescue marksman
@@ -95,6 +100,10 @@ public class OutpostMarksmanPatrolGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         if (!marksman.isAlive()) {
+            return false;
+        }
+        BlockState support = marksman.level().getBlockState(postPos.below());
+        if (support.isAir() || !support.blocksMotion()) {
             return false;
         }
         LivingEntity target = marksman.getTarget();
@@ -118,6 +127,12 @@ public class OutpostMarksmanPatrolGoal extends Goal {
     public void tick() {
         // Leash enforcement: prevent falling down to courtyard/ground level
         if (marksman.getBlockY() < minY) {
+            BlockState support = marksman.level().getBlockState(postPos.below());
+            if (support.isAir() || !support.blocksMotion()) {
+                // Tower platform is destroyed! Abort patrol leash and fight on foot
+                marksman.goalSelector.removeGoal(this);
+                return;
+            }
             // Reposition back onto the platform if knocked off
             marksman.teleportTo(postPos.getX() + 0.5D, postPos.getY(), postPos.getZ() + 0.5D);
             marksman.setDeltaMovement(0, 0, 0);
