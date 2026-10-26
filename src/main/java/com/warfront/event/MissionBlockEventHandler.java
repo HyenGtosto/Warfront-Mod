@@ -26,6 +26,10 @@ public final class MissionBlockEventHandler {
             return;
         }
 
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return;
+        }
+
         BlockPos pos = event.getPos();
         BlockState state = event.getState();
 
@@ -48,6 +52,10 @@ public final class MissionBlockEventHandler {
 
     public static void onExplosionDetonate(net.neoforged.neoforge.event.level.ExplosionEvent.Detonate event) {
         if (event.getLevel().isClientSide() || !(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
             return;
         }
 

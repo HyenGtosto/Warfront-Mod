@@ -32,6 +32,13 @@ public final class RegionTriggerEvents {
         }
 
         UUID playerUUID = player.getUUID();
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            if (Boolean.TRUE.equals(PLAYER_IN_ACTIVE_MISSION.put(playerUUID, false))) {
+                player.connection.send(ActiveMissionHudPayload.empty());
+            }
+            return;
+        }
+
         ChunkPos currentChunk = player.chunkPosition();
         long currentChunkLong = currentChunk.toLong();
         Long previousChunkLong = LAST_PLAYER_CHUNK.put(playerUUID, currentChunkLong);

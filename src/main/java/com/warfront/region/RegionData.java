@@ -54,17 +54,21 @@ public final class RegionData extends SavedData {
     private transient boolean logsMigrated = false;
 
     public static RegionData get(ServerLevel level) {
-        RegionData data = level.getDataStorage().computeIfAbsent(FACTORY, DATA_FILE_ID);
-        if (data.level != level || data.worldSeed != level.getSeed()) {
+        ServerLevel overworld = (level != null && level.getServer() != null) ? level.getServer().overworld() : level;
+        if (overworld == null) {
+            overworld = level;
+        }
+        RegionData data = overworld.getDataStorage().computeIfAbsent(FACTORY, DATA_FILE_ID);
+        if (data.level != overworld || data.worldSeed != overworld.getSeed()) {
             com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
         }
-        data.worldSeed = level.getSeed();
-        data.level = level;
+        data.worldSeed = overworld.getSeed();
+        data.level = overworld;
 
         if (!data.logsMigrated) {
             data.logsMigrated = true;
             if (data.warfrontLogs.isEmpty()) {
-                List<String> diskLogs = WarfrontWorldLogger.readLogs(level);
+                List<String> diskLogs = WarfrontWorldLogger.readLogs(overworld);
                 for (String diskLog : diskLogs) {
                     if (!data.warfrontLogs.contains(diskLog)) {
                         data.warfrontLogs.add(diskLog);

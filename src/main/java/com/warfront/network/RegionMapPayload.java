@@ -19,8 +19,22 @@ public record RegionMapPayload(
         java.util.List<ActiveWarData> activeWars,
         java.util.List<String> logMessages,
         boolean isExplicitRequest,
-        MapViewType viewType
+        MapViewType viewType,
+        boolean hasIntel
 ) implements CustomPacketPayload {
+
+    public RegionMapPayload(
+            int centerChunkX, int centerChunkZ,
+            java.util.List<ChunkData> chunks,
+            java.util.List<RegionMarkerData> markers,
+            java.util.List<SiegeArrowData> siegeArrows,
+            java.util.List<ActiveWarData> activeWars,
+            java.util.List<String> logMessages,
+            boolean isExplicitRequest,
+            MapViewType viewType
+    ) {
+        this(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, activeWars, logMessages, isExplicitRequest, viewType, true);
+    }
 
     public RegionMapPayload(
             int centerChunkX, int centerChunkZ,
@@ -31,7 +45,7 @@ public record RegionMapPayload(
             boolean isExplicitRequest,
             MapViewType viewType
     ) {
-        this(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, java.util.Collections.emptyList(), logMessages, isExplicitRequest, viewType);
+        this(centerChunkX, centerChunkZ, chunks, markers, siegeArrows, java.util.Collections.emptyList(), logMessages, isExplicitRequest, viewType, true);
     }
 
     public boolean isCommandTerminalMap() {
@@ -124,7 +138,8 @@ public record RegionMapPayload(
                     WARS_CODEC.decode(buf),
                     LOGS_CODEC.decode(buf),
                     ByteBufCodecs.BOOL.decode(buf),
-                    MapViewType.byId(ByteBufCodecs.VAR_INT.decode(buf))
+                    MapViewType.byId(ByteBufCodecs.VAR_INT.decode(buf)),
+                    ByteBufCodecs.BOOL.decode(buf)
             );
         }
 
@@ -139,6 +154,7 @@ public record RegionMapPayload(
             LOGS_CODEC.encode(buf, payload.logMessages());
             ByteBufCodecs.BOOL.encode(buf, payload.isExplicitRequest());
             ByteBufCodecs.VAR_INT.encode(buf, payload.viewType().id());
+            ByteBufCodecs.BOOL.encode(buf, payload.hasIntel());
         }
     };
 

@@ -104,11 +104,21 @@ public class ProceduralRegionGenerator {
 
     private final Map<Long, RegionData.RegionState> proceduralRawStateCache = new java.util.concurrent.ConcurrentHashMap<>();
 
+    private static ServerLevel ensureOverworld(ServerLevel level) {
+        if (level != null && level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            if (level.getServer() != null && level.getServer().overworld() != null) {
+                return level.getServer().overworld();
+            }
+        }
+        return level;
+    }
+
     /**
      * Evaluates procedural region state for unsaved regions without calculating strength values, preventing recursion loops.
      * Reuses proceduralRawStateCache to make snapshot building instant.
      */
     public RegionData.RegionState generateRawRegionState(ServerLevel level, long worldSeed, int regionX, int regionZ) {
+        level = ensureOverworld(level);
         long key = ChunkPos.asLong(regionX, regionZ);
         RegionData.RegionState cached = proceduralRawStateCache.get(key);
         if (cached != null) {
@@ -140,6 +150,7 @@ public class ProceduralRegionGenerator {
      * Evaluates symmetrical grid cluster generators for Pillagers and Zombies.
      */
     public RegionData.RegionState generateRegion(ServerLevel level, long worldSeed, int regionX, int regionZ) {
+        level = ensureOverworld(level);
         for (int i = 0; i < factionGenerators.size(); i++) {
             FactionGenerator generator = factionGenerators.get(i);
             Optional<RegionData.RegionState> result = generator.generateRegion(level, worldSeed, regionX, regionZ);
@@ -196,6 +207,7 @@ public class ProceduralRegionGenerator {
     }
 
     public boolean biomeAvailableForExpansion(ServerLevel level, int regionX, int regionZ) {
+        level = ensureOverworld(level);
         if (level == null) {
             return true;
         }
@@ -210,6 +222,7 @@ public class ProceduralRegionGenerator {
     }
 
     public boolean biomeAvailableForBase(ServerLevel level, int regionX, int regionZ) {
+        level = ensureOverworld(level);
         if (level == null) {
             return true;
         }
@@ -364,19 +377,136 @@ public class ProceduralRegionGenerator {
         return true;
     }
 
+    public boolean isFootprintSuitable(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
+        if (level == null) return true;
+
+        int centerBlockX = minBlockX + sizeX / 2;
+        int centerBlockZ = minBlockZ + sizeZ / 2;
+
+        // 1. Center of the base structure MUST be dry land and not ocean, river, beach, or surface water
+        Holder<Biome> centerBiome = level.getBiome(new BlockPos(centerBlockX, 64, centerBlockZ));
+        if (isOceanBiome(centerBiome) || isRiverBiome(centerBiome) || isBeachBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
+            return false;
+        }
+
+        // 2. 4 corners check
+        int[][] corners = new int[][] {
+                { minBlockX, minBlockZ },
+                { minBlockX + sizeX - 1, minBlockZ },
+                { minBlockX, minBlockZ + sizeZ - 1 },
+                { minBlockX + sizeX - 1, minBlockZ + sizeZ - 1 }
+        };
+        for (int[] c : corners) {
+            Holder<Biome> cornerBiome = level.getBiome(new BlockPos(c[0], 64, c[1]));
+            if (isOceanBiome(cornerBiome) || isRiverBiome(cornerBiome) || isBeachBiome(cornerBiome) || isSurfaceWaterAt(level, c[0], c[1])) {
+                return false;
+            }
+        }
+
+        // 3. Dense deterministic grid of sample points across interior and perimeter
+        int step = 8;
+        for (int ox = 0; ox < sizeX; ox += step) {
+            for (int oz = 0; oz < sizeZ; oz += step) {
+                int x = minBlockX + ox;
+                int z = minBlockZ + oz;
+
+                if (x == centerBlockX && z == centerBlockZ) {
+                    continue;
+                }
+
+                Holder<Biome> biome = level.getBiome(new BlockPos(x, 64, z));
+                if (isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome) || isSurfaceWaterAt(level, x, z)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Mountain-friendly footprint evaluator for Headquarters (Medium Base).
+     * Enforces:
+     * - Center point must NEVER be ocean, deep ocean, frozen ocean, or surface water.
+     * - Vertical build clearance within world limits (baseY + 25 < maxBuildHeight - 10).
+     * - Deep ocean biomes are strictly banned across the entire footprint.
+     * - Aquatic ratio across footprint must not exceed 15% (allows small mountain brooks/springs).
+     *
+     * @return downhill elevation drop (anchorY - minPerimeterY), or -1 if invalid (water/bounds/ocean).
+     */
+    public int evaluateHQFootprintDrop(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
+        if (level == null) return 0;
+
+        int centerBlockX = minBlockX + sizeX / 2;
+        int centerBlockZ = minBlockZ + sizeZ / 2;
+
+        // 1. Center of the base structure MUST NEVER be ocean, deep ocean, frozen ocean, or surface water
+        Holder<Biome> centerBiome = level.getBiome(new BlockPos(centerBlockX, 64, centerBlockZ));
+        if (isOceanBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
+            return -1;
+        }
+
+        // 2. Vertical build space check
+        int anchorY = getSurfaceHeightAt(level, centerBlockX, centerBlockZ);
+        if (anchorY + 25 >= level.getMaxBuildHeight() - 10 || anchorY < level.getMinBuildHeight() + 10) {
+            return -1;
+        }
+
+        // 3. Dense sample grid across footprint: enforce <= 15% aquatic points and reject deep ocean
+        int step = 8;
+        int totalSamples = 0;
+        int aquaticSamples = 0;
+        int minPerimeterY = Integer.MAX_VALUE;
+
+        for (int ox = 0; ox < sizeX; ox += step) {
+            for (int oz = 0; oz < sizeZ; oz += step) {
+                int x = minBlockX + ox;
+                int z = minBlockZ + oz;
+                totalSamples++;
+
+                Holder<Biome> biome = level.getBiome(new BlockPos(x, 64, z));
+                if (isOceanBiome(biome)) {
+                    String id = biome.unwrapKey().map(k -> k.location().toString()).orElse("");
+                    if (id.contains("deep_ocean")) {
+                        return -1;
+                    }
+                }
+
+                if (isOceanBiome(biome) || isRiverBiome(biome) || isSurfaceWaterAt(level, x, z)) {
+                    aquaticSamples++;
+                }
+
+                boolean isPerimeter = (ox == 0 || ox + step >= sizeX || oz == 0 || oz + step >= sizeZ);
+                if (isPerimeter) {
+                    int surfaceY = getSurfaceHeightAt(level, x, z);
+                    if (surfaceY < minPerimeterY) {
+                        minPerimeterY = surfaceY;
+                    }
+                }
+            }
+        }
+
+        if (totalSamples > 0 && ((double) aquaticSamples / totalSamples) > 0.15) {
+            return -1;
+        }
+
+        return (minPerimeterY != Integer.MAX_VALUE) ? Math.max(0, anchorY - minPerimeterY) : 0;
+    }
+
     /**
      * Finds a deterministic physical base anchor within the strategic region for the given base tier.
      *
      * Placement rules:
      * - OUTPOST: Single size variant (32x32 footprint). Allocated into a random subregion (0..3).
      *   First tries to fit into a valid subregion without shifts. Only applies shifting logic if all 4 subregions fail.
-     * - HEADQUARTERS (Normal Base): 48x48 footprint. Occupies parts of 2 adjacent subregions with slight overflow to the other 2.
+     * - HEADQUARTERS (Medium Base): 50x90 footprint. Centered across 2 adjacent subregions with zero overflow to the other 2 (7-block lateral margins).
      *   Tries 4 cardinal orientations straddling subregion borders (East, West, North, South).
      *   Fallback shifting moves strictly along the middle line axis (1D shift, never diagonal).
      * - MEGA_BASE: 64x64 footprint. Sits right in the middle (startBlockX + 64, startBlockZ + 64) and occupies all 4 subregions
      *   as a huge central building. Fallback slight 1D shifts along middle axes while still occupying all 4 subregions.
      */
     public Optional<BlockPos> findPhysicalBaseAnchor(ServerLevel level, long worldSeed, int regionX, int regionZ, BaseType baseType) {
+        level = ensureOverworld(level);
         if (baseType == BaseType.NONE) {
             return Optional.empty();
         }
@@ -435,62 +565,93 @@ public class ProceduralRegionGenerator {
                 }
             }
         } else if (baseType == BaseType.HEADQUARTERS) {
-            // Normal bases (HQ): 48x48 footprint, occupy parts of 2 adjacent subregions with slight overflow to other 2.
+            // Headquarters (Medium Base): 50x90 footprint, centered in 2 adjacent subregions with zero overflow (7-block lateral margin).
             // 4 cardinal orientations:
-            // 0: EAST - Subregions (subX=1, subZ=0) & (subX=1, subZ=1) mandatory (36 blocks wide); (0,0) & (0,1) overflow (12 blocks). Shift along Z (shiftAxis=0).
-            // 1: WEST - Subregions (subX=0, subZ=0) & (subX=0, subZ=1) mandatory (36 blocks wide); (1,0) & (1,1) overflow (12 blocks). Shift along Z (shiftAxis=0).
-            // 2: NORTH - Subregions (subX=0, subZ=0) & (subX=1, subZ=0) mandatory (36 blocks tall); (0,1) & (1,1) overflow (12 blocks). Shift along X (shiftAxis=1).
-            // 3: SOUTH - Subregions (subX=0, subZ=1) & (subX=1, subZ=1) mandatory (36 blocks tall); (0,0) & (1,0) overflow (12 blocks). Shift along X (shiftAxis=1).
+            // 0: EAST  - Subregions (1,0) & (1,1). Centered at X=96, Z=64. Shift along Z (shiftAxis=0).
+            // 1: WEST  - Subregions (0,0) & (0,1). Centered at X=32, Z=64. Shift along Z (shiftAxis=0).
+            // 2: NORTH - Subregions (0,0) & (1,0). Centered at X=64, Z=32. Shift along X (shiftAxis=1).
+            // 3: SOUTH - Subregions (0,1) & (1,1). Centered at X=64, Z=96. Shift along X (shiftAxis=1).
             int[][] hqConfigs = new int[][] {
-                    { 76, 64, 0 }, // 0: EAST
-                    { 52, 64, 0 }, // 1: WEST
-                    { 64, 52, 1 }, // 2: NORTH
-                    { 64, 76, 1 }  // 3: SOUTH
+                    { 96, 64, 0 }, // 0: EAST  - Subregions (1,0) & (1,1)
+                    { 32, 64, 0 }, // 1: WEST  - Subregions (0,0) & (0,1)
+                    { 64, 32, 1 }, // 2: NORTH - Subregions (0,0) & (1,0)
+                    { 64, 96, 1 }  // 3: SOUTH - Subregions (0,1) & (1,1)
             };
 
             long hash = hashPos(worldSeed, regionX, regionZ, 8888L);
             int startCard = (int) Math.floorMod(hash, 4);
             int[] cardOrder = new int[] { startCard, (startCard + 1) % 4, (startCard + 2) % 4, (startCard + 3) % 4 };
 
+            BlockPos bestFallbackAnchor = null;
+            int lowestDrop = Integer.MAX_VALUE;
+
             // Phase 1: Test ideal positions of the 4 cardinal orientations
             for (int cardIdx : cardOrder) {
                 int candAnchorX = startBlockX + hqConfigs[cardIdx][0];
                 int candAnchorZ = startBlockZ + hqConfigs[cardIdx][1];
-                int candMinX = candAnchorX - 24;
-                int candMinZ = candAnchorZ - 24;
+                int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z (East/West: 50x90), 1 = shift in X (North/South: 90x50)
 
-                if (isFootprintSuitable(level, candMinX, candMinZ, HQ_FOOTPRINT)) {
+                int sizeX = (shiftAxis == 0) ? 50 : 90;
+                int sizeZ = (shiftAxis == 0) ? 90 : 50;
+                int candMinX = candAnchorX - sizeX / 2;
+                int candMinZ = candAnchorZ - sizeZ / 2;
+
+                int drop = evaluateHQFootprintDrop(level, candMinX, candMinZ, sizeX, sizeZ);
+                if (drop >= 0) {
                     int anchorY = getSurfaceHeightAt(level, candAnchorX, candAnchorZ);
-                    Optional<BlockPos> res = Optional.of(new BlockPos(candAnchorX, anchorY, candAnchorZ));
-                    physicalBaseAnchorCache.put(key, res);
-                    return res;
+                    if (drop <= 28) {
+                        Optional<BlockPos> res = Optional.of(new BlockPos(candAnchorX, anchorY, candAnchorZ));
+                        physicalBaseAnchorCache.put(key, res);
+                        return res;
+                    }
+                    if (drop < lowestDrop) {
+                        lowestDrop = drop;
+                        bestFallbackAnchor = new BlockPos(candAnchorX, anchorY, candAnchorZ);
+                    }
                 }
             }
 
             // Phase 2: Apply 1D shifting strictly along the middle line axis (never diagonal)
-            int[] axisDeltas = new int[] { -6, 6, -12, 12, -18, 18, -24, 24 };
+            int[] axisDeltas = new int[] { -5, 5, -10, 10, -15, 15 };
 
             for (int cardIdx : cardOrder) {
                 int baseAnchorX = startBlockX + hqConfigs[cardIdx][0];
                 int baseAnchorZ = startBlockZ + hqConfigs[cardIdx][1];
                 int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z, 1 = shift in X
 
+                int sizeX = (shiftAxis == 0) ? 50 : 90;
+                int sizeZ = (shiftAxis == 0) ? 90 : 50;
+
                 for (int delta : axisDeltas) {
                     int candAnchorX = baseAnchorX + (shiftAxis == 1 ? delta : 0);
                     int candAnchorZ = baseAnchorZ + (shiftAxis == 0 ? delta : 0);
-                    int candMinX = candAnchorX - 24;
-                    int candMinZ = candAnchorZ - 24;
+                    int candMinX = candAnchorX - sizeX / 2;
+                    int candMinZ = candAnchorZ - sizeZ / 2;
 
-                    if (candMinX >= startBlockX + 8 && candMinX + HQ_FOOTPRINT <= startBlockX + 120 &&
-                            candMinZ >= startBlockZ + 8 && candMinZ + HQ_FOOTPRINT <= startBlockZ + 120) {
-                        if (isFootprintSuitable(level, candMinX, candMinZ, HQ_FOOTPRINT)) {
+                    if (candMinX >= startBlockX + 4 && candMinX + sizeX <= startBlockX + 124 &&
+                            candMinZ >= startBlockZ + 4 && candMinZ + sizeZ <= startBlockZ + 124) {
+                        int drop = evaluateHQFootprintDrop(level, candMinX, candMinZ, sizeX, sizeZ);
+                        if (drop >= 0) {
                             int anchorY = getSurfaceHeightAt(level, candAnchorX, candAnchorZ);
-                            Optional<BlockPos> res = Optional.of(new BlockPos(candAnchorX, anchorY, candAnchorZ));
-                            physicalBaseAnchorCache.put(key, res);
-                            return res;
+                            if (drop <= 28) {
+                                Optional<BlockPos> res = Optional.of(new BlockPos(candAnchorX, anchorY, candAnchorZ));
+                                physicalBaseAnchorCache.put(key, res);
+                                return res;
+                            }
+                            if (drop < lowestDrop) {
+                                lowestDrop = drop;
+                                bestFallbackAnchor = new BlockPos(candAnchorX, anchorY, candAnchorZ);
+                            }
                         }
                     }
                 }
+            }
+
+            // Fallback for extreme mountain terrain: accept candidate with lowest drop
+            if (bestFallbackAnchor != null) {
+                Optional<BlockPos> res = Optional.of(bestFallbackAnchor);
+                physicalBaseAnchorCache.put(key, res);
+                return res;
             }
         } else if (baseType == BaseType.OUTPOST) {
             // Outpost: single size variant (32x32 footprint).
@@ -571,6 +732,7 @@ public class ProceduralRegionGenerator {
      * MEGA_BASE -> HEADQUARTERS -> OUTPOST -> NONE.
      */
     public BasePlacementResult resolveBasePlacement(ServerLevel level, long worldSeed, int regionX, int regionZ, BaseType desiredTier) {
+        level = ensureOverworld(level);
         if (desiredTier == BaseType.NONE) {
             return new BasePlacementResult(BaseType.NONE, null);
         }
@@ -671,6 +833,7 @@ public class ProceduralRegionGenerator {
     }
 
     public boolean isLandRegion(ServerLevel level, int regionX, int regionZ) {
+        level = ensureOverworld(level);
         if (level == null) {
             return true;
         }

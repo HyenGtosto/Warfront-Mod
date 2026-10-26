@@ -50,41 +50,39 @@ public final class PersistentBaseProtectionManager {
     }
 
     /**
-     * Checks whether the base at the specified anchor is currently involved in an active war (siege or mission).
-     * During active war (Scenario 2 & Scenario 3), self-repair is paused so fortress damage persists.
+     * Checks whether all subregions occupied by the base are currently involved in an active war.
+     * If at least one occupied subregion is not at war, this returns false so evaluateAndRepairBase
+     * can continue self-repairing the non-active side of the fortress.
      */
     public static boolean isBaseAtWar(ServerLevel level, int rx, int rz, BlockPos anchor, RegionData regions) {
         if (regions == null || anchor == null) {
             return false;
         }
 
-        // Check active siege campaign on this region (covers Scenario 2 & Scenario 3)
-        RegionData.SiegeCampaign siege = regions.getSiege(rx, rz);
-        if (siege != null) {
-            return true;
-        }
-
-        // Check any active missions running anywhere in the region
-        if (ActiveCampaignMissionManager.hasAnyActiveMissionInRegion(rx, rz)) {
-            return true;
-        }
-
         RegionData.RegionState state = regions.getSavedRegionState(rx, rz);
         com.warfront.region.BaseType baseType = (state != null) ? state.baseType() : com.warfront.region.BaseType.OUTPOST;
-
-        // Check all subregions occupied by this base structure
         int occupiedMask = com.warfront.mission.MissionProfile.getOccupiedBaseSubRegionsMask(rx, rz, baseType, anchor);
+        if (occupiedMask == 0) {
+            return false;
+        }
+
+        RegionData.SiegeCampaign siege = regions.getSiege(rx, rz);
+        if (siege != null && (siege.activeSubRegionsMask() & occupiedMask) == occupiedMask) {
+            return true;
+        }
+
+        // Check if all occupied subregions have active missions
         for (int bit = 0; bit < 4; bit++) {
             if ((occupiedMask & (1 << bit)) != 0) {
                 int sx = bit % 2;
                 int sz = bit / 2;
-                if (ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
-                    return true;
+                if (!ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
+                    return false; // Non-active side exists: allow repair loop to run for the non-active side!
                 }
             }
         }
 
-        return false;
+        return true;
     }
 
     /**
@@ -292,6 +290,7 @@ public final class PersistentBaseProtectionManager {
         int totalExpected = 0;
         int intactCount = 0;
         List<Map.Entry<BlockPos, BlockState>> damagedEntries = new ArrayList<>();
+        RegionData.SiegeCampaign siege = (regions != null) ? regions.getSiege(rx, rz) : null;
 
         for (Map.Entry<BlockPos, BlockState> entry : blueprint.entrySet()) {
             BlockPos pos = entry.getKey();
@@ -303,6 +302,24 @@ public final class PersistentBaseProtectionManager {
             }
 
             if (!level.hasChunkAt(pos)) {
+                continue;
+            }
+
+            // Subregion-Aware Repair Partitioning:
+            // Evaluate which subregion this block belongs to
+            int localX = Math.floorMod(pos.getX(), RegionData.REGION_SIZE_BLOCKS);
+            int localZ = Math.floorMod(pos.getZ(), RegionData.REGION_SIZE_BLOCKS);
+            int sx = localX / 64;
+            int sz = localZ / 64;
+            int subBit = sz * 2 + sx;
+
+            boolean subregionAtWar = ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz);
+            if (!subregionAtWar && siege != null) {
+                subregionAtWar = (siege.activeSubRegionsMask() & (1 << subBit)) != 0;
+            }
+
+            if (subregionAtWar) {
+                // Active combat mission on this side of the base: skip repair so destruction persists!
                 continue;
             }
 

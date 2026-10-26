@@ -34,8 +34,9 @@ public final class FieldBattleManager {
             return;
         }
 
-        for (ServerLevel level : event.getServer().getAllLevels()) {
-            tickLevel(level);
+        ServerLevel overworld = event.getServer().overworld();
+        if (overworld != null) {
+            tickLevel(overworld);
         }
     }
 

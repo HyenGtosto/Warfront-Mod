@@ -21,6 +21,10 @@ public final class MissionDeathEventHandler {
             return;
         }
 
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return;
+        }
+
         // Handle persistent base garrison mob death (e.g. outside mission passive respawn timers)
         com.warfront.region.base.garrison.BaseGarrisonManager.handleMobDeath(mob, level);
 

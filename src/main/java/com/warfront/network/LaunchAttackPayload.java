@@ -31,6 +31,10 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
     public static void handle(LaunchAttackPayload payload, IPayloadContext context) {
         ServerPlayer player = (ServerPlayer) context.player();
         ServerLevel level = player.serverLevel();
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Strategic campaigns can only be launched in the Overworld!"));
+            return;
+        }
         RegionData regions = RegionData.get(level);
 
         com.warfront.faction.PlayerFaction playerFaction = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(player.getUUID());

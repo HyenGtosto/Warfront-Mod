@@ -62,6 +62,25 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
 
     public static void sendSnapshot(ServerPlayer player, MapViewType viewType, boolean isExplicitRequest) {
         setActiveSession(player, viewType);
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            ServerLevel overworld = player.server.overworld();
+            List<String> logMessages = (overworld != null)
+                    ? RegionData.get(overworld).getWarfrontLogs()
+                    : java.util.Collections.emptyList();
+
+            PacketDistributor.sendToPlayer(player, new RegionMapPayload(
+                    player.chunkPosition().x, player.chunkPosition().z,
+                    java.util.Collections.emptyList(),
+                    java.util.Collections.emptyList(),
+                    java.util.Collections.emptyList(),
+                    java.util.Collections.emptyList(),
+                    logMessages,
+                    isExplicitRequest,
+                    viewType,
+                    false
+            ));
+            return;
+        }
         buildAndSendSnapshot(player, viewType, isExplicitRequest);
     }
 
@@ -74,6 +93,10 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
     }
 
     private static int getOrComputeBiomeColor(ServerLevel level, int chunkX, int chunkZ, BlockPos.MutableBlockPos samplePos, int seaLevel) {
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return 0xFF000000;
+        }
+
         long currentSeed = level.getSeed();
         if (cachedWorldSeed != currentSeed) {
             cachedWorldSeed = currentSeed;
@@ -222,7 +245,7 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
             MapViewType activeType = getActiveSession(player);
             if (activeType != null) {
-                buildAndSendSnapshot(player, activeType, false);
+                sendSnapshot(player, activeType, false);
             }
         }
     }

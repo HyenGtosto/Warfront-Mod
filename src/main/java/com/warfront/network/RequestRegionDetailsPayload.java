@@ -38,6 +38,9 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
 
     public static void handle(RequestRegionDetailsPayload payload, IPayloadContext context) {
         ServerPlayer player = (ServerPlayer) context.player();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return;
+        }
         MapViewType viewType = payload.viewType();
 
         if (!viewType.isDebug() && !isInsideMapSnapshot(player, payload.regionX(), payload.regionZ(), viewType.chunkDiameter())) {

@@ -36,6 +36,15 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
     private static final MissionDefinition HQ_INTEL_DEF;
     private static final MissionDefinition HQ_SUPPLY_DEF;
 
+    static MissionDefinition getHQDefinition(MissionType type) {
+        return switch (type) {
+            case BASE_KILL_COMMANDER -> HQ_COMMANDER_DEF;
+            case BASE_DESTROY_INTEL -> HQ_INTEL_DEF;
+            case BASE_DESTROY_SUPPLIES -> HQ_SUPPLY_DEF;
+            default -> HQ_INTEL_DEF;
+        };
+    }
+
     private static final MissionDefinition MEGA_COMMAND_DEF;
     private static final MissionDefinition MEGA_WAR_ROOM_DEF;
     private static final MissionDefinition MEGA_MUNITIONS_DEF;
@@ -487,12 +496,12 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
         int occupiedBaseMask = MissionProfile.getOccupiedBaseSubRegionsMask(regionX, regionZ, baseType, baseAnchor);
         int anchorSubBit = MissionProfile.getAnchorSubRegionBit(regionX, regionZ, baseAnchor);
 
-        // Prepare Medium Base secondary variant roll (if HQ)
-        MissionDefinition hqSecondaryDef = null;
-        if (baseType == BaseType.HEADQUARTERS) {
-            long hqSeed = WeightedMissionSelector.mix64(effectiveSeed ^ 0x9E3779B9L);
-            boolean pickIntel = ((hqSeed & 1) == 0);
-            hqSecondaryDef = pickIntel ? HQ_INTEL_DEF : HQ_SUPPLY_DEF;
+        // Permanent unsalted base seed: Base subregions are strictly immune to partial victory rerolls!
+        long baseSeed = MissionProfile.calculateBaseSeed(effectiveSeed, regionX, regionZ, baseAnchor);
+
+        MissionProfile.HQWingContract hqContract = null;
+        if (baseType == BaseType.HEADQUARTERS && Integer.bitCount(occupiedBaseMask) == 2) {
+            hqContract = MissionProfile.getHQWingContract(effectiveSeed, regionX, regionZ, baseAnchor);
         }
 
         // Prepare Mega Base 3 secondary variants (if Mega Base)
@@ -501,14 +510,14 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
             List<MissionDefinition> candidates = new ArrayList<>(List.of(
                     MEGA_WAR_ROOM_DEF, MEGA_MUNITIONS_DEF, MEGA_GATES_DEF, MEGA_GUNS_DEF, MEGA_COMMS_DEF
             ));
-            // Deterministic shuffle of the 5 candidate variants using region seed
-            Random rng = new Random(WeightedMissionSelector.mix64(effectiveSeed ^ 0xCAFEBABE1234L));
+            // Deterministic shuffle of the 5 candidate variants using permanent base seed
+            Random rng = new Random(WeightedMissionSelector.mix64(baseSeed ^ 0xCAFEBABE1234L));
             Collections.shuffle(candidates, rng);
             megaSecondaryDefs = candidates.subList(0, 3);
         }
         int megaSecondaryIdx = 0;
 
-        // Pass 1: Resolve and assign mandatory base missions for occupied subregions
+        // Pass 1: Resolve and assign mandatory base missions for occupied subregions using unsalted baseSeed
         for (int i = 0; i < 4; i++) {
             int subX = i % 2;
             int subZ = i / 2;
@@ -519,19 +528,23 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 continue;
             }
 
-            long subSeed = effectiveSeed ^ (subX * 83492791L) ^ (subZ * 4393139L)
+            long subSeed = baseSeed ^ (subX * 83492791L) ^ (subZ * 4393139L)
                     ^ faction.id() ^ ((long) baseType.id() << 32);
 
             MissionDefinition baseDef;
-            if (bit == anchorSubBit) {
+            if (baseType == BaseType.HEADQUARTERS) {
+                baseDef = (hqContract != null)
+                        ? hqContract.getDefinitionForBit(faction, bit)
+                        : HQ_INTEL_DEF;
+                if (baseDef == null) {
+                    baseDef = HQ_INTEL_DEF;
+                }
+            } else if (bit == anchorSubBit) {
                 baseDef = switch (baseType) {
                     case OUTPOST -> OUTPOST_BASE_DEF;
-                    case HEADQUARTERS -> HQ_COMMANDER_DEF;
                     case MEGA_BASE -> MEGA_COMMAND_DEF;
                     default -> FALLBACK_HARD_DEF;
                 };
-            } else if (baseType == BaseType.HEADQUARTERS) {
-                baseDef = hqSecondaryDef != null ? hqSecondaryDef : HQ_INTEL_DEF;
             } else if (baseType == BaseType.MEGA_BASE) {
                 baseDef = (megaSecondaryDefs != null && megaSecondaryIdx < megaSecondaryDefs.size())
                         ? megaSecondaryDefs.get(megaSecondaryIdx++)

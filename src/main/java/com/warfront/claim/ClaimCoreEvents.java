@@ -17,6 +17,14 @@ public final class ClaimCoreEvents {
             return;
         }
 
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            event.setCanceled(true);
+            if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Claim Cores can only be placed in the Overworld!"));
+            }
+            return;
+        }
+
         java.util.UUID playerFactionId = null;
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(player.getUUID());

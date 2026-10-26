@@ -30,6 +30,14 @@ public final class Warfront {
                 com.warfront.faction.PlayerFactionData.get(player.serverLevel()).syncToPlayer(player);
             }
         });
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerChangedDimensionEvent event) -> {
+            if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+                com.warfront.map.MapViewType activeType = com.warfront.network.RequestRegionMapPayload.getActiveSession(player);
+                if (activeType != null) {
+                    com.warfront.network.RequestRegionMapPayload.sendSnapshot(player, activeType, false);
+                }
+            }
+        });
         NeoForge.EVENT_BUS.addListener(BiomeMapColorReloadListener::register);
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(RegionTriggerEvents::onEntityJoin);

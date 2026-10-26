@@ -88,6 +88,26 @@ public final class RegionMapRenderer {
     }
 
     public void renderMapView(GuiGraphics graphics, Font font, MapViewport viewport, RegionMapState state, RegionMapCamera camera, int mouseX, int mouseY) {
+        if (!state.hasIntel()) {
+            int mapLeft = viewport.mapLeft();
+            int mapTop = viewport.mapTop();
+            int mapSize = viewport.mapSize();
+
+            graphics.fill(mapLeft, mapTop, mapLeft + mapSize, mapTop + mapSize, 0xFF101216);
+            graphics.fill(mapLeft, mapTop, mapLeft + mapSize, mapTop + 1, 0xFF7A715D);
+            graphics.fill(mapLeft, mapTop + mapSize - 1, mapLeft + mapSize, mapTop + mapSize, 0xFF7A715D);
+            graphics.fill(mapLeft, mapTop, mapLeft + 1, mapTop + mapSize, 0xFF7A715D);
+            graphics.fill(mapLeft + mapSize - 1, mapTop, mapLeft + mapSize, mapTop + mapSize, 0xFF7A715D);
+
+            Component text = Component.literal("Cannot Get Intel");
+            int textX = mapLeft + (mapSize - font.width(text)) / 2;
+            int textY = mapTop + (mapSize - font.lineHeight) / 2;
+            graphics.drawString(font, text, textX, textY, 0xFFFF3333, false);
+
+            renderSelectedRegionInfo(graphics, font, viewport, state);
+            return;
+        }
+
         graphics.enableScissor(viewport.mapLeft(), viewport.mapTop(),
                 viewport.mapLeft() + viewport.mapSize(), viewport.mapTop() + viewport.mapSize());
         renderChunks(graphics, viewport, state, camera);

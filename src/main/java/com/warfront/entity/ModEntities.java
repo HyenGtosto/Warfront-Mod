@@ -71,6 +71,35 @@ public final class ModEntities {
                             .updateInterval(1)
                             .build("artillery_shell"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<PillagerCannoneerEntity>> PILLAGER_CANNONEER =
+            ENTITY_TYPES.register("pillager_cannoneer", () ->
+                    EntityType.Builder.of(PillagerCannoneerEntity::new, MobCategory.MONSTER)
+                            .sized(0.65f, 1.95f)
+                            .clientTrackingRange(8)
+                            .build("pillager_cannoneer"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<PillagerRapidbowEntity>> PILLAGER_RAPIDBOW =
+            ENTITY_TYPES.register("pillager_rapidbow", () ->
+                    EntityType.Builder.of(PillagerRapidbowEntity::new, MobCategory.MONSTER)
+                            .sized(0.85f, 1.95f)
+                            .clientTrackingRange(8)
+                            .build("pillager_rapidbow"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<PillagerIroncladEntity>> PILLAGER_IRONCLAD =
+            ENTITY_TYPES.register("pillager_ironclad", () ->
+                    EntityType.Builder.of(PillagerIroncladEntity::new, MobCategory.MONSTER)
+                            .sized(1.2f, 3.0f)
+                            .clientTrackingRange(10)
+                            .build("pillager_ironclad"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<CannonballEntity>> CANNONBALL =
+            ENTITY_TYPES.register("cannonball", () ->
+                    EntityType.Builder.<CannonballEntity>of(CannonballEntity::new, MobCategory.MISC)
+                            .sized(0.5f, 0.5f)
+                            .clientTrackingRange(16)
+                            .updateInterval(1)
+                            .build("cannonball"));
+
     private ModEntities() {
     }
 
@@ -85,6 +114,9 @@ public final class ModEntities {
         event.put(PILLAGER_SCOUT.get(), PillagerScoutEntity.createAttributes().build());
         event.put(PILLAGER_MARKSMAN.get(), PillagerMarksmanEntity.createAttributes().build());
         event.put(PILLAGER_COMMANDER.get(), PillagerCommanderEntity.createAttributes().build());
+        event.put(PILLAGER_CANNONEER.get(), PillagerCannoneerEntity.createAttributes().build());
+        event.put(PILLAGER_RAPIDBOW.get(), PillagerRapidbowEntity.createAttributes().build());
+        event.put(PILLAGER_IRONCLAD.get(), PillagerIroncladEntity.createAttributes().build());
         event.put(SUPPLY_WAGON_CART.get(), SupplyWagonCartEntity.createAttributes().build());
         event.put(SUPPLY_WAGON_EXTENSION.get(), SupplyWagonExtensionEntity.createAttributes().build());
     }

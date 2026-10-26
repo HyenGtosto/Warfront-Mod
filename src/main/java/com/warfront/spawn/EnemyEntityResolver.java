@@ -30,16 +30,13 @@ public final class EnemyEntityResolver {
 
     /**
      * Creates the entity corresponding to the given Pillager role.
-     * CATAPULT is not resolved here and returns null to enforce exclusion.
      *
      * @param role  the pillager enemy role
      * @param level the server level to create the entity in
-     * @return a new Entity instance, or null if not resolvable for roaming
+     * @return a new Entity instance, or null on failure
      */
     public static Entity resolvePillagerRole(PillagerEnemyRole role, ServerLevel level) {
         return switch (role) {
-            case CATAPULT ->
-                    null; // Catapult is a base-defense role — never spawned as a roaming encounter
             case ARMORED_ELITE ->
                     ModEntities.PILLAGER_ELITE.get().create(level);
             case FIGHTER ->
@@ -50,6 +47,12 @@ public final class EnemyEntityResolver {
                     ModEntities.PILLAGER_MARKSMAN.get().create(level);
             case COMMANDER ->
                     ModEntities.PILLAGER_COMMANDER.get().create(level);
+            case CANNONEER ->
+                    ModEntities.PILLAGER_CANNONEER.get().create(level);
+            case RAPIDBOW ->
+                    ModEntities.PILLAGER_RAPIDBOW.get().create(level);
+            case IRONCLAD ->
+                    ModEntities.PILLAGER_IRONCLAD.get().create(level);
         };
     }
 }

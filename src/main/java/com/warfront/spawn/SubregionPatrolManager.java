@@ -666,14 +666,14 @@ public final class SubregionPatrolManager {
     }
 
     /**
-     * Builds role pool excluding SCOUT and CATAPULT.
+     * Builds role pool excluding SCOUT and base-defense roles.
      */
     private static List<Object> buildPatrolRolePool(Faction faction, EnemyResistanceTier tier) {
         List<Object> pool = new ArrayList<>();
         if (faction == Faction.PILLAGER_CONQUERORS) {
             for (PillagerEnemyRole role : PillagerEnemyRole.values()) {
-                // EXCLUSION: Explicitly exclude SCOUT and CATAPULT
-                if (role == PillagerEnemyRole.SCOUT || role == PillagerEnemyRole.CATAPULT) {
+                // EXCLUSION: Explicitly exclude SCOUT and base-defense roles (CANNONEER, RAPIDBOW, IRONCLAD)
+                if (role == PillagerEnemyRole.SCOUT || role.isBaseDefenseOnly()) {
                     continue;
                 }
                 if (role.isAvailableForRoaming(tier)) {

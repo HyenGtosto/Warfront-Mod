@@ -39,6 +39,7 @@ public final class RegionMapState {
     private final int originChunkX;
     private final int originChunkZ;
     private final MapViewType viewType;
+    private boolean hasIntel = true;
 
     private final Map<Long, RegionMapPayload.ChunkData> chunks = new HashMap<>();
     private final Set<Long> visitedRegions = new HashSet<>();
@@ -92,10 +93,30 @@ public final class RegionMapState {
         return viewType == MapViewType.DEBUG;
     }
 
+    public boolean hasIntel() {
+        return hasIntel && (net.minecraft.client.Minecraft.getInstance().level == null
+                || net.minecraft.client.Minecraft.getInstance().level.dimension() == net.minecraft.world.level.Level.OVERWORLD);
+    }
+
     public boolean updateMapData(RegionMapPayload payload) {
+        boolean dimensionIsOverworld = net.minecraft.client.Minecraft.getInstance().level == null
+                || net.minecraft.client.Minecraft.getInstance().level.dimension() == net.minecraft.world.level.Level.OVERWORLD;
+        this.hasIntel = payload.hasIntel() && dimensionIsOverworld;
         this.chunks.clear();
         this.visitedRegions.clear();
         this.regionBases.clear();
+
+        if (!this.hasIntel) {
+            this.markers.clear();
+            this.siegeArrows.clear();
+            this.activeWars.clear();
+            this.logMessages.clear();
+            if (payload.logMessages() != null) {
+                this.logMessages.addAll(payload.logMessages());
+            }
+            this.selectedRegion = null;
+            return false;
+        }
 
         for (RegionMapPayload.ChunkData chunk : payload.chunks()) {
             chunks.put(ChunkPos.asLong(chunk.chunkX(), chunk.chunkZ()), chunk);

@@ -47,6 +47,7 @@ public final class BaseBuildingRegistry {
 
         // Active concrete structure generators
         register(Faction.PILLAGER_CONQUERORS, BaseType.OUTPOST, new PillagerOutpostGenerator());
+        register(Faction.PILLAGER_CONQUERORS, BaseType.HEADQUARTERS, new PillagerHeadquartersGenerator());
     }
 
     private BaseBuildingRegistry() {

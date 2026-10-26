@@ -35,6 +35,9 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
     public static void handle(CancelAttackPayload payload, IPayloadContext context) {
         ServerPlayer player = (ServerPlayer) context.player();
         ServerLevel level = player.serverLevel();
+        if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return;
+        }
 
         com.warfront.faction.PlayerFaction playerFaction = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(player.getUUID());
         if (playerFaction == null) {

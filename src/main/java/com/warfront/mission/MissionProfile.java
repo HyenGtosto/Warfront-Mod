@@ -152,4 +152,92 @@ public final class MissionProfile {
         int anchorSubZ = Math.clamp(localZ / 64, 0, 1);
         return anchorSubZ * 2 + anchorSubX;
     }
+
+    /**
+     * Authoritative additive coordinate mixer for base seed calculation.
+     * Prevents coordinate-axis collapse at (0, 0) and eliminates partial-victory reroll vulnerability.
+     */
+    public static long calculateBaseSeed(long worldSeed, int regionX, int regionZ, BlockPos baseAnchor) {
+        long h = worldSeed + (long) regionX * 341873128712L + (long) regionZ * 132897987541L + 0xA0761D6478BD642FL;
+        if (baseAnchor != null) {
+            h += (long) baseAnchor.getX() * 83492791L + (long) baseAnchor.getZ() * 4393139L;
+        }
+        return WeightedMissionSelector.mix64(h);
+    }
+
+    /**
+     * Shared architectural contract defining the two wings of a Headquarters (Medium Base).
+     * Maps physical subregions to deterministic 2-of-3 strategic base mission types.
+     */
+    public record HQWingContract(
+            int wing0SubX, int wing0SubZ, int wing0Bit, MissionType wing0Type,
+            int wing1SubX, int wing1SubZ, int wing1Bit, MissionType wing1Type
+    ) {
+        public MissionType getTypeForBit(int subRegionBit) {
+            if (subRegionBit == wing0Bit) return wing0Type;
+            if (subRegionBit == wing1Bit) return wing1Type;
+            return null;
+        }
+
+        public MissionDefinition getDefinitionForBit(Faction faction, int subRegionBit) {
+            MissionType type = getTypeForBit(subRegionBit);
+            if (type == null) return null;
+            return getDefinition(faction, type);
+        }
+
+        public MissionDefinition getDefinitionWing0(Faction faction) {
+            return getDefinition(faction, wing0Type);
+        }
+
+        public MissionDefinition getDefinitionWing1(Faction faction) {
+            return getDefinition(faction, wing1Type);
+        }
+
+        public static MissionDefinition getDefinition(Faction faction, MissionType type) {
+            if (faction == Faction.ZOMBIE_HORDE) {
+                return ZombieMissionGenerator.getHQDefinition(type);
+            }
+            return PillagerMissionGenerator.getHQDefinition(type);
+        }
+    }
+
+    /**
+     * Resolves the authoritative 2-wing contract for a Headquarters base.
+     * Strictly verifies that the occupied subregion mask contains exactly 2 bits.
+     */
+    public static HQWingContract getHQWingContract(long worldSeed, int regionX, int regionZ, BlockPos baseAnchor) {
+        int occupiedMask = getOccupiedBaseSubRegionsMask(regionX, regionZ, BaseType.HEADQUARTERS, baseAnchor);
+        if (Integer.bitCount(occupiedMask) != 2) {
+            throw new IllegalStateException(String.format(
+                    "[Warfront] Headquarters at (%d, %d) with anchor %s has invalid occupied mask %d (expected exactly 2 bits)!",
+                    regionX, regionZ, baseAnchor, occupiedMask
+            ));
+        }
+
+        int bit0 = Integer.numberOfTrailingZeros(occupiedMask);
+        int bit1 = Integer.numberOfTrailingZeros(occupiedMask & ~(1 << bit0));
+
+        int w0SubX = bit0 % 2;
+        int w0SubZ = bit0 / 2;
+        int w1SubX = bit1 % 2;
+        int w1SubZ = bit1 / 2;
+
+        long baseSeed = calculateBaseSeed(worldSeed, regionX, regionZ, baseAnchor);
+        long hqRollSeed = WeightedMissionSelector.mix64(baseSeed ^ 0x9E3779B9L);
+        int skipIdx = (int) Math.floorMod(hqRollSeed, 3); // Deterministically omit 1 of the 3 candidates
+
+        MissionType[] candidates = new MissionType[] {
+                MissionType.BASE_KILL_COMMANDER,
+                MissionType.BASE_DESTROY_INTEL,
+                MissionType.BASE_DESTROY_SUPPLIES
+        };
+
+        MissionType wing0Type = candidates[(skipIdx + 1) % 3];
+        MissionType wing1Type = candidates[(skipIdx + 2) % 3];
+
+        return new HQWingContract(
+                w0SubX, w0SubZ, bit0, wing0Type,
+                w1SubX, w1SubZ, bit1, wing1Type
+        );
+    }
 }

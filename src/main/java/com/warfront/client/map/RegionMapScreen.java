@@ -180,7 +180,7 @@ public final class RegionMapScreen extends Screen {
     }
 
     private void onRegionClicked(double mouseX, double mouseY, MapViewport viewport) {
-        if (!viewport.contains(mouseX, mouseY)) {
+        if (!state.hasIntel() || !viewport.contains(mouseX, mouseY)) {
             return;
         }
         int chunkX = (int) Math.floor(camera.screenToChunkX(mouseX, viewport));
@@ -211,6 +211,9 @@ public final class RegionMapScreen extends Screen {
             return true;
         }
         if (state.getActiveTab() == RegionMapState.ActiveTab.MAP_VIEW && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && viewport().contains(mouseX, mouseY)) {
+            if (!state.hasIntel()) {
+                return true;
+            }
             camera.startPan(mouseX, mouseY);
             onRegionClicked(mouseX, mouseY, viewport());
             return true;
@@ -221,6 +224,9 @@ public final class RegionMapScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         if (state.getActiveTab() == RegionMapState.ActiveTab.MAP_VIEW && camera.isPanning() && button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (!state.hasIntel()) {
+                return false;
+            }
             return camera.panTo(mouseX, mouseY);
         }
         return false;
@@ -247,6 +253,9 @@ public final class RegionMapScreen extends Screen {
             return true;
         }
         if (state.getActiveTab() == RegionMapState.ActiveTab.MAP_VIEW && viewport().contains(mouseX, mouseY)) {
+            if (!state.hasIntel()) {
+                return false;
+            }
             return camera.handleZoom(mouseX, mouseY, scrollY, viewport(), state.mapChunkDiameter(), state.getOriginChunkX(), state.getOriginChunkZ());
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -444,7 +453,7 @@ public final class RegionMapScreen extends Screen {
 
         SelectedRegion selectedRegion = state.getSelectedRegion();
 
-        if (!state.getViewType().canLaunchAttacks() || !isMapView || selectedRegion == null || (state.getViewType().hasFogOfWar() && !selectedRegion.isVisited())) {
+        if (!state.hasIntel() || !state.getViewType().canLaunchAttacks() || !isMapView || selectedRegion == null || (state.getViewType().hasFogOfWar() && !selectedRegion.isVisited())) {
             if (launchAttackButton != null) launchAttackButton.visible = false;
             if (defendAreaButton != null) defendAreaButton.visible = false;
             if (cancelAttackButton != null) cancelAttackButton.visible = false;

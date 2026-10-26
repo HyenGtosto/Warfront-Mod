@@ -74,6 +74,10 @@ public final class RegionCommands {
 
     private static int setOwner(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            return 0;
+        }
         Faction faction = Faction.byCommandName(StringArgumentType.getString(context, "faction"))
                 .orElseThrow(() -> CommandSyntaxException.BUILT_IN_EXCEPTIONS.dispatcherUnknownArgument().create());
         RegionData regions = RegionData.get(player.serverLevel());
@@ -93,6 +97,10 @@ public final class RegionCommands {
 
     private static int wipeFaction(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            return 0;
+        }
         Faction faction = Faction.byCommandName(StringArgumentType.getString(context, "faction"))
                 .orElseThrow(() -> CommandSyntaxException.BUILT_IN_EXCEPTIONS.dispatcherUnknownArgument().create());
 
@@ -126,6 +134,10 @@ public final class RegionCommands {
 
     private static int locateBase(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            return 0;
+        }
         ServerLevel level = player.serverLevel();
         RegionData regions = RegionData.get(level);
         RegionData.Region region = regions.regionAt(player.blockPosition());
@@ -157,6 +169,10 @@ public final class RegionCommands {
 
     private static int placeBaseHere(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            return 0;
+        }
         ServerLevel level = player.serverLevel();
         RegionData regions = RegionData.get(level);
         RegionData.Region region = regions.regionAt(player.blockPosition());
@@ -165,10 +181,13 @@ public final class RegionCommands {
 
     private static int placeBaseAtRegion(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
-        ServerLevel level = player.serverLevel();
+        ServerLevel overworld = player.server.overworld();
+        if (overworld == null) {
+            return 0;
+        }
         int rx = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "rx");
         int rz = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "rz");
-        return doPlaceBase(context, level, rx, rz);
+        return doPlaceBase(context, overworld, rx, rz);
     }
 
     private static int doPlaceBase(CommandContext<CommandSourceStack> context, ServerLevel level, int rx, int rz) {
@@ -195,6 +214,10 @@ public final class RegionCommands {
 
     private static int clearBasePlacement(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            return 0;
+        }
         ServerLevel level = player.serverLevel();
         RegionData regions = RegionData.get(level);
         RegionData.Region region = regions.regionAt(player.blockPosition());
@@ -206,6 +229,10 @@ public final class RegionCommands {
 
     private static int exportBase(CommandContext<CommandSourceStack> context, String customName) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            return 0;
+        }
         ServerLevel level = player.serverLevel();
         RegionData regions = RegionData.get(level);
         RegionData.Region region = regions.regionAt(player.blockPosition());

@@ -85,6 +85,10 @@ public final class MissionSiteAnchorResolver {
             int worldX = subMinX + localX;
             int worldZ = subMinZ + localZ;
 
+            if (isCollidingWithBase(level, regionX, regionZ, worldX, worldZ, halfW, halfL)) {
+                continue;
+            }
+
             FootprintEvaluation eval = evaluateFootprint(level, worldX, worldZ, halfW, halfL);
             if (eval.valid()) {
                 if (eval.variance() <= 2) {
@@ -109,6 +113,10 @@ public final class MissionSiteAnchorResolver {
             for (int lz = marginZ; lz <= marginZ + spanZ; lz += stepZ) {
                 int worldX = subMinX + lx;
                 int worldZ = subMinZ + lz;
+
+                if (isCollidingWithBase(level, regionX, regionZ, worldX, worldZ, halfW, halfL)) {
+                    continue;
+                }
 
                 FootprintEvaluation eval = evaluateFootprint(level, worldX, worldZ, halfW, halfL);
                 if (eval.valid()) {
@@ -179,5 +187,23 @@ public final class MissionSiteAnchorResolver {
         int variance = maxY - minY;
         int avgY = Math.round((float) sumY / count);
         return new FootprintEvaluation(true, variance, avgY);
+    }
+
+    private static boolean isCollidingWithBase(ServerLevel level, int regionX, int regionZ, int worldX, int worldZ, int halfW, int halfL) {
+        if (level == null) return false;
+        RegionData regions = RegionData.get(level);
+        if (regions == null) return false;
+        RegionData.Region reg = regions.regionAt(regionX, regionZ);
+        if (reg == null || reg.baseType() == com.warfront.region.BaseType.NONE || reg.baseAnchor() == null) {
+            return false;
+        }
+        int baseHalf = switch (reg.baseType()) {
+            case MEGA_BASE -> 52;
+            case HEADQUARTERS -> 48;
+            default -> 18;
+        };
+        int dx = Math.abs(worldX - reg.baseAnchor().getX());
+        int dz = Math.abs(worldZ - reg.baseAnchor().getZ());
+        return (dx < baseHalf + halfW + 6) && (dz < baseHalf + halfL + 6);
     }
 }
