@@ -303,7 +303,6 @@ public final class RegionMapScreen extends Screen {
         int rightWidth = viewport.rightPanelWidth();
         int top = viewport.mapTop() + 4;
         int btnHeight = Math.clamp((int) (viewport.mapSize() * 0.08D), 16, 22);
-        int gap = Math.clamp((int) (viewport.mapSize() * 0.015D), 2, 4);
 
         launchAttackButton = addRenderableWidget(Button.builder(Component.literal("LAUNCH ATTACK"),
                 b -> onLaunchAttack())
@@ -322,7 +321,6 @@ public final class RegionMapScreen extends Screen {
         int availableH = viewport.mapSize() - 4;
         int maxStackBtnH = Math.max(20, (availableH - btnHeight - 5 * btnGap) / 4);
         int btnSize = Math.min(rightWidth, maxStackBtnH);
-        int btnX = rightLeft + (rightWidth - btnSize) / 2;
 
         for (int i = 0; i < 4; i++) {
             int subX = i % 2;
@@ -330,7 +328,7 @@ public final class RegionMapScreen extends Screen {
             int btnY = top + i * (btnSize + btnGap);
             int index = i;
             subRegionMissionButtons[i] = addRenderableWidget(new SubRegionMissionButton(
-                    btnX, btnY, btnSize, btnSize,
+                    rightLeft, btnY, rightWidth, btnSize,
                     Component.literal(String.format("(%d,%d)", subX, subZ)),
                     b -> toggleSubRegionMission(index)));
             subRegionMissionButtons[i].visible = false;

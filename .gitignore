@@ -42,6 +42,7 @@ repo/
 !**/src/**/repo/
 .models/
 .docs/
+.scratch/
 
 ### Agent ###
 AGENTS.md

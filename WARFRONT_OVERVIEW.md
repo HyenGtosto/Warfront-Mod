@@ -278,6 +278,9 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 17. **Archaic Attack Value Duplicate State:**
     - *Problem:* The legacy integer `attack_value` was redundant with siege source vectors and encirclement status, risking desynchronization between map arrows, siege durations, and domino thresholds.
     - *Rule:* Strategic defense duration and domino thresholds evaluate directly from active attacking `sources` and the `encircled` boolean flag; do not re-introduce arbitrary scalar attack power numbers.
+18. **Multi-Controller Upper Body Animation Dropping:**
+    - *Problem:* Splitting upper body stances and melee attacks across separate GeckoLib controllers caused bone transforms to drop to base rest pose when the attack controller stopped, while the stance controller desynced and failed to reload.
+    - *Rule:* Manage all upper body combat behaviors (stances, blocking, attacks, shield bashes) within a single unified combat controller (matching `PillagerEliteEntity`), allowing GeckoLib to transition seamlessly between states without dropped frames or neutral rest-pose gaps.
 18. **GeckoLib Action Controller Stagnation & Goal Tick Desynchronization:**
     - *Problem:* Non-looping GeckoLib action animations stop upon completion; returning `PlayState.CONTINUE` while idle left controllers stagnant, causing subsequent identical animations (e.g. scout spyglass scan) to fail to replay. Additionally, entity-level action decrementing running 1 tick ahead of goal selectors caused premature state clearing right before goal completion blocks executed.
     - *Rule:* Explicitly invoke `controller.forceAnimationReset()` on action state transitions and return `PlayState.STOP` during idle. Anchor multi-tick custom entity actions with tick safety buffers so AI goals authoritatively conclude before entity-level state timers lapse.
@@ -379,3 +382,4 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 5. **Always Ask For Confirmation:** Create an implementation plan artifact for every task and wait for explicit user approval before modifying files.
 6. **Preserve GeckoLib Performance:** Do not run client-side animation state logic on the server thread.
 7. **Maintain Milestone Checklist & Invariants:** Keep this overview file clean. Update milestone checkmarks (`- [x]`) and record high-level architectural rules; do NOT append code changelogs, class walkthroughs, or bug post-mortems.
+8. **Blockbench to GeckoLib Coordinate Parity Invariant:** Animations authored in Blockbench space (`.bbmodel`) have torso forward lean as $-X$, forward leg/arm swing as $+X$, trailing leg/knee flexion as $-X$, and forearm curls as $+X$. When exporting to GeckoLib standalone format (`.animation.json`), the official Blockbench export transform ($\text{geo.x} = -\text{bb.x}$, $\text{geo.y} = -\text{bb.y}$, $\text{geo.z} = \text{bb.z}$) must be applied to preserve exact visual and runtime parity.
