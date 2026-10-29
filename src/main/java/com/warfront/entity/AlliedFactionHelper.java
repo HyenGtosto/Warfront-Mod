@@ -85,4 +85,20 @@ public final class AlliedFactionHelper {
             }
         }
     }
+
+    /**
+     * NeoForge event listener: allows allied projectiles (Marksman, Rapidbow, Cannoneer, vanilla Pillager)
+     * to pass straight through a guarding Pillager Ironclad without colliding, stopping, or triggering its shield.
+     */
+    public static void onProjectileImpact(net.neoforged.neoforge.event.entity.ProjectileImpactEvent event) {
+        if (event.getRayTraceResult() instanceof net.minecraft.world.phys.EntityHitResult entityHit) {
+            Entity target = entityHit.getEntity();
+            if (target instanceof PillagerIroncladEntity ironclad) {
+                Entity owner = event.getProjectile().getOwner();
+                if (owner != null && isAllied(owner, ironclad)) {
+                    event.setCanceled(true);
+                }
+            }
+        }
+    }
 }

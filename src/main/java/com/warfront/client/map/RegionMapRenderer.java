@@ -55,6 +55,7 @@ public final class RegionMapRenderer {
         missionLogoLoc = loadTexture("mission_logo");
         warAttackLoc = loadTexture("war_attack");
         warDefenseLoc = loadTexture("war_defense");
+        MISSION_TYPE_TEXTURES.put(com.warfront.mission.MissionType.WAR_HORN_RELAY, loadTexture("mission_war_horn_relay"));
     }
 
     private static ResourceLocation loadTexture(String name) {

@@ -24,21 +24,21 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 import java.util.List;
 
 /**
- * Ballistic explosive cannonball fired by the Pillager Cannoneer.
- * Direct-fire with slight gravity arc; detonates on impact dealing 10.0 impact damage
- * and a 2-block concussive blast that knocks players off ladders/ramparts without breaking blocks.
+ * Ballistic explosive cannon bomb fired by the Pillager Cannoneer.
+ * Features tangible weight with an upward ballistic arc; detonates on impact dealing
+ * 8.0 damage and radial explosion knockback without breaking any blocks.
  */
-public class CannonballEntity extends Projectile implements GeoEntity {
+public class CannonBombEntity extends Projectile implements GeoEntity {
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private int ticksInAir = 0;
 
-    public CannonballEntity(EntityType<? extends CannonballEntity> entityType, Level level) {
+    public CannonBombEntity(EntityType<? extends CannonBombEntity> entityType, Level level) {
         super(entityType, level);
     }
 
-    public CannonballEntity(Level level, LivingEntity shooter) {
-        this(ModEntities.CANNONBALL.get(), level);
+    public CannonBombEntity(Level level, LivingEntity shooter) {
+        this(ModEntities.CANNON_BOMB.get(), level);
         setOwner(shooter);
         setPos(shooter.getX(), shooter.getEyeY() - 0.1D, shooter.getZ());
     }
@@ -63,8 +63,8 @@ public class CannonballEntity extends Projectile implements GeoEntity {
         double nextY = getY() + movement.y;
         double nextZ = getZ() + movement.z;
 
-        // Slight ballistic gravity arc (0.035 blocks/tick^2)
-        setDeltaMovement(movement.x, movement.y - 0.035D, movement.z);
+        // Weighted ballistic gravity arc (0.085 blocks/tick^2)
+        setDeltaMovement(movement.x, movement.y - 0.085D, movement.z);
 
         // Orient rotation facing trajectory
         double horizDist = Math.sqrt(movement.x * movement.x + movement.z * movement.z);
@@ -77,7 +77,7 @@ public class CannonballEntity extends Projectile implements GeoEntity {
 
         if (level().isClientSide) {
             level().addParticle(ParticleTypes.SMOKE, getX(), getY(), getZ(), 0.0D, 0.01D, 0.0D);
-            level().addParticle(ParticleTypes.FLAME, getX(), getY(), getZ(), 0.0D, 0.005D, 0.0D);
+            level().addParticle(ParticleTypes.SMALL_FLAME, getX(), getY(), getZ(), 0.0D, 0.005D, 0.0D);
         } else {
             if (ticksInAir > 200 || getY() < level().getMinBuildHeight() - 10) {
                 discard();
@@ -98,19 +98,21 @@ public class CannonballEntity extends Projectile implements GeoEntity {
     protected void onHitEntity(EntityHitResult hitResult) {
         super.onHitEntity(hitResult);
         if (!level().isClientSide && hitResult.getEntity() instanceof LivingEntity living) {
-            living.hurt(level().damageSources().thrown(this, getOwner()), 10.0F);
+            if (!AlliedFactionHelper.isAllied(getOwner(), living)) {
+                living.hurt(level().damageSources().thrown(this, getOwner()), 8.0F);
+            }
         }
     }
 
     private void explode() {
         if (level() instanceof ServerLevel serverLevel) {
-            // Visual and audio feedback: fortress safe (Level.ExplosionInteraction.NONE)
+            // Visual and audio feedback: guaranteed non-destructive (Level.ExplosionInteraction.NONE)
             serverLevel.sendParticles(ParticleTypes.EXPLOSION, getX(), getY(), getZ(), 1, 0.0D, 0.0D, 0.0D, 0.0D);
             serverLevel.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, getX(), getY(), getZ(), 8, 0.3D, 0.3D, 0.3D, 0.05D);
-            serverLevel.playSound(null, blockPosition(), SoundEvents.GENERIC_EXPLODE.value(), SoundSource.HOSTILE, 3.0F, 1.2F);
+            serverLevel.playSound(null, blockPosition(), SoundEvents.GENERIC_EXPLODE.value(), SoundSource.HOSTILE, 2.5F, 1.3F);
 
-            // Splash concussive blast (2.0 blocks radius)
-            final double splashRadius = 2.0D;
+            // Splash concussive blast dealing 8 damage with explosive knockback
+            final double splashRadius = 4.0D;
             AABB area = getBoundingBox().inflate(splashRadius);
             List<LivingEntity> targets = serverLevel.getEntitiesOfClass(LivingEntity.class, area, this::canHitEntity);
             for (LivingEntity target : targets) {
@@ -119,16 +121,26 @@ public class CannonballEntity extends Projectile implements GeoEntity {
 
                 double dist = distanceTo(target);
                 if (dist <= splashRadius) {
-                    float damage = (float) (6.0F * (1.0D - (dist / splashRadius)));
-                    target.hurt(serverLevel.damageSources().explosion(this, getOwner()), Math.max(2.0F, damage));
+                    target.hurt(serverLevel.damageSources().explosion(this, getOwner()), 12.0F);
 
-                    // Heavy knockback away from detonation center (ladder-clearing knockback)
-                    Vec3 knockVec = target.position().subtract(position()).normalize().scale(1.2D);
-                    target.push(knockVec.x, 0.4D, knockVec.z);
+                    // Explosive knockback away from detonation center
+                    Vec3 knockVec = target.position().subtract(position()).normalize().scale(1.1D);
+                    target.push(knockVec.x, 0.40D, knockVec.z);
                     target.hurtMarked = true;
                 }
             }
         }
+    }
+
+    @Override
+    protected boolean canHitEntity(Entity target) {
+        if (!super.canHitEntity(target)) {
+            return false;
+        }
+        if (AlliedFactionHelper.isAllied(this.getOwner(), target)) {
+            return false;
+        }
+        return true;
     }
 
     @Override

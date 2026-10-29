@@ -35,6 +35,21 @@ public final class ModEntities {
                             .clientTrackingRange(8)
                             .build("pillager_scout"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<PillagerRiflemanEntity>> PILLAGER_RIFLEMAN =
+            ENTITY_TYPES.register("pillager_rifleman", () ->
+                    EntityType.Builder.of(PillagerRiflemanEntity::new, MobCategory.MONSTER)
+                            .sized(0.6f, 1.95f)
+                            .clientTrackingRange(8)
+                            .build("pillager_rifleman"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<RifleBulletEntity>> RIFLE_BULLET =
+            ENTITY_TYPES.register("rifle_bullet", () ->
+                    EntityType.Builder.<RifleBulletEntity>of(RifleBulletEntity::new, MobCategory.MISC)
+                            .sized(0.25f, 0.25f)
+                            .clientTrackingRange(16)
+                            .updateInterval(1)
+                            .build("rifle_bullet"));
+
     public static final DeferredHolder<EntityType<?>, EntityType<PillagerMarksmanEntity>> PILLAGER_MARKSMAN =
             ENTITY_TYPES.register("pillager_marksman", () ->
                     EntityType.Builder.of(PillagerMarksmanEntity::new, MobCategory.MONSTER)
@@ -92,13 +107,13 @@ public final class ModEntities {
                             .clientTrackingRange(10)
                             .build("pillager_ironclad"));
 
-    public static final DeferredHolder<EntityType<?>, EntityType<CannonballEntity>> CANNONBALL =
-            ENTITY_TYPES.register("cannonball", () ->
-                    EntityType.Builder.<CannonballEntity>of(CannonballEntity::new, MobCategory.MISC)
-                            .sized(0.5f, 0.5f)
+    public static final DeferredHolder<EntityType<?>, EntityType<CannonBombEntity>> CANNON_BOMB =
+            ENTITY_TYPES.register("cannon_bomb", () ->
+                    EntityType.Builder.<CannonBombEntity>of(CannonBombEntity::new, MobCategory.MISC)
+                            .sized(0.45f, 0.45f)
                             .clientTrackingRange(16)
                             .updateInterval(1)
-                            .build("cannonball"));
+                            .build("cannon_bomb"));
 
     private ModEntities() {
     }
@@ -112,6 +127,7 @@ public final class ModEntities {
         event.put(PILLAGER_ELITE.get(), PillagerEliteEntity.createAttributes().build());
         event.put(PILLAGER_WARRIOR.get(), PillagerWarriorEntity.createAttributes().build());
         event.put(PILLAGER_SCOUT.get(), PillagerScoutEntity.createAttributes().build());
+        event.put(PILLAGER_RIFLEMAN.get(), PillagerRiflemanEntity.createAttributes().build());
         event.put(PILLAGER_MARKSMAN.get(), PillagerMarksmanEntity.createAttributes().build());
         event.put(PILLAGER_COMMANDER.get(), PillagerCommanderEntity.createAttributes().build());
         event.put(PILLAGER_CANNONEER.get(), PillagerCannoneerEntity.createAttributes().build());

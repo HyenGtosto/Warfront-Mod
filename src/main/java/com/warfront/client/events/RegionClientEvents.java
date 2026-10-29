@@ -38,12 +38,14 @@ public final class RegionClientEvents {
         event.registerEntityRenderer(ModEntities.PILLAGER_ELITE.get(), PillagerEliteRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_WARRIOR.get(), PillagerWarriorRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_SCOUT.get(), PillagerScoutRenderer::new);
+        event.registerEntityRenderer(ModEntities.PILLAGER_RIFLEMAN.get(), com.warfront.client.renderer.PillagerRiflemanRenderer::new);
+        event.registerEntityRenderer(ModEntities.RIFLE_BULLET.get(), com.warfront.client.renderer.RifleBulletRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_MARKSMAN.get(), PillagerMarksmanRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_COMMANDER.get(), PillagerCommanderRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_CANNONEER.get(), com.warfront.client.renderer.PillagerCannoneerRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_RAPIDBOW.get(), com.warfront.client.renderer.PillagerRapidbowRenderer::new);
         event.registerEntityRenderer(ModEntities.PILLAGER_IRONCLAD.get(), com.warfront.client.renderer.PillagerIroncladRenderer::new);
-        event.registerEntityRenderer(ModEntities.CANNONBALL.get(), com.warfront.client.renderer.CannonballRenderer::new);
+        event.registerEntityRenderer(ModEntities.CANNON_BOMB.get(), com.warfront.client.renderer.CannonBombRenderer::new);
         event.registerEntityRenderer(ModEntities.SUPPLY_WAGON_CART.get(), SupplyWagonCartRenderer::new);
         event.registerEntityRenderer(ModEntities.SUPPLY_WAGON_EXTENSION.get(), SupplyWagonExtensionRenderer::new);
         event.registerEntityRenderer(ModEntities.ARTILLERY_SHELL.get(), com.warfront.client.renderer.ArtilleryShellRenderer::new);

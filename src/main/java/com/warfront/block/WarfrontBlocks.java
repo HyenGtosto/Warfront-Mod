@@ -50,11 +50,23 @@ public final class WarfrontBlocks {
     public static final DeferredItem<Item> PILLAGER_SCOUT_SPAWN_EGG = ITEMS.register("pillager_scout_spawn_egg",
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_SCOUT, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
+    public static final DeferredItem<Item> PILLAGER_RIFLEMAN_SPAWN_EGG = ITEMS.register("pillager_rifleman_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_RIFLEMAN, 0x4B5320, 0x8B4513, new Item.Properties()));
+
     public static final DeferredItem<Item> PILLAGER_MARKSMAN_SPAWN_EGG = ITEMS.register("pillager_marksman_spawn_egg",
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_MARKSMAN, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
     public static final DeferredItem<Item> PILLAGER_COMMANDER_SPAWN_EGG = ITEMS.register("pillager_commander_spawn_egg",
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_COMMANDER, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_CANNONEER_SPAWN_EGG = ITEMS.register("pillager_cannoneer_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_CANNONEER, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_RAPIDBOW_SPAWN_EGG = ITEMS.register("pillager_rapidbow_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_RAPIDBOW, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
+    public static final DeferredItem<Item> PILLAGER_IRONCLAD_SPAWN_EGG = ITEMS.register("pillager_ironclad_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_IRONCLAD, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
     // --- Reward / Pristine Machinery Blocks & Items ---
     public static final DeferredBlock<Block> SALVAGED_MORTAR_CORE = BLOCKS.registerSimpleBlock("salvaged_mortar_core",
@@ -153,8 +165,12 @@ public final class WarfrontBlocks {
             event.accept(PILLAGER_ELITE_SPAWN_EGG);
             event.accept(PILLAGER_WARRIOR_SPAWN_EGG);
             event.accept(PILLAGER_SCOUT_SPAWN_EGG);
+            event.accept(PILLAGER_RIFLEMAN_SPAWN_EGG);
             event.accept(PILLAGER_MARKSMAN_SPAWN_EGG);
             event.accept(PILLAGER_COMMANDER_SPAWN_EGG);
+            event.accept(PILLAGER_CANNONEER_SPAWN_EGG);
+            event.accept(PILLAGER_RAPIDBOW_SPAWN_EGG);
+            event.accept(PILLAGER_IRONCLAD_SPAWN_EGG);
         }
     }
 }

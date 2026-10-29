@@ -621,7 +621,7 @@ public final class SubregionPatrolManager {
                 spawnY = spawnBorder.getY();
             }
 
-            Entity entity = resolveEntity(faction, role, level);
+            Entity entity = resolveEntity(faction, role, level, resistance);
             if (!(entity instanceof Mob mob)) continue;
 
             mob.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
@@ -694,9 +694,9 @@ public final class SubregionPatrolManager {
         return pool;
     }
 
-    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level) {
+    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance) {
         if (faction == Faction.PILLAGER_CONQUERORS && role instanceof PillagerEnemyRole pr) {
-            return EnemyEntityResolver.resolvePillagerRole(pr, level);
+            return EnemyEntityResolver.resolvePillagerRole(pr, level, resistance);
         }
         if (faction == Faction.ZOMBIE_HORDE && role instanceof ZombieEnemyRole zr) {
             return EnemyEntityResolver.resolveZombieRole(zr, level);

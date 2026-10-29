@@ -7,12 +7,14 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.control.BodyRotationControl;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
@@ -41,8 +43,9 @@ import software.bernie.geckolib.util.GeckoLibUtil;
 import java.util.EnumSet;
 
 /**
- * Pillager Cannoneer — heavy base-defense sentry wielding a handheld iron culverin.
- * Stationed on parapets and wall bastions; lobs explosive concussive cannonballs with a fuse telegraph and long reload.
+ * Pillager Cannoneer — heavy base-defense sentry wielding a handheld heavy culverin / bombard.
+ * Stationed on parapets and wall bastions; fires weighted ballistic cannon bombs with a seamless
+ * chained combat loop: Aim (30t / 1.5s) -> Shoot (17t / 0.833s, fires at tick 3) -> Reload (55t / 2.75s) -> Idle Cooldown (60t / 3.0s).
  */
 public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntity {
 
@@ -50,13 +53,15 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
     public static final byte STATE_AIMING = 1;
     public static final byte STATE_SHOOTING = 2;
     public static final byte STATE_RELOADING = 3;
+    public static final byte STATE_COOLDOWN = 4;
 
     private static final EntityDataAccessor<Byte> COMBAT_STATE =
             SynchedEntityData.defineId(PillagerCannoneerEntity.class, EntityDataSerializers.BYTE);
 
     private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("idle");
-    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("walking");
-    private static final RawAnimation AIMING = RawAnimation.begin().thenLoop("aiming");
+    private static final RawAnimation WALK = RawAnimation.begin().thenLoop("walk");
+    private static final RawAnimation RUN = RawAnimation.begin().thenLoop("run");
+    private static final RawAnimation AIMING = RawAnimation.begin().thenPlay("aiming");
     private static final RawAnimation SHOOTING = RawAnimation.begin().thenPlay("shooting");
     private static final RawAnimation RELOADING = RawAnimation.begin().thenPlay("reloading");
 
@@ -65,16 +70,31 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
 
     public PillagerCannoneerEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
-        this.xpReward = 12;
+        this.xpReward = 10;
     }
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 45.0D)
-                .add(Attributes.MOVEMENT_SPEED, 0.18D)
+                .add(Attributes.MAX_HEALTH, 40.0D)
+                .add(Attributes.MOVEMENT_SPEED, 0.20D)
                 .add(Attributes.ARMOR, 4.0D)
-                .add(Attributes.KNOCKBACK_RESISTANCE, 0.40D)
+                .add(Attributes.KNOCKBACK_RESISTANCE, 0.50D)
                 .add(Attributes.FOLLOW_RANGE, 36.0D);
+    }
+
+    @Override
+    protected BodyRotationControl createBodyControl() {
+        return new BodyRotationControl(this) {
+            @Override
+            public void clientTick() {
+                if (getCombatState() != STATE_IDLE && getCombatState() != STATE_COOLDOWN) {
+                    yBodyRot = getYRot();
+                    yHeadRot = getYRot();
+                } else {
+                    super.clientTick();
+                }
+            }
+        };
     }
 
     @Override
@@ -110,10 +130,15 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
         controllers.add(new AnimationController<>(this, "movement", 4, this::movementPredicate));
-        controllers.add(new AnimationController<>(this, "attack", 2, this::attackPredicate));
+        controllers.add(new AnimationController<>(this, "combat", 2, this::combatPredicate));
     }
 
     private PlayState movementPredicate(AnimationState<PillagerCannoneerEntity> state) {
+        // Cede bone control completely during action combat animations (Aiming, Shooting, Reloading)
+        if (getCombatState() != STATE_IDLE && getCombatState() != STATE_COOLDOWN) {
+            return PlayState.STOP;
+        }
+
         boolean isMoving = state.isMoving()
                 || this.walkAnimation.isMoving()
                 || this.walkAnimation.speed() > 0.001F
@@ -121,13 +146,16 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
                 || (this.getDeltaMovement().horizontalDistanceSqr() > 0.00005D)
                 || (this.getX() != this.xo || this.getZ() != this.zo);
 
-        if (isMoving && getCombatState() == STATE_IDLE) {
+        if (isMoving) {
+            if (this.isSprinting() || this.walkAnimation.speed() > 0.35F) {
+                return state.setAndContinue(RUN);
+            }
             return state.setAndContinue(WALK);
         }
         return state.setAndContinue(IDLE);
     }
 
-    private PlayState attackPredicate(AnimationState<PillagerCannoneerEntity> state) {
+    private PlayState combatPredicate(AnimationState<PillagerCannoneerEntity> state) {
         byte s = getCombatState();
         if (s != this.lastCombatState) {
             state.getController().forceAnimationReset();
@@ -196,24 +224,17 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
 
     @Override
     public AbstractIllager.IllagerArmPose getArmPose() {
-        if (getCombatState() == STATE_AIMING || getCombatState() == STATE_SHOOTING) {
-            return AbstractIllager.IllagerArmPose.CROSSBOW_HOLD;
-        }
-        if (getCombatState() == STATE_RELOADING) {
-            return AbstractIllager.IllagerArmPose.CROSSBOW_CHARGE;
-        }
         return AbstractIllager.IllagerArmPose.NEUTRAL;
     }
 
     /**
-     * AI Goal coordinating stationary parapet aiming, fuse ignition, explosive cannonball firing, and reloading.
+     * AI Goal coordinating chained stationary parapet aiming, firing weighted cannon bombs, reloading, and post-shot idle cooldown.
      */
     static class CannoneerAttackGoal extends Goal {
         private final PillagerCannoneerEntity cannoneer;
         private final float maxAttackDist;
         private int phaseTicks = 0;
         private int currentPhase = STATE_IDLE;
-        private int targetSeeTicks = 0;
 
         public CannoneerAttackGoal(PillagerCannoneerEntity cannoneer, float maxAttackDist) {
             this.cannoneer = cannoneer;
@@ -222,9 +243,20 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
         }
 
         @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
+        }
+
+        @Override
         public boolean canUse() {
             LivingEntity target = this.cannoneer.getTarget();
             return target != null && target.isAlive();
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            LivingEntity target = this.cannoneer.getTarget();
+            return (target != null && target.isAlive()) || this.currentPhase != STATE_IDLE;
         }
 
         @Override
@@ -242,84 +274,113 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
             this.currentPhase = STATE_IDLE;
             this.cannoneer.setCombatState(STATE_IDLE);
             this.phaseTicks = 0;
-            this.targetSeeTicks = 0;
         }
 
         @Override
         public void tick() {
             LivingEntity target = this.cannoneer.getTarget();
-            if (target == null || !target.isAlive()) {
+            if ((target == null || !target.isAlive()) && (this.currentPhase == STATE_IDLE || this.currentPhase == STATE_COOLDOWN)) {
                 stop();
                 return;
             }
 
-            boolean canSee = this.cannoneer.getSensing().hasLineOfSight(target);
-            if (canSee) {
-                this.targetSeeTicks++;
-            } else {
-                this.targetSeeTicks = 0;
-            }
-
-            double distSq = this.cannoneer.distanceToSqr(target);
+            boolean canSee = target != null && this.cannoneer.getSensing().hasLineOfSight(target);
+            double distSq = target != null ? this.cannoneer.distanceToSqr(target) : Double.MAX_VALUE;
             double maxDistSq = this.maxAttackDist * this.maxAttackDist;
 
-            // Always orient toward target
-            this.cannoneer.getLookControl().setLookAt(target, 20.0F, 20.0F);
+            // Orient directly toward target during active tracking
+            if (target != null && this.currentPhase != STATE_COOLDOWN) {
+                double dX = target.getX() - this.cannoneer.getX();
+                double dZ = target.getZ() - this.cannoneer.getZ();
+                float targetYaw = (float) (Mth.atan2(dZ, dX) * (180.0D / Math.PI)) - 90.0F;
+                this.cannoneer.setYRot(targetYaw);
+                this.cannoneer.yBodyRot = targetYaw;
+                this.cannoneer.yHeadRot = targetYaw;
+                this.cannoneer.getLookControl().setLookAt(target, 30.0F, 30.0F);
+            }
 
-            phaseTicks++;
+            this.phaseTicks++;
 
             switch (this.currentPhase) {
                 case STATE_AIMING -> {
                     this.cannoneer.getNavigation().stop();
 
-                    // Fuse sizzle telegraph particles and sound
-                    if (phaseTicks % 5 == 0 && this.cannoneer.level() instanceof ServerLevel sl) {
+                    // Fuse sizzle telegraph particles and sound at the cannon vent
+                    if (this.phaseTicks % 5 == 0 && this.cannoneer.level() instanceof ServerLevel sl) {
                         sl.sendParticles(ParticleTypes.SMALL_FLAME, this.cannoneer.getX(), this.cannoneer.getEyeY() - 0.1D, this.cannoneer.getZ(), 2, 0.1D, 0.1D, 0.1D, 0.01D);
                         sl.sendParticles(ParticleTypes.SMOKE, this.cannoneer.getX(), this.cannoneer.getEyeY() - 0.1D, this.cannoneer.getZ(), 2, 0.1D, 0.1D, 0.1D, 0.01D);
                         this.cannoneer.playSound(SoundEvents.FIRECHARGE_USE, 0.8F, 1.6F);
                     }
 
-                    // 25 ticks (1.25s) fuse burning telegraph
-                    if (phaseTicks >= 25) {
+                    // 30 ticks (1.5s) full aiming sequence, ending at braced aim pose
+                    if (this.phaseTicks >= 30) {
                         this.currentPhase = STATE_SHOOTING;
                         this.phaseTicks = 0;
                         this.cannoneer.setCombatState(STATE_SHOOTING);
                     }
                 }
                 case STATE_SHOOTING -> {
-                    // Fire cannonball
-                    if (!this.cannoneer.level().isClientSide) {
-                        CannonballEntity ball = new CannonballEntity(this.cannoneer.level(), this.cannoneer);
+                    this.cannoneer.getNavigation().stop();
+
+                    // Firing cannon bomb on tick 3 synchronized with explosive blast frame (t = 0.125s) in animation
+                    if (this.phaseTicks == 3 && target != null && !this.cannoneer.level().isClientSide) {
+                        CannonBombEntity bomb = new CannonBombEntity(this.cannoneer.level(), this.cannoneer);
                         double dX = target.getX() - this.cannoneer.getX();
-                        double dY = target.getY(0.5D) - ball.getY();
+                        double dY = target.getY(0.5D) - bomb.getY();
                         double dZ = target.getZ() - this.cannoneer.getZ();
                         double horizDist = Math.sqrt(dX * dX + dZ * dZ);
 
-                        // Ballistic trajectory with elevation pitch
-                        ball.shoot(dX, dY + horizDist * 0.12D, dZ, 2.2F, 2.0F);
-                        this.cannoneer.level().addFreshEntity(ball);
+                        // Distance-adaptive high-gravity ballistic lob preserving 1.722 blocks/tick horizontal speed
+                        double flightTicks = Math.max(1.0D, horizDist / 1.722D);
+                        double aimY = dY + 0.5D * 0.085D * flightTicks * flightTicks;
+                        float launchSpeed = (float) (Math.sqrt(horizDist * horizDist + aimY * aimY) / flightTicks);
+                        bomb.shoot(dX, aimY, dZ, launchSpeed, 1.2F);
+                        this.cannoneer.level().addFreshEntity(bomb);
 
-                        // Recoil knockback on cannoneer
-                        Vec3 recoil = this.cannoneer.getLookAngle().reverse().scale(0.35D);
-                        this.cannoneer.push(recoil.x, 0.1D, recoil.z);
+                        // Recoil knockback impulse on cannoneer
+                        Vec3 recoil = this.cannoneer.getLookAngle().reverse().scale(0.20D);
+                        this.cannoneer.push(recoil.x, 0.05D, recoil.z);
                         this.cannoneer.hurtMarked = true;
 
                         this.cannoneer.playSound(SoundEvents.GENERIC_EXPLODE.value(), 1.6F, 1.4F);
                     }
 
-                    this.currentPhase = STATE_RELOADING;
-                    this.phaseTicks = 0;
-                    this.cannoneer.setCombatState(STATE_RELOADING);
+                    // 17 ticks (0.833s) full recoil recovery, returning to rest pose
+                    if (this.phaseTicks >= 17) {
+                        this.currentPhase = STATE_RELOADING;
+                        this.phaseTicks = 0;
+                        this.cannoneer.setCombatState(STATE_RELOADING);
+                    }
                 }
                 case STATE_RELOADING -> {
-                    // Powder ramming reload (70 ticks / 3.5 seconds)
-                    if (phaseTicks % 20 == 0) {
-                        this.cannoneer.playSound(SoundEvents.ARMOR_EQUIP_LEATHER.value(), 0.8F, 0.9F);
+                    this.cannoneer.getNavigation().stop();
+
+                    // Synchronized sound cues matching the 2.75s reload animation
+                    if (this.phaseTicks == 27) {
+                        // Left hand reaches belt pouch (t = 1.33s)
+                        this.cannoneer.playSound(SoundEvents.ARMOR_EQUIP_LEATHER.value(), 0.8F, 1.0F);
+                    } else if (this.phaseTicks == 40) {
+                        // Bomb slides into muzzle (t = 2.0s)
+                        this.cannoneer.playSound(SoundEvents.CROSSBOW_LOADING_MIDDLE.value(), 0.9F, 0.9F);
+                    } else if (this.phaseTicks == 43) {
+                        // Seating inside barrel (t = 2.125s)
+                        this.cannoneer.playSound(SoundEvents.PISTON_CONTRACT, 0.7F, 1.2F);
+                    } else if (this.phaseTicks == 50) {
+                        // Rising up from kneeling crouch (t = 2.5s)
+                        this.cannoneer.playSound(SoundEvents.ARMOR_EQUIP_CHAIN.value(), 0.7F, 1.1F);
                     }
 
-                    if (phaseTicks >= 70) {
-                        // Reload complete: re-evaluate or start new aim cycle
-                        if (distSq <= maxDistSq && canSee) {
+                    // 55 ticks (2.75s) complete reload sequence, returning to rest pose
+                    if (this.phaseTicks >= 55) {
+                        this.currentPhase = STATE_COOLDOWN;
+                        this.phaseTicks = 0;
+                        this.cannoneer.setCombatState(STATE_COOLDOWN);
+                    }
+                }
+                case STATE_COOLDOWN -> {
+                    // Entity is in idle state for 3 seconds (60 ticks) after shooting/reloading
+                    if (this.phaseTicks >= 40) {
+                        if (target != null && target.isAlive() && distSq <= maxDistSq && canSee) {
                             this.currentPhase = STATE_AIMING;
                             this.phaseTicks = 0;
                             this.cannoneer.setCombatState(STATE_AIMING);

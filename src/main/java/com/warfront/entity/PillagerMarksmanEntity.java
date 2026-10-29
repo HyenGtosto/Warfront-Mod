@@ -126,7 +126,16 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
             return;
         }
         ItemStack arrowItem = new ItemStack(Items.ARROW);
-        AbstractArrow arrow = ProjectileUtil.getMobArrow(this, arrowItem, distanceFactor, null);
+        AbstractArrow arrow = new net.minecraft.world.entity.projectile.Arrow(this.level(), this, arrowItem, null) {
+            @Override
+            protected boolean canHitEntity(Entity targetEntity) {
+                if (targetEntity instanceof PillagerIroncladEntity && AlliedFactionHelper.isAllied(this.getOwner(), targetEntity)) {
+                    return false;
+                }
+                return super.canHitEntity(targetEntity);
+            }
+        };
+        arrow.setBaseDamageFromMob(distanceFactor);
         double dX = target.getX() - this.getX();
         double dY = target.getY(0.3333333333333333D) - arrow.getY();
         double dZ = target.getZ() - this.getZ();

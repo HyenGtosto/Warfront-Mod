@@ -143,7 +143,7 @@ public final class EnemyEncounterSpawner {
                 continue;
             }
 
-            Entity entity = resolveEntity(faction, role, level);
+            Entity entity = resolveEntity(faction, role, level, resistance);
             if (entity == null) continue;
 
             entity.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
@@ -263,7 +263,7 @@ public final class EnemyEncounterSpawner {
                 continue;
             }
 
-            Entity entity = resolveEntity(faction, role, level);
+            Entity entity = resolveEntity(faction, role, level, resistance);
             if (entity == null) continue;
 
             entity.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
@@ -408,7 +408,7 @@ public final class EnemyEncounterSpawner {
                 continue;
             }
 
-            Entity entity = resolveEntity(Faction.PILLAGER_CONQUERORS, role, level);
+            Entity entity = resolveEntity(Faction.PILLAGER_CONQUERORS, role, level, resistance);
             if (!(entity instanceof Mob mob)) {
                 continue;
             }
@@ -504,12 +504,12 @@ public final class EnemyEncounterSpawner {
         return pool.get(random.nextInt(pool.size()));
     }
 
-    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level) {
+    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance) {
         if (faction == Faction.ZOMBIE_HORDE && role instanceof ZombieEnemyRole zr) {
             return EnemyEntityResolver.resolveZombieRole(zr, level);
         }
         if (faction == Faction.PILLAGER_CONQUERORS && role instanceof PillagerEnemyRole pr) {
-            return EnemyEntityResolver.resolvePillagerRole(pr, level);
+            return EnemyEntityResolver.resolvePillagerRole(pr, level, resistance);
         }
         return null;
     }

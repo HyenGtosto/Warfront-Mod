@@ -1,6 +1,11 @@
 package com.warfront.entity;
 
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -113,6 +118,7 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
                 .add(Attributes.ATTACK_DAMAGE, 6.0D)
                 .add(Attributes.ARMOR, 10.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.90D)
+                .add(Attributes.STEP_HEIGHT, 1.0625D)
                 .add(Attributes.FOLLOW_RANGE, 32.0D);
     }
 
@@ -259,6 +265,14 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
      */
     @Override
     public boolean hurt(DamageSource source, float amount) {
+        // Allied attacks pass through without interacting with the Ironclad or its shield
+        Entity trueAttacker = source.getEntity();
+        Entity directAttacker = source.getDirectEntity();
+        if ((trueAttacker != null && AlliedFactionHelper.isAllied(this, trueAttacker))
+                || (directAttacker != null && AlliedFactionHelper.isAllied(this, directAttacker))) {
+            return false;
+        }
+
         // Shield-bypassing damage (piercing, fall, void, drowning, magic, starvation) penetrates shield
         if (source.is(DamageTypeTags.BYPASSES_SHIELD)
                 || source.is(DamageTypeTags.IS_FALL)
@@ -298,11 +312,24 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
     }
 
     private PlayState movementPredicate(AnimationState<PillagerIroncladEntity> state) {
-        if (state.isMoving()) {
+        boolean isBashing = isShieldBashing();
+        boolean isMoving = state.isMoving()
+                || this.walkAnimation.isMoving()
+                || this.walkAnimation.speed() > 0.001F
+                || state.getLimbSwingAmount() > 0.001F
+                || (this.getDeltaMovement().horizontalDistanceSqr() > 0.00005D)
+                || (this.getX() != this.xo || this.getZ() != this.zo);
+
+        if (isMoving && !isBashing) {
             if (this.isSprinting() || this.isEnraged()) {
                 return state.setAndContinue(RUN);
             }
             return state.setAndContinue(WALK);
+        }
+
+        // When stationary in combat or during committed attacks: hold shield posture as base layer
+        if (isShielded()) {
+            return state.setAndContinue(SHIELD_HOLD);
         }
         return state.setAndContinue(IDLE);
     }
@@ -420,13 +447,13 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
                         double dz = victim.getZ() - this.getZ();
                         double len = Math.sqrt(dx * dx + dz * dz);
                         if (len > 0.001D) {
-                            victim.push((dx / len) * 1.8D, 0.08D, (dz / len) * 1.8D);
+                            victim.push((dx / len) * 2.4D, 0.08D, (dz / len) * 2.4D);
                             victim.hurtMarked = true;
                         }
 
                         // Concussive daze: Slowness II and Nausea for 4 seconds (80 ticks)
                         victim.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, 80, 1), this);
-                        victim.addEffect(new MobEffectInstance(MobEffects.CONFUSION, 160, 4), this);
+                        victim.addEffect(new MobEffectInstance(MobEffects.CONFUSION, 140, 4), this);
 
                         if (this.level() instanceof ServerLevel sl) {
                             sl.sendParticles(ParticleTypes.CRIT, victim.getX(), victim.getY() + 1.2D, victim.getZ(),
@@ -461,6 +488,8 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
      */
     public static class IroncladMoveControl extends MoveControl {
         private final PillagerIroncladEntity ironclad;
+        private float lastForward = 0.0F;
+        private float lastStrafe = 0.0F;
 
         public IroncladMoveControl(PillagerIroncladEntity mob) {
             super(mob);
@@ -518,10 +547,39 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
                 float forward = (float) Math.cos(angleRad);
                 float strafe = (float) -Math.sin(angleRad);
 
+                this.lastForward = forward;
+                this.lastStrafe = strafe;
+
                 float speed = (float) (this.speedModifier * this.mob.getAttributeValue(Attributes.MOVEMENT_SPEED));
                 this.mob.setSpeed(speed);
                 this.mob.setZza(forward * speed);
                 this.mob.setXxa(strafe * speed);
+
+                // Elevation check and obstacle jumping
+                BlockPos blockpos = this.mob.blockPosition();
+                BlockState blockstate = this.mob.level().getBlockState(blockpos);
+                VoxelShape voxelshape = blockstate.getCollisionShape(this.mob.level(), blockpos);
+
+                boolean needElevationJump = dy > (double) this.mob.maxUpStep()
+                        && (dx * dx + dz * dz) < (double) Math.max(1.0F, this.mob.getBbWidth());
+
+                boolean isObstructed = !voxelshape.isEmpty()
+                        && this.mob.getY() < voxelshape.max(Direction.Axis.Y) + (double) blockpos.getY()
+                        && !blockstate.is(BlockTags.DOORS)
+                        && !blockstate.is(BlockTags.FENCES);
+
+                if ((needElevationJump || isObstructed || this.mob.horizontalCollision) && this.mob.onGround()) {
+                    this.mob.getJumpControl().jump();
+                    this.operation = MoveControl.Operation.JUMPING;
+                }
+            } else if (this.operation == MoveControl.Operation.JUMPING) {
+                float speed = (float) (this.speedModifier * this.mob.getAttributeValue(Attributes.MOVEMENT_SPEED));
+                this.mob.setSpeed(speed);
+                this.mob.setZza(this.lastForward * speed);
+                this.mob.setXxa(this.lastStrafe * speed);
+                if (this.mob.onGround()) {
+                    this.operation = MoveControl.Operation.WAIT;
+                }
             } else {
                 // When stationary, smoothly track target at 3.5 deg/tick
                 LivingEntity target = this.ironclad.getTarget();
@@ -556,6 +614,11 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
         public IroncladBodyguardGoal(PillagerIroncladEntity ironclad) {
             this.ironclad = ironclad;
             this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
+        }
+
+        @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
         }
 
         @Override
@@ -635,8 +698,23 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
                 this.ironclad.getNavigation().stop();
                 this.ironclad.setDeltaMovement(0.0D, this.ironclad.getDeltaMovement().y, 0.0D);
 
-                // Exactly at Tick 13 (0.65s of the 1.50s animation): visual shield impact connects!
-                if (this.bashTicks == 13) {
+                // During windup (Ticks 0-10), keep facing target so strike launches toward opponent
+                if (this.bashTicks <= 10 && target != null && target.isAlive()) {
+                    this.ironclad.getLookControl().setLookAt(target, 30.0F, 30.0F);
+                    double tdx = target.getX() - this.ironclad.getX();
+                    double tdz = target.getZ() - this.ironclad.getZ();
+                    float targetFacingYaw = (float) (Mth.atan2(tdz, tdx) * (180.0D / Math.PI)) - 90.0F;
+                    float currentYaw = this.ironclad.getYRot();
+                    float yawDiff = Mth.wrapDegrees(targetFacingYaw - currentYaw);
+                    float turn = Mth.clamp(yawDiff, -5.0F, 5.0F);
+                    float newYaw = currentYaw + turn;
+                    this.ironclad.setYRot(newYaw);
+                    this.ironclad.yBodyRot = newYaw;
+                    this.ironclad.yHeadRot = newYaw;
+                }
+
+                // Strike reaches full forward extension at t = 0.65s (Tick 13 of the 30-tick 1.50s animation)
+                if (this.bashTicks == 18) {
                     this.ironclad.executeShieldBashDamage();
                 }
 
@@ -674,10 +752,10 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
                         Vec3 dirToPlayer = lineOfFire.scale(1.0D / allyToPlayerDist);
                         // Stand 4.0 blocks ahead of the ally along the line-of-fire (capped at 45% of total distance)
                         double offsetDist = Math.min(4.0D, allyToPlayerDist * 0.45D);
-                        // Project intercept point onto the ally's ground elevation to prevent mid-air waypoints
+                        // Project intercept point onto true ground elevation at (targetX, targetZ)
                         double targetX = allyPos.x + dirToPlayer.x * offsetDist;
-                        double targetY = allyPos.y;
                         double targetZ = allyPos.z + dirToPlayer.z * offsetDist;
+                        double targetY = findGroundSurfaceY(this.ironclad.level(), targetX, targetZ, this.ironclad.getY(), allyPos.y);
 
                         if (this.ironclad.distanceToSqr(targetX, targetY, targetZ) > 1.5D * 1.5D) {
                             this.ironclad.getNavigation().moveTo(targetX, targetY, targetZ, 1.15D);
@@ -694,6 +772,22 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
                     this.ironclad.getNavigation().moveTo(target, 1.35D);
                 }
             }
+        }
+
+        private static double findGroundSurfaceY(Level level, double x, double z, double refY1, double refY2) {
+            int startY = (int) Math.round(Math.max(refY1, refY2)) + 3;
+            int minY = (int) Math.round(Math.min(refY1, refY2)) - 4;
+            int blockX = Mth.floor(x);
+            int blockZ = Mth.floor(z);
+            BlockPos.MutableBlockPos mpos = new BlockPos.MutableBlockPos(blockX, startY, blockZ);
+            for (int y = startY; y >= minY; y--) {
+                mpos.setY(y);
+                BlockState state = level.getBlockState(mpos);
+                if (state.blocksMotion()) {
+                    return y + 1.0D;
+                }
+            }
+            return refY1;
         }
 
         private boolean isRangedTroop(LivingEntity e) {
