@@ -37,6 +37,7 @@ import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.monster.AbstractIllager;
 import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.monster.Pillager;
 import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.npc.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
@@ -255,7 +256,8 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
         this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractVillager.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, IronGolem.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Zombie.class, true));
+        this.targetSelector.addGoal(4, new NearestAttackableTargetGoal<>(this, Monster.class, 10, true, false,
+                target -> !AlliedFactionHelper.isAllied(this, target)));
     }
 
     /**
@@ -610,6 +612,9 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
         private boolean isBashing = false;
         private int bashTicks = 0;
         private int bashCooldown = 0;
+        private java.util.List<LivingEntity> cachedRangedAllies = new java.util.ArrayList<>();
+        private int allyScanCooldown = 0;
+        private LivingEntity currentlyGuardedAlly = null;
 
         public IroncladBodyguardGoal(PillagerIroncladEntity ironclad) {
             this.ironclad = ironclad;
@@ -627,10 +632,15 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
             if (target != null && target.isAlive()) {
                 return true;
             }
-            AABB allySearchArea = this.ironclad.getBoundingBox().inflate(32.0D);
-            List<LivingEntity> rangedAllies = this.ironclad.level().getEntitiesOfClass(LivingEntity.class, allySearchArea,
-                    e -> e != this.ironclad && e.isAlive() && AlliedFactionHelper.isPillager(e) && isRangedTroop(e));
-            for (LivingEntity ally : rangedAllies) {
+            if (!this.cachedRangedAllies.isEmpty()) {
+                for (LivingEntity ally : this.cachedRangedAllies) {
+                    if (ally.isAlive() && ally instanceof Mob mob && mob.getTarget() != null && mob.getTarget().isAlive()) {
+                        return true;
+                    }
+                }
+            }
+            scanNearbyAllies();
+            for (LivingEntity ally : this.cachedRangedAllies) {
                 if (ally instanceof Mob mob && mob.getTarget() != null && mob.getTarget().isAlive()) {
                     return true;
                 }
@@ -660,15 +670,19 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
             super.stop();
             this.isBashing = false;
             this.bashTicks = 0;
+            this.currentlyGuardedAlly = null;
             this.ironclad.setShieldBashing(false);
             this.ironclad.setGuardingAllyThreat(false);
         }
 
         @Override
         public void tick() {
-            AABB allySearchArea = this.ironclad.getBoundingBox().inflate(32.0D);
-            List<LivingEntity> rangedAllies = this.ironclad.level().getEntitiesOfClass(LivingEntity.class, allySearchArea,
-                    e -> e != this.ironclad && e.isAlive() && AlliedFactionHelper.isPillager(e) && isRangedTroop(e));
+            if (--this.allyScanCooldown <= 0) {
+                scanNearbyAllies();
+            } else {
+                this.cachedRangedAllies.removeIf(e -> !e.isAlive());
+            }
+            List<LivingEntity> rangedAllies = this.cachedRangedAllies;
 
             LivingEntity target = this.ironclad.getTarget();
             if (target == null || !target.isAlive()) {
@@ -790,63 +804,111 @@ public class PillagerIroncladEntity extends AbstractIllager implements GeoEntity
             return refY1;
         }
 
-        private boolean isRangedTroop(LivingEntity e) {
+        private boolean isPriorityGuardTroop(LivingEntity e) {
             return e instanceof PillagerMarksmanEntity
+                    || e instanceof PillagerRiflemanEntity
                     || e instanceof PillagerCannoneerEntity
-                    || e instanceof PillagerRapidbowEntity;
+                    || e instanceof PillagerRapidbowEntity
+                    || e instanceof PillagerCommanderEntity
+                    || e instanceof Pillager;
+        }
+
+        private void scanNearbyAllies() {
+            this.allyScanCooldown = 10 + (this.ironclad.getId() % 5);
+            AABB allySearchArea = this.ironclad.getBoundingBox().inflate(32.0D);
+            List<LivingEntity> allAllies = this.ironclad.level().getEntitiesOfClass(LivingEntity.class, allySearchArea,
+                    e -> e != this.ironclad && e.isAlive() && AlliedFactionHelper.isPillager(e) && !(e instanceof PillagerIroncladEntity));
+            List<LivingEntity> priorityAllies = new java.util.ArrayList<>();
+            for (LivingEntity a : allAllies) {
+                if (isPriorityGuardTroop(a)) {
+                    priorityAllies.add(a);
+                }
+            }
+            this.cachedRangedAllies = priorityAllies.isEmpty() ? allAllies : priorityAllies;
         }
 
         /**
-         * Prioritizes who the player is attacking:
-         * 1. Any ranged ally hurt by the player in the last 100 ticks (5s), picking lowest health if multiple.
-         * 2. The ranged ally the player is actively aiming at (closest to player look vector).
-         * 3. Nearest ranged ally to the player.
+         * Prioritizes who the hostile target is attacking:
+         * 1. Any ally recently hurt by the hostile target or hostile enemy within 100 ticks (5s) or currently in hurtTime, picking lowest health ratio.
+         * 2. The ally the hostile target is actively aiming at via 3D orthogonal ray crosshair calculation (d_perp <= 1.8m).
+         * 3. Proximity / Tactical fallback to the closest ally, with 3m hysteresis sticky bonus for currently guarded ally.
          */
-        private LivingEntity selectPriorityAlly(List<LivingEntity> allies, LivingEntity player) {
-            long gameTime = this.ironclad.level().getGameTime();
-
-            // Tier 1: Recently hurt by player
+        private LivingEntity selectPriorityAlly(List<LivingEntity> allies, LivingEntity target) {
+            // Tier 1: Recently hurt by target or hostile enemy
             LivingEntity lowestHpHurt = null;
-            float lowestHp = Float.MAX_VALUE;
+            float lowestHpRatio = Float.MAX_VALUE;
             for (LivingEntity a : allies) {
-                if (a.getLastHurtByMob() == player && (gameTime - a.getLastHurtByMobTimestamp()) < 100) {
-                    if (a.getHealth() < lowestHp) {
-                        lowestHp = a.getHealth();
-                        lowestHpHurt = a;
+                boolean hurtRecently = (a.tickCount - a.getLastHurtByMobTimestamp() < 100) || (a.hurtTime > 0);
+                if (hurtRecently) {
+                    LivingEntity attacker = a.getLastHurtByMob();
+                    boolean validAttacker = (attacker == target) || (attacker != null && !AlliedFactionHelper.isAllied(a, attacker));
+                    if (validAttacker) {
+                        float hpRatio = a.getHealth() / Math.max(1.0F, a.getMaxHealth());
+                        if (hpRatio < lowestHpRatio) {
+                            lowestHpRatio = hpRatio;
+                            lowestHpHurt = a;
+                        }
                     }
                 }
             }
             if (lowestHpHurt != null) {
+                this.currentlyGuardedAlly = lowestHpHurt;
                 return lowestHpHurt;
             }
 
-            // Tier 2: Player aiming / crosshair focus
-            Vec3 playerLook = player.getViewVector(1.0F).normalize();
-            LivingEntity aimedAlly = null;
-            double highestDot = 0.85D; // Within ~30 degrees of player gaze
+            // Tier 2: Active aim interception via crosshair ray orthogonal distance
+            Vec3 eyePos = target.getEyePosition();
+            Vec3 lookVec = target.getViewVector(1.0F).normalize();
+            LivingEntity bestAimedAlly = null;
+            double minPerpDistSqr = Double.MAX_VALUE;
+
             for (LivingEntity a : allies) {
-                Vec3 toAlly = a.getEyePosition().subtract(player.getEyePosition()).normalize();
-                double dot = playerLook.dot(toAlly);
-                if (dot > highestDot) {
-                    highestDot = dot;
-                    aimedAlly = a;
+                Vec3 allyCenter = a.getBoundingBox().getCenter();
+                Vec3 toAlly = allyCenter.subtract(eyePos);
+                double distAlongRay = toAlly.dot(lookVec);
+
+                // Ally must be in front of the target along view direction
+                if (distAlongRay > 0.5D) {
+                    Vec3 pointOnRay = eyePos.add(lookVec.scale(distAlongRay));
+                    double perpDistSqr = pointOnRay.distanceToSqr(allyCenter);
+                    double maxTolerance = Math.max(1.8D, a.getBbWidth() * 1.5D);
+
+                    if (perpDistSqr <= maxTolerance * maxTolerance) {
+                        if (perpDistSqr < minPerpDistSqr) {
+                            minPerpDistSqr = perpDistSqr;
+                            bestAimedAlly = a;
+                        }
+                    }
                 }
             }
-            if (aimedAlly != null) {
-                return aimedAlly;
+            if (bestAimedAlly != null) {
+                this.currentlyGuardedAlly = bestAimedAlly;
+                return bestAimedAlly;
             }
 
-            // Tier 3: Proximity to player
-            LivingEntity nearest = allies.get(0);
-            double minAllyDist = Double.MAX_VALUE;
+            // Tier 3: Proximity to target with hysteresis sticky bonus
+            LivingEntity bestAlly = null;
+            double minScore = Double.MAX_VALUE;
             for (LivingEntity a : allies) {
-                double d = a.distanceToSqr(player);
-                if (d < minAllyDist) {
-                    minAllyDist = d;
-                    nearest = a;
+                double distSqr = a.distanceToSqr(target);
+                // Sticky bonus: 3.0m advantage (9.0 distSqr) to currently guarded ally
+                if (a == this.currentlyGuardedAlly) {
+                    distSqr = Math.max(0.0D, distSqr - 9.0D);
+                }
+                // Prefer priority guard troops over generic melee
+                if (!isPriorityGuardTroop(a)) {
+                    distSqr += 100.0D;
+                }
+                if (distSqr < minScore) {
+                    minScore = distSqr;
+                    bestAlly = a;
                 }
             }
-            return nearest;
+            if (bestAlly != null) {
+                this.currentlyGuardedAlly = bestAlly;
+                return bestAlly;
+            }
+            return allies.get(0);
         }
 
         private void startShieldBash() {

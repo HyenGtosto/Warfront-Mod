@@ -59,7 +59,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
 
     static {
         // ==========================================
-        // 4 Easy Named Missions (Resistance < 50%)
+        // 4 Easy Named Missions (Progressive S-Curve)
         // ==========================================
         MissionDefinition killCount = new MissionDefinition(
                 "pillager_kill_count",
@@ -67,7 +67,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.ELIMINATE_TARGETS,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 40, 50,
@@ -85,7 +85,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.INTERCEPT,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 2, 2,
@@ -102,7 +102,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_STRUCTURE,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 4, 6,
@@ -119,7 +119,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_OBJECTIVES,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 3, 4,
@@ -131,7 +131,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
         EASY_DEFINITIONS.add(scoutNetwork);
 
         // ==========================================
-        // 4 Hard Named Missions (Resistance >= 50%)
+        // 4 Hard Named Missions (Progressive S-Curve)
         // ==========================================
         MissionDefinition strongpointAssault = new MissionDefinition(
                 "pillager_strongpoint_assault",
@@ -139,7 +139,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_STRUCTURE,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 8, 14,
@@ -157,7 +157,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.ELIMINATE_LEADER,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 1, 2,
@@ -174,7 +174,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_OBJECTIVES,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 2, 2,
@@ -191,7 +191,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.MULTI_PHASE,
                 Faction.PILLAGER_CONQUERORS,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 1, 1,
@@ -567,10 +567,7 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
             );
         }
 
-        // Pass 2: Resolve and assign regular missions for unoccupied subregions
-        List<MissionDefinition> candidatePool = (clampedRes < 50.0f) ? EASY_DEFINITIONS : HARD_DEFINITIONS;
-        MissionDefinition fallbackDef = (clampedRes < 50.0f) ? FALLBACK_EASY_DEF : FALLBACK_HARD_DEF;
-
+        // Pass 2: Resolve and assign regular missions for unoccupied subregions via progressive S-curve
         for (int i = 0; i < 4; i++) {
             if (missions[i] != null) {
                 continue;
@@ -581,6 +578,10 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
 
             long subSeed = effectiveSeed ^ (subX * 83492791L) ^ (subZ * 4393139L)
                     ^ faction.id() ^ ((long) baseType.id() << 32);
+
+            boolean isHardTier = WeightedMissionSelector.rollHardTier(clampedRes, subSeed);
+            List<MissionDefinition> candidatePool = isHardTier ? HARD_DEFINITIONS : EASY_DEFINITIONS;
+            MissionDefinition fallbackDef = isHardTier ? FALLBACK_HARD_DEF : FALLBACK_EASY_DEF;
 
             missions[i] = WeightedMissionSelector.selectAndGenerate(
                     candidatePool,

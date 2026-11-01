@@ -104,7 +104,7 @@ public final class ScoutNetworkMissionHandler implements MissionObjectiveHandler
                 }
 
                 if (player != null) {
-                    player.displayClientMessage(Component.literal("§c⚠️ Scout observation nests have been re-manned!"), true);
+                    player.displayClientMessage(Component.translatable("chat.warfront.mission.scouts_remanned"), true);
                 }
                 RegionData regions = RegionData.get(level);
                 if (regions != null) {

@@ -43,6 +43,11 @@ public class CannonBombEntity extends Projectile implements GeoEntity {
         setPos(shooter.getX(), shooter.getEyeY() - 0.1D, shooter.getZ());
     }
 
+    public CannonBombEntity(Level level, double x, double y, double z) {
+        this(ModEntities.CANNON_BOMB.get(), level);
+        setPos(x, y, z);
+    }
+
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
     }
@@ -98,7 +103,7 @@ public class CannonBombEntity extends Projectile implements GeoEntity {
     protected void onHitEntity(EntityHitResult hitResult) {
         super.onHitEntity(hitResult);
         if (!level().isClientSide && hitResult.getEntity() instanceof LivingEntity living) {
-            if (!AlliedFactionHelper.isAllied(getOwner(), living)) {
+            if (living != getOwner()) {
                 living.hurt(level().damageSources().thrown(this, getOwner()), 8.0F);
             }
         }
@@ -111,13 +116,12 @@ public class CannonBombEntity extends Projectile implements GeoEntity {
             serverLevel.sendParticles(ParticleTypes.CAMPFIRE_COSY_SMOKE, getX(), getY(), getZ(), 8, 0.3D, 0.3D, 0.3D, 0.05D);
             serverLevel.playSound(null, blockPosition(), SoundEvents.GENERIC_EXPLODE.value(), SoundSource.HOSTILE, 2.5F, 1.3F);
 
-            // Splash concussive blast dealing 8 damage with explosive knockback
+            // Splash concussive blast dealing 12 damage with explosive knockback (friendly fire enabled)
             final double splashRadius = 4.0D;
             AABB area = getBoundingBox().inflate(splashRadius);
             List<LivingEntity> targets = serverLevel.getEntitiesOfClass(LivingEntity.class, area, this::canHitEntity);
             for (LivingEntity target : targets) {
                 if (target == getOwner()) continue;
-                if (AlliedFactionHelper.isAllied(getOwner(), target)) continue;
 
                 double dist = distanceTo(target);
                 if (dist <= splashRadius) {
@@ -137,7 +141,8 @@ public class CannonBombEntity extends Projectile implements GeoEntity {
         if (!super.canHitEntity(target)) {
             return false;
         }
-        if (AlliedFactionHelper.isAllied(this.getOwner(), target)) {
+        // Allied Pillager Ironclad allows allied ballistics to pass through safely per bodyguard design
+        if (target instanceof PillagerIroncladEntity && this.getOwner() != null && AlliedFactionHelper.isAllied(this.getOwner(), target)) {
             return false;
         }
         return true;

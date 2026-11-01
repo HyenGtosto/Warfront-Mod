@@ -212,8 +212,8 @@ public final class HoldTheChokepointMissionHandler implements MissionObjectiveHa
             }
 
             player.displayClientMessage(
-                    Component.literal(String.format("§6⚔️ Defense Perimeter active! Wave %d/%d invading from the border!",
-                            data.currentWave, data.totalWaves)),
+                    Component.translatable("chat.warfront.mission.perimeter_active",
+                            data.currentWave, data.totalWaves),
                     true
             );
             level.playSound(null, player.getX(), player.getY(), player.getZ(),
@@ -271,7 +271,7 @@ public final class HoldTheChokepointMissionHandler implements MissionObjectiveHa
 
             if (data.defenseIntegrity <= 35) {
                 player.displayClientMessage(
-                        Component.literal("§c§l⚠️ DEFENSE INTEGRITY CRITICAL: " + data.defenseIntegrity + "%!"),
+                        Component.translatable("chat.warfront.mission.defense_integrity_critical", data.defenseIntegrity),
                         true
                 );
             }
@@ -284,7 +284,7 @@ public final class HoldTheChokepointMissionHandler implements MissionObjectiveHa
             ActiveCampaignMissionManager.completeMission(level, regionX, regionZ, subX, subZ, progress);
             dataMap.remove(instanceId);
             player.displayClientMessage(
-                    Component.literal("§a§l🛡️ CHOKEPOINT HELD! All hostile invasion waves repelled!"),
+                    Component.translatable("chat.warfront.mission.chokepoint_held"),
                     false
             );
         }

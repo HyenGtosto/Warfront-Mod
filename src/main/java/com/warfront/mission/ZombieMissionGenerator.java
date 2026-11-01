@@ -55,14 +55,14 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
 
     static {
         // ==========================================
-        // 4 Easy Named Missions (Resistance < 50%)
+        // 4 Easy Named Missions (Progressive S-Curve)
         // ==========================================
         MissionDefinition patrolSweep = new MissionDefinition(
                 "zombie_patrol_sweep",
                 MissionType.FORWARD_PATROL,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 5, 8,
@@ -79,7 +79,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
                 MissionType.SUPPLY_CONVOY,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 4, 6,
@@ -95,7 +95,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
                 MissionType.FORWARD_OUTPOST,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 6, 9,
@@ -111,7 +111,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
                 MissionType.SCOUT_NETWORK,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 5, 8,
@@ -123,14 +123,14 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
         EASY_DEFINITIONS.add(supplyRaid);
 
         // ==========================================
-        // 4 Hard Named Missions (Resistance >= 50%)
+        // 4 Hard Named Missions (Progressive S-Curve)
         // ==========================================
         MissionDefinition heavySiege = new MissionDefinition(
                 "zombie_heavy_siege",
                 MissionType.STRONGPOINT_ASSAULT,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 10, 15,
@@ -147,7 +147,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
                 MissionType.OFFICER_HUNT,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 6, 10,
@@ -163,7 +163,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
                 MissionType.ARTILLERY_BATTERY,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 10, 16,
@@ -179,7 +179,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
                 MissionType.CUT_THE_SUPPLY_LINE,
                 Faction.ZOMBIE_HORDE,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 12, 20,
@@ -464,10 +464,7 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
             );
         }
 
-        // Pass 2: Resolve and assign regular missions for unoccupied subregions
-        List<MissionDefinition> candidatePool = (clampedRes < 50.0f) ? EASY_DEFINITIONS : HARD_DEFINITIONS;
-        MissionDefinition fallbackDef = (clampedRes < 50.0f) ? FALLBACK_EASY_DEF : FALLBACK_HARD_DEF;
-
+        // Pass 2: Resolve and assign regular missions for unoccupied subregions via progressive S-curve
         for (int i = 0; i < 4; i++) {
             if (missions[i] != null) {
                 continue;
@@ -478,6 +475,10 @@ public final class ZombieMissionGenerator implements FactionMissionGenerator {
 
             long subSeed = effectiveSeed ^ (subX * 104729L) ^ (subZ * 224737L)
                     ^ faction.id() ^ ((long) baseType.id() << 32);
+
+            boolean isHardTier = WeightedMissionSelector.rollHardTier(clampedRes, subSeed);
+            List<MissionDefinition> candidatePool = isHardTier ? HARD_DEFINITIONS : EASY_DEFINITIONS;
+            MissionDefinition fallbackDef = isHardTier ? FALLBACK_HARD_DEF : FALLBACK_EASY_DEF;
 
             missions[i] = WeightedMissionSelector.selectAndGenerate(
                     candidatePool,

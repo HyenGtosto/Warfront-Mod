@@ -259,7 +259,7 @@ public final class SupplyConvoyMissionHandler implements MissionObjectiveHandler
             ActiveCampaignMissionManager.failMission(level, rx, rz, sx, sz, progress, "Supply convoy escaped across the border!");
             for (ServerPlayer player : level.players()) {
                 if (player.distanceToSqr(cart) < 16384.0D) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Mission Failed] The Supply Convoy escaped across the border!"));
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.mission.convoy_escaped"));
                 }
             }
         }

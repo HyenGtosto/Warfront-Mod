@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "combat",
+  "pattern": [
+    " I ",
+    "BFC",
+    " I "
+  ],
+  "key": {
+    "I": {
+      "item": "minecraft:iron_ingot"
+    },
+    "B": {
+      "item": "minecraft:blaze_powder"
+    },
+    "F": {
+      "item": "minecraft:fire_charge"
+    },
+    "C": {
+      "item": "minecraft:gunpowder"
+    }
+  },
+  "result": {
+    "id": "warfront:incendiary_artillery_shell",
+    "count": 2
+  }
+}

@@ -86,8 +86,12 @@ public final class AIAttackManager {
 
                         RegionData.Region targetReg = regions.regionAt(trx, trz);
                         String defenderName = "Humanity";
-                        if (targetReg.playerFactionId() != null) {
-                            com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(targetReg.playerFactionId());
+                        java.util.UUID defPfId = campaign.defenderPlayerFactionId();
+                        if (defPfId == null) {
+                            defPfId = targetReg.playerFactionId();
+                        }
+                        if (defPfId != null) {
+                            com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(defPfId);
                             if (pf != null) defenderName = pf.getName();
                         }
 
@@ -96,8 +100,14 @@ public final class AIAttackManager {
                         if (securedCount >= dominoThreshold && allMandatorySecured) {
                             // Player successfully defended enough sectors before timer expired -> DEFENSE VICTORY!
                             regions.setRegionSiege(trx, trz, false);
+                            regions.getActiveSieges().remove(net.minecraft.world.level.ChunkPos.asLong(trx, trz));
                             com.warfront.mission.ActiveCampaignMissionManager.endCampaignWithScenario(level, trx, trz, securedCount, dominoThreshold, true);
-                            regions.addLog(level, String.format("§aSiege expired: Region (%d, %d) defended by %s against %s.", trx, trz, defenderName, attacker.commandName()));
+                            if (targetReg.owner() == Faction.UNCLAIMED && defPfId != null) {
+                                regions.claim(level, trx, trz, Faction.HUMANITY, 20.0F, 20.0F, BaseType.NONE, defPfId);
+                                regions.addLog(level, String.format("§aWilderness incursion repelled: Region (%d, %d) claimed by %s!", trx, trz, defenderName));
+                            } else {
+                                regions.addLog(level, String.format("§aSiege expired: Region (%d, %d) defended by %s against %s.", trx, trz, defenderName, attacker.commandName()));
+                            }
                             Warfront.LOGGER.info("Siege expired: Region ({}, {}) defended by {}.", trx, trz, defenderName);
                         } else {
                             // Defense failed -> Defending region falls to attacking AI faction!

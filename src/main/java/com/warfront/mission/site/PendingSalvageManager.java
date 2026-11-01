@@ -198,7 +198,7 @@ public final class PendingSalvageManager {
                     completedSites.add(site.missionInstanceId());
                 } else if (player != null) {
                     player.displayClientMessage(
-                            Component.literal("§a[Warfront] §6Salvaged military hardware! §e" + site.salvageBlocks().size() + " salvage block(s) remaining."),
+                            Component.translatable("chat.warfront.salvage.progress", site.salvageBlocks().size()),
                             true
                     );
                 }

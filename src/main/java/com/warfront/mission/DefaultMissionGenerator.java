@@ -28,7 +28,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.ELIMINATE_TARGETS,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 40, 50,
@@ -46,7 +46,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.INTERCEPT,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 2, 2,
@@ -62,7 +62,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_STRUCTURE,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 6, 8,
@@ -78,7 +78,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_OBJECTIVES,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                0.0f, 49.999f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 3, 5,
@@ -94,7 +94,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_STRUCTURE,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 8, 12,
@@ -112,7 +112,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.ELIMINATE_LEADER,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 1, 2,
@@ -128,7 +128,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.DESTROY_OBJECTIVES,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 2, 2,
@@ -144,7 +144,7 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
                 ObjectiveType.MULTI_PHASE,
                 Faction.UNCLAIMED,
                 EnumSet.allOf(BaseType.class),
-                50.0f, 100.0f,
+                0.0f, 100.0f,
                 100,
                 Map.of(),
                 1, 1,
@@ -194,13 +194,15 @@ public final class DefaultMissionGenerator implements FactionMissionGenerator {
         float clampedRes = Math.clamp(resistance, 0.0f, 100.0f);
         Map<MissionType, Integer> regionTypeCounts = new EnumMap<>(MissionType.class);
 
-        List<MissionDefinition> candidatePool = (clampedRes < 50.0f) ? EASY_DEFINITIONS : HARD_DEFINITIONS;
-        MissionDefinition fallbackDef = (clampedRes < 50.0f) ? FALLBACK_EASY_DEF : FALLBACK_HARD_DEF;
-
+        // Pass 2: Resolve and assign regular missions for unoccupied subregions via progressive S-curve
         for (int i = 0; i < 4; i++) {
             int subX = i % 2;
             int subZ = i / 2;
             long subSeed = effectiveSeed ^ (subX * 104729L) ^ (subZ * 224737L);
+
+            boolean isHardTier = WeightedMissionSelector.rollHardTier(clampedRes, subSeed);
+            List<MissionDefinition> candidatePool = isHardTier ? HARD_DEFINITIONS : EASY_DEFINITIONS;
+            MissionDefinition fallbackDef = isHardTier ? FALLBACK_HARD_DEF : FALLBACK_EASY_DEF;
 
             missions[i] = WeightedMissionSelector.selectAndGenerate(
                     candidatePool,

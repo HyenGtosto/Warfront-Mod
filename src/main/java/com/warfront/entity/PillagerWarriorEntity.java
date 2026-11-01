@@ -114,10 +114,10 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 32.0D)
+                .add(Attributes.MAX_HEALTH, 24.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.23D)
                 .add(Attributes.ATTACK_DAMAGE, 8.0D)
-                .add(Attributes.ARMOR, 6.0D)
+                .add(Attributes.ARMOR, 3.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.20D)
                 .add(Attributes.FOLLOW_RANGE, 32.0D);
     }
@@ -218,10 +218,8 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractVillager.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, IronGolem.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Zombie.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractSkeleton.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Creeper.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Spider.class, true));
+        this.targetSelector.addGoal(4, new NearestAttackableTargetGoal<>(this, Monster.class, 10, true, false,
+                target -> !AlliedFactionHelper.isAllied(this, target)));
     }
 
     @Override

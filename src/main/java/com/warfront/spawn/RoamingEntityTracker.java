@@ -111,6 +111,13 @@ public final class RoamingEntityTracker {
                 }
             }
 
+            // Despawn non-persistent wandering mobs that wandered too far (> 128 blocks)
+            if (minDistSq > 128.0D * 128.0D && !mob.isPersistenceRequired() && !mob.hasCustomName()) {
+                mob.discard();
+                toRemove.add(uuid);
+                continue;
+            }
+
             // Apply hysteresis
             if (!currentlyActive) {
                 double activationSq = (double) activationRadius * activationRadius;

@@ -150,6 +150,9 @@ public final class BasePlacementManager {
         // 5. Ensure all chunks covering footprint are loaded on server thread before client view distance renders them
         for (int cx = minChunkX; cx <= maxChunkX; cx++) {
             for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                if (!force && !level.getChunkSource().hasChunk(cx, cz)) {
+                    return false; // Footprint chunks not yet loaded by player view distance; defer placement cleanly without server hitching
+                }
                 level.getChunk(cx, cz);
             }
         }
@@ -165,9 +168,8 @@ public final class BasePlacementManager {
         // Prevent building on top of an existing monolith or cobblestone structure (unless forced)
         BlockPos checkGround = new BlockPos(anchor.getX(), surfaceY, anchor.getZ());
         if (!force && level.getBlockState(checkGround).is(net.minecraft.world.level.block.Blocks.COBBLESTONE)) {
-            Warfront.LOGGER.warn("[Warfront] Structure already exists at {} in region ({}, {}). Aborting placement to prevent double height stacking.",
+            Warfront.LOGGER.warn("[Warfront] Structure ground check found cobblestone at {} in region ({}, {}). Aborting placement to prevent double height stacking.",
                     checkGround, regionX, regionZ);
-            regions.markBasePlaced(regionX, regionZ, checkGround);
             return false;
         }
 

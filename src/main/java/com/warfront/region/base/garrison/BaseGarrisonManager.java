@@ -42,6 +42,11 @@ public final class BaseGarrisonManager {
             return;
         }
 
+        com.warfront.region.RegionData regions = com.warfront.region.RegionData.get(level);
+        if (regions == null || !regions.isBasePlaced(rx, rz)) {
+            return;
+        }
+
         BaseGarrisonData data = BaseGarrisonData.get(level);
         if (data.hasGarrison(rx, rz)) {
             return;

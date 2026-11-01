@@ -100,12 +100,12 @@ public final class RegionMapRenderer {
             graphics.fill(mapLeft, mapTop, mapLeft + 1, mapTop + mapSize, 0xFF7A715D);
             graphics.fill(mapLeft + mapSize - 1, mapTop, mapLeft + mapSize, mapTop + mapSize, 0xFF7A715D);
 
-            Component text = Component.literal("Cannot Get Intel");
+            Component text = Component.translatable("screen.warfront.cannot_get_intel");
             int textX = mapLeft + (mapSize - font.width(text)) / 2;
             int textY = mapTop + (mapSize - font.lineHeight) / 2;
             graphics.drawString(font, text, textX, textY, 0xFFFF3333, false);
 
-            renderSelectedRegionInfo(graphics, font, viewport, state);
+            renderSelectedRegionInfo(graphics, font, viewport, state, mouseX, mouseY);
             return;
         }
 
@@ -123,7 +123,7 @@ public final class RegionMapRenderer {
         renderPlayerMarker(graphics, viewport, state, camera);
         graphics.disableScissor();
 
-        renderSelectedRegionInfo(graphics, font, viewport, state);
+        renderSelectedRegionInfo(graphics, font, viewport, state, mouseX, mouseY);
     }
 
     private boolean isChunkSieged(RegionMapPayload.ChunkData chunk, int chunkX, int chunkZ, RegionMapState state) {
@@ -163,12 +163,17 @@ public final class RegionMapRenderer {
                     } else if (!chunk.isVisited()) {
                         colorABGR = 0xFF181A1D;
                     } else {
-                        int rawColor = chunk.biomeColor();
+                        int rawColor = chunk.rawRgb();
                         int br = (rawColor >> 16) & 0xFF;
                         int bg = (rawColor >> 8) & 0xFF;
                         int bb = rawColor & 0xFF;
 
                         boolean isSiege = isChunkSieged(chunk, chunkX, chunkZ, state);
+
+                        RegionMapPayload.ChunkData north = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ - 1));
+                        RegionMapPayload.ChunkData south = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ + 1));
+                        RegionMapPayload.ChunkData west = state.getChunks().get(ChunkPos.asLong(chunkX - 1, chunkZ));
+                        RegionMapPayload.ChunkData east = state.getChunks().get(ChunkPos.asLong(chunkX + 1, chunkZ));
 
                         if (chunk.factionId() != Faction.UNCLAIMED.id()) {
                             Faction faction = Faction.byId(chunk.factionId());
@@ -183,11 +188,6 @@ public final class RegionMapRenderer {
                             br = (br + fr) / 2;
                             bg = (bg + fg) / 2;
                             bb = (bb + fb) / 2;
-
-                            RegionMapPayload.ChunkData north = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ - 1));
-                            RegionMapPayload.ChunkData south = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ + 1));
-                            RegionMapPayload.ChunkData west = state.getChunks().get(ChunkPos.asLong(chunkX - 1, chunkZ));
-                            RegionMapPayload.ChunkData east = state.getChunks().get(ChunkPos.asLong(chunkX + 1, chunkZ));
 
                             boolean isBorder = (north == null || !north.isVisited() || north.factionId() != chunk.factionId())
                                     || (south == null || !south.isVisited() || south.factionId() != chunk.factionId())
@@ -218,11 +218,6 @@ public final class RegionMapRenderer {
                             bg = bg / 2;
                             bb = bb / 2;
 
-                            RegionMapPayload.ChunkData north = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ - 1));
-                            RegionMapPayload.ChunkData south = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ + 1));
-                            RegionMapPayload.ChunkData west = state.getChunks().get(ChunkPos.asLong(chunkX - 1, chunkZ));
-                            RegionMapPayload.ChunkData east = state.getChunks().get(ChunkPos.asLong(chunkX + 1, chunkZ));
-
                             boolean isSiegeBorder = !isChunkSieged(north, chunkX, chunkZ - 1, state)
                                     || !isChunkSieged(south, chunkX, chunkZ + 1, state)
                                     || !isChunkSieged(west, chunkX - 1, chunkZ, state)
@@ -233,6 +228,25 @@ public final class RegionMapRenderer {
                                 bg = (bg + 34 * 2) / 3;
                                 bb = (bb + 34 * 2) / 3;
                             }
+                        }
+
+                        // Cartographic Hillshading / Elevation Relief Shading (Option C)
+                        int hCenter = chunk.elevation();
+                        if (hCenter > 0) {
+                            int hNorth = (north != null && north.isVisited()) ? north.elevation() : hCenter;
+                            int hSouth = (south != null && south.isVisited()) ? south.elevation() : hCenter;
+                            int hWest = (west != null && west.isVisited()) ? west.elevation() : hCenter;
+                            int hEast = (east != null && east.isVisited()) ? east.elevation() : hCenter;
+
+                            // Standard cartographic lighting from Northwest (-x, -z)
+                            int slopeX = hEast - hWest;
+                            int slopeZ = hSouth - hNorth;
+                            int relief = (int) Math.round((-slopeX - slopeZ) * 0.9D);
+                            relief = Math.clamp(relief, -26, 26);
+
+                            br = Math.clamp(br + relief, 0, 255);
+                            bg = Math.clamp(bg + relief, 0, 255);
+                            bb = Math.clamp(bb + relief, 0, 255);
                         }
 
                         colorABGR = 0xFF000000 | (bb << 16) | (bg << 8) | br;
@@ -380,8 +394,8 @@ public final class RegionMapRenderer {
             // Disappear when inspecting and selecting missions on this region; appear when no longer selected
             boolean isSelected = (sel != null && sel.regionX() == rx && sel.regionZ() == rz);
             if (isSelected) {
-                boolean isDefense = (sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED)
-                        || (sel.owner() == Faction.HUMANITY && sel.underSiege());
+                boolean isDefense = sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED
+                        && (sel.owner() == Faction.HUMANITY || sel.owner() == Faction.UNCLAIMED);
                 boolean isActivated = isDefense || state.getActivatedRegions().contains(regKey) || sel.underSiege();
                 if (isActivated) {
                     continue;
@@ -393,8 +407,8 @@ public final class RegionMapRenderer {
             if (activeWar != null) {
                 isDefense = activeWar.isDefense();
             } else if (isSelected) {
-                isDefense = (sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED)
-                        || (sel.owner() == Faction.HUMANITY && sel.underSiege());
+                isDefense = sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED
+                        && (sel.owner() == Faction.HUMANITY || sel.owner() == Faction.UNCLAIMED);
             }
 
             ResourceLocation texture = isDefense ? warDefenseLoc : warAttackLoc;
@@ -760,7 +774,7 @@ public final class RegionMapRenderer {
         graphics.fill(panelLeft, top, panelLeft + 1, top + height, 0xFF7A715D);
         graphics.fill(panelLeft + panelWidth - 1, top, panelLeft + panelWidth, top + height, 0xFF7A715D);
 
-        graphics.drawString(font, Component.literal("§e§lINTELLIGENCE LOG FEED"), panelLeft + 6, top + 6, 0xFFFFFFFF, false);
+        graphics.drawString(font, Component.translatable("screen.warfront.intel_feed_title"), panelLeft + 6, top + 6, 0xFFFFFFFF, false);
 
         int maxVisibleLines = (height - 24) / 10;
         List<FormattedCharSequence> allWrappedLines = new ArrayList<>();
@@ -796,14 +810,15 @@ public final class RegionMapRenderer {
         }
     }
 
-    public void renderSelectedRegionInfo(GuiGraphics graphics, Font font, MapViewport viewport, RegionMapState state) {
+    public void renderSelectedRegionInfo(GuiGraphics graphics, Font font, MapViewport viewport, RegionMapState state, int mouseX, int mouseY) {
         int left = viewport.leftPanelLeft();
         int width = viewport.leftPanelWidth();
         int top = viewport.mapTop();
         int availableHeight = viewport.mapSize();
 
-        int boxHeight = Math.clamp((availableHeight - 16) / 5, 24, 40);
-        int boxGap = Math.clamp((availableHeight - (boxHeight * 5)) / 4, 2, 6);
+        int totalBoxes = 5;
+        int boxHeight = Math.clamp((availableHeight - 16) / totalBoxes, 32, 42);
+        int boxGap = Math.clamp((availableHeight - (boxHeight * totalBoxes)) / (totalBoxes - 1), 2, 6);
 
         SelectedRegion selectedRegion = state.getSelectedRegion();
         if (selectedRegion == null) {
@@ -821,11 +836,12 @@ public final class RegionMapRenderer {
                     Component.translatable("screen.warfront.region_owner"),
                     Component.translatable("screen.warfront.undiscovered"));
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 2, width, boxHeight,
-                    Component.translatable("screen.warfront.stability"),
+                    Component.translatable("screen.warfront.terrain"),
                     Component.translatable("screen.warfront.unknown"));
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 3, width, boxHeight,
-                    Component.translatable("screen.warfront.resistance"),
-                    Component.translatable("screen.warfront.unknown"));
+                    Component.translatable("screen.warfront.territory_stats"),
+                    Component.translatable("screen.warfront.metric_unknown_resistance"),
+                    Component.translatable("screen.warfront.metric_unknown_stability"));
             return;
         }
 
@@ -841,54 +857,97 @@ public final class RegionMapRenderer {
                 Component.literal(selectedRegion.regionX() + ", " + selectedRegion.regionZ()));
         renderInfoBox(graphics, font, left, top + (boxHeight + boxGap), width, boxHeight,
                 Component.translatable("screen.warfront.region_owner"), ownerDisplayName);
-        renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 2, width, boxHeight,
-                Component.translatable("screen.warfront.stability"),
-                Component.literal(formatMetric(selectedRegion.stability())));
+
+        int elevSum = 0;
+        int elevCount = 0;
+        int minCX = selectedRegion.regionX() * 8;
+        int minCZ = selectedRegion.regionZ() * 8;
+        for (int cz = minCZ; cz < minCZ + 8; cz++) {
+            for (int cx = minCX; cx < minCX + 8; cx++) {
+                RegionMapPayload.ChunkData cd = state.getChunks().get(ChunkPos.asLong(cx, cz));
+                if (cd != null && cd.isVisited() && cd.elevation() > 0) {
+                    elevSum += cd.elevation();
+                    elevCount++;
+                }
+            }
+        }
+        int avgElev = elevCount > 0 ? Math.round((float) elevSum / elevCount) : 68;
+
+        String tName = selectedRegion.terrainName() != null && !selectedRegion.terrainName().isEmpty() ? selectedRegion.terrainName() : "Plains";
+        Component localizedTerrain = Component.empty().append("§e").append(com.warfront.region.terrain.TerrainClassifier.getLocalizedTerrainComponent(tName));
+
+        Component categoryComp = com.warfront.region.terrain.BiomeElevation.getElevationCategoryComponent(avgElev);
+        Component fullElevComp = Component.translatable("screen.warfront.elevation_readout", avgElev, categoryComp);
+        Component midElevComp = Component.translatable("screen.warfront.elevation_readout_mid", avgElev, categoryComp);
+        Component shortElevComp = Component.translatable("screen.warfront.elevation_readout_short", avgElev);
+
+        int availW = width - 8;
+        Component chosenElevComp;
+        if (font.width(fullElevComp) <= availW) {
+            chosenElevComp = fullElevComp;
+        } else if (font.width(midElevComp) <= availW) {
+            chosenElevComp = midElevComp;
+        } else {
+            chosenElevComp = shortElevComp;
+        }
+
+        int terrainBoxY = top + (boxHeight + boxGap) * 2;
+        renderInfoBox(graphics, font, left, terrainBoxY, width, boxHeight,
+                Component.translatable("screen.warfront.terrain"),
+                localizedTerrain,
+                chosenElevComp);
+
+        if (mouseX >= left && mouseX <= left + width && mouseY >= terrainBoxY && mouseY <= terrainBoxY + boxHeight) {
+            graphics.renderComponentTooltip(font, java.util.List.of(localizedTerrain, fullElevComp), mouseX, mouseY);
+        }
         renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 3, width, boxHeight,
-                Component.translatable("screen.warfront.resistance"),
-                Component.literal(formatMetric(selectedRegion.resistance())));
+                Component.translatable("screen.warfront.territory_stats"),
+                Component.translatable("screen.warfront.metric_resistance", formatMetric(selectedRegion.resistance())),
+                Component.translatable("screen.warfront.metric_stability", formatMetric(selectedRegion.stability())));
 
         if (selectedRegion.isFieldBattle()) {
             long totalSeconds = selectedRegion.remainingSiegeTicks() / 20L;
             long mins = totalSeconds / 60L;
             long secs = totalSeconds % 60L;
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                    Component.literal("§6§lFIELD BATTLE"),
-                    Component.literal(String.format("§fTime Left: §e%02d:%02d", mins, secs)));
+                    Component.translatable("screen.warfront.infobox.field_battle"),
+                    Component.translatable("screen.warfront.infobox.time_left", String.format("§e%02d:%02d", mins, secs)));
         } else if (selectedRegion.remainingSiegeTicks() > 0 || selectedRegion.underSiege()) {
             long totalSeconds = selectedRegion.remainingSiegeTicks() / 20L;
             long mins = totalSeconds / 60L;
             long secs = totalSeconds % 60L;
-            String headerText = selectedRegion.owner() == Faction.HUMANITY ? "§e§lDEFENSE TIME" : "§c§lATTACK TIME";
+            String headerKey = (selectedRegion.owner() == Faction.HUMANITY || (selectedRegion.owner() == Faction.UNCLAIMED && !selectedRegion.playerFactionName().isEmpty()))
+                    ? "screen.warfront.infobox.defense_time"
+                    : (selectedRegion.owner() == Faction.UNCLAIMED ? "screen.warfront.infobox.incursion_time" : "screen.warfront.infobox.attack_time");
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                    Component.literal(headerText),
-                    Component.literal(String.format("§fTime Left: §c%02d:%02d", mins, secs)));
+                    Component.translatable(headerKey),
+                    Component.translatable("screen.warfront.infobox.time_left", String.format("§c%02d:%02d", mins, secs)));
         } else if (selectedRegion.isAwaitingReinforcements()) {
             if (selectedRegion.isEncircled()) {
                 renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                        Component.literal("§c§lENCIRCLED"),
-                        Component.literal("§7Reinforcements Blocked"));
+                        Component.translatable("screen.warfront.infobox.encircled"),
+                        Component.translatable("screen.warfront.infobox.reinforcements_blocked"));
             } else {
                 long totalSecs = selectedRegion.reinforcementRemainingTicks() / 20L;
                 long mins = totalSecs / 60L;
                 long secs = totalSecs % 60L;
                 renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                        Component.literal("§6§lREINFORCING"),
-                        Component.literal(String.format("§fArrival: §e%02d:%02d", mins, secs)));
+                        Component.translatable("screen.warfront.infobox.reinforcing"),
+                        Component.translatable("screen.warfront.infobox.arrival", mins, secs));
             }
         } else if (selectedRegion.owner() != Faction.HUMANITY && selectedRegion.owner() != Faction.UNCLAIMED) {
-            String reqText = (selectedRegion.baseType() != BaseType.NONE)
-                    ? String.format("§fReq: §e%d Sec §c(Base Req)", selectedRegion.dominoThreshold())
-                    : String.format("§fReq: §e%d Sectors", selectedRegion.dominoThreshold());
+            Component reqComp = (selectedRegion.baseType() != BaseType.NONE)
+                    ? Component.translatable("screen.warfront.infobox.req_base", selectedRegion.dominoThreshold())
+                    : Component.translatable("screen.warfront.infobox.req_sectors", selectedRegion.dominoThreshold());
             renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                    Component.literal("§c§lATTACK TARGET"),
-                    Component.literal(reqText));
+                    Component.translatable("screen.warfront.infobox.attack_target"),
+                    reqComp);
         } else if (selectedRegion.owner() == Faction.HUMANITY && selectedRegion.playerFactionName() != null && !selectedRegion.playerFactionName().isEmpty()) {
             String myFaction = com.warfront.client.faction.FactionClientState.get().getFactionName();
             if (myFaction != null && !myFaction.equalsIgnoreCase(selectedRegion.playerFactionName())) {
                 renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                        Component.literal("§c§lRIVAL TERRITORY"),
-                        Component.literal("§fField Battle (KotH)"));
+                        Component.translatable("screen.warfront.infobox.rival_territory"),
+                        Component.translatable("screen.warfront.infobox.koth"));
             }
         }
     }

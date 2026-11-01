@@ -204,7 +204,8 @@ public final class RegionMapState {
                 payload.isFieldBattle(),
                 payload.attackerProgress(),
                 payload.defenderProgress(),
-                payload.playerInFactionRegion());
+                payload.playerInFactionRegion(),
+                payload.terrainName());
 
         if (payload.underSiege()) {
             activatedRegions.add(regKey);

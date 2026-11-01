@@ -136,8 +136,8 @@ public final class FieldBattleManager {
                 regions.addLog(level, String.format("§aField battle won: Region (%d, %d) captured by %s against %s.",
                         rx, rz, attackerName, defenderName));
                 regions.broadcastTitle(level,
-                        Component.literal("§a§lFIELD BATTLE WON!"),
-                        Component.literal(String.format("§7%s captured Region (%d, %d)", attackerName, rx, rz)));
+                        Component.translatable("title.warfront.field_battle_won"),
+                        Component.translatable("subtitle.warfront.attack_successful", rx, rz, attackerName));
 
                 Warfront.LOGGER.info("Field battle won: Region ({}, {}) captured by {} against {}.",
                         rx, rz, attackerName, defenderName);
@@ -153,8 +153,8 @@ public final class FieldBattleManager {
                 regions.addLog(level, String.format("§9Field battle defended: Region (%d, %d) held by %s against %s.",
                         rx, rz, defenderName, attackerName));
                 regions.broadcastTitle(level,
-                        Component.literal("§9§lFIELD BATTLE DEFENDED!"),
-                        Component.literal(String.format("§7%s defended Region (%d, %d)", defenderName, rx, rz)));
+                        Component.translatable("title.warfront.field_battle_defended"),
+                        Component.translatable("subtitle.warfront.defense_successful", rx, rz, defenderName));
 
                 Warfront.LOGGER.info("Field battle defended: Region ({}, {}) held by {} against {}.",
                         rx, rz, defenderName, attackerName);

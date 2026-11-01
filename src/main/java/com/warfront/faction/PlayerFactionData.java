@@ -171,7 +171,7 @@ public final class PlayerFactionData extends SavedData {
         syncToFaction(faction, approver.server);
 
         if (requesterPlayer != null) {
-            requesterPlayer.sendSystemMessage(Component.literal("§a[Warfront] Your request to join " + faction.getName() + " was accepted!"));
+            requesterPlayer.sendSystemMessage(Component.translatable("chat.warfront.faction.accepted", faction.getName()));
             syncToPlayer(requesterPlayer);
         }
 
@@ -201,7 +201,7 @@ public final class PlayerFactionData extends SavedData {
 
         setDirty();
         sendFeedback(inviter, true, "Invited " + targetPlayerName + " to the faction!");
-        target.sendSystemMessage(Component.literal("§b[Warfront] " + inviter.getName().getString() + " invited you to join faction '§e" + faction.getName() + "§b'! Enter '" + faction.getName() + "' in the Faction menu to join."));
+        target.sendSystemMessage(Component.translatable("chat.warfront.faction.invited_target", inviter.getName().getString(), faction.getName(), faction.getName()));
         syncToFaction(faction, inviter.server);
         return true;
     }
@@ -239,7 +239,7 @@ public final class PlayerFactionData extends SavedData {
 
         ServerPlayer kickedPlayer = kicker.server.getPlayerList().getPlayer(targetUuid);
         if (kickedPlayer != null) {
-            kickedPlayer.sendSystemMessage(Component.literal("§c[Warfront] You have been kicked from faction " + faction.getName() + "."));
+            kickedPlayer.sendSystemMessage(Component.translatable("chat.warfront.faction.kicked_notify", faction.getName()));
             syncToPlayer(kickedPlayer);
         }
 
@@ -312,7 +312,7 @@ public final class PlayerFactionData extends SavedData {
             playerToFactionMap.remove(memberUuid);
             ServerPlayer memberPlayer = owner.server.getPlayerList().getPlayer(memberUuid);
             if (memberPlayer != null) {
-                memberPlayer.sendSystemMessage(Component.literal("§c[Warfront] Faction '" + name + "' was disbanded by the owner."));
+                memberPlayer.sendSystemMessage(Component.translatable("chat.warfront.faction.disbanded_notify", name));
                 syncToPlayer(memberPlayer);
             }
         }

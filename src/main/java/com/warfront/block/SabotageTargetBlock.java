@@ -53,7 +53,7 @@ public class SabotageTargetBlock extends Block {
     public void attack(BlockState state, Level level, BlockPos pos, Player player) {
         if (!level.isClientSide) {
             player.displayClientMessage(
-                    Component.literal("§c[Warfront] §4⚔ SABOTAGE TARGET: §fDestroy to advance mission objective!"),
+                    Component.translatable("chat.warfront.sabotage.target_info"),
                     true
             );
             if (level instanceof ServerLevel serverLevel) {

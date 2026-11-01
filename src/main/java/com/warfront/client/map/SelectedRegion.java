@@ -32,7 +32,8 @@ public record SelectedRegion(
         boolean isFieldBattle,
         float attackerProgress,
         float defenderProgress,
-        boolean playerInFactionRegion
+        boolean playerInFactionRegion,
+        String terrainName
 ) {
     public SelectedRegion(
             int regionX, int regionZ, int subX, int subZ,
@@ -45,14 +46,14 @@ public record SelectedRegion(
             long reinforcementRemainingTicks, boolean isEncircled,
             BlockPos baseAnchor, long missionSeed
     ) {
-        this(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false);
+        this(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false, "Plains");
     }
 
     public SelectedRegion withRemainingSiegeTicks(long newTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName);
     }
 
     public SelectedRegion withReinforcementRemainingTicks(long newReinfTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName);
     }
 }

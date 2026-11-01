@@ -29,11 +29,12 @@ public record RegionDetailsPayload(
         boolean isFieldBattle,
         float attackerProgress,
         float defenderProgress,
-        boolean playerInFactionRegion
+        boolean playerInFactionRegion,
+        String terrainName
 ) implements CustomPacketPayload {
 
     public RegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, int factionId, float stability, float resistance, int baseTypeId, boolean underSiege, boolean isVisited) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L, "", "", false, 0.0F, 0.0F, false);
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L, "", "", false, 0.0F, 0.0F, false, "Unknown");
     }
 
     public RegionDetailsPayload(
@@ -50,7 +51,30 @@ public record RegionDetailsPayload(
             BlockPos baseAnchor,
             long missionSeed
     ) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false);
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false, "Plains");
+    }
+
+    public RegionDetailsPayload(
+            int regionX, int regionZ, int subX, int subZ,
+            int factionId, float stability, float resistance,
+            int baseTypeId, boolean underSiege, boolean isVisited,
+            long remainingSiegeTicks, int dominoThreshold,
+            int reachableMask, boolean regionReachable,
+            int existingSiegeMask, int conqueredMask,
+            int attackerFactionId,
+            boolean isAwaitingReinforcements,
+            long reinforcementRemainingTicks,
+            boolean isEncircled,
+            BlockPos baseAnchor,
+            long missionSeed,
+            String playerFactionName,
+            String attackerFactionName,
+            boolean isFieldBattle,
+            float attackerProgress,
+            float defenderProgress,
+            boolean playerInFactionRegion
+    ) {
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, "Plains");
     }
 
     public static final Type<RegionDetailsPayload> TYPE = new Type<>(
@@ -90,6 +114,7 @@ public record RegionDetailsPayload(
             float attackerProgress = ByteBufCodecs.FLOAT.decode(buf);
             float defenderProgress = ByteBufCodecs.FLOAT.decode(buf);
             boolean playerInFactionRegion = ByteBufCodecs.BOOL.decode(buf);
+            String terrainName = ByteBufCodecs.STRING_UTF8.decode(buf);
 
             return new RegionDetailsPayload(
                     rx, rz, sx, sz,
@@ -109,7 +134,8 @@ public record RegionDetailsPayload(
                     isFieldBattle,
                     attackerProgress,
                     defenderProgress,
-                    playerInFactionRegion
+                    playerInFactionRegion,
+                    terrainName
             );
         }
 
@@ -148,6 +174,7 @@ public record RegionDetailsPayload(
             ByteBufCodecs.FLOAT.encode(buf, payload.attackerProgress());
             ByteBufCodecs.FLOAT.encode(buf, payload.defenderProgress());
             ByteBufCodecs.BOOL.encode(buf, payload.playerInFactionRegion());
+            ByteBufCodecs.STRING_UTF8.encode(buf, payload.terrainName() != null ? payload.terrainName() : "Plains");
         }
     };
 

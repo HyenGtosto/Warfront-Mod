@@ -114,7 +114,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
                 spawnGarrisonDefenders(level, anchor, instanceId, regionX, regionZ, subX, subZ, progress);
 
                 if (player != null) {
-                    player.displayClientMessage(Component.literal("§c⚠️ Strongpoint pillbox has been repaired and reinforced!"), true);
+                    player.displayClientMessage(Component.translatable("chat.warfront.mission.strongpoint_repaired"), true);
                 }
                 RegionData regions = RegionData.get(level);
                 if (regions != null) {
@@ -282,7 +282,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
 
             if (player != null) {
                 player.displayClientMessage(
-                        Component.literal(String.format("§c[Warfront] ⚡ Shield Relay Sabotaged! [%d/%d]", relaysDestroyed, data.initialRelayCount)),
+                        Component.translatable("chat.warfront.mission.shield_relay_sabotaged", relaysDestroyed, data.initialRelayCount),
                         true
                 );
             }
@@ -329,7 +329,7 @@ public final class StrongpointAssaultMissionHandler implements MissionObjectiveH
         }
 
         if (player != null) {
-            player.sendSystemMessage(Component.literal("§a§l[WARFRONT] " + victoryBanner + " Heavy Machinery Vault disarmed!"));
+            player.sendSystemMessage(Component.translatable("chat.warfront.mission.machinery_vault_disarmed", victoryBanner));
         }
 
         ActiveCampaignMissionManager.completeMission(level, regionX, regionZ, subX, subZ, progress);

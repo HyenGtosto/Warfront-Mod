@@ -148,7 +148,7 @@ public final class ActiveMissionHudOverlay {
         guiGraphics.fill(x + 1, y + 1, x + 4, y + height - 1, 0xFFFFAA00);
 
         // 4. Header: Field battle
-        guiGraphics.drawString(font, "§e§lField battle", x + 8, y + 4, 0xFFFFDD33, false);
+        guiGraphics.drawString(font, net.minecraft.network.chat.Component.translatable("hud.warfront.field_battle"), x + 8, y + 4, 0xFFFFDD33, false);
 
         // 5. Region Coordinate Line
         String regionText = String.format("§7Region (%d,%d) — King of the Hill",

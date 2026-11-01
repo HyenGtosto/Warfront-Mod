@@ -135,6 +135,12 @@ public final class PersistentBaseProtectionManager {
                 continue;
             }
 
+            // CRITICAL INVARIANT: Persistent base repair & garrison ONLY operates on bases that have completed physical placement!
+            // An unplaced base must be placed atomically by BasePlacementManager with full NBT template, air clearing, and foundation.
+            if (!reg.basePlaced() || !regions.isBasePlaced(rx, rz)) {
+                continue;
+            }
+
             BlockPos anchor = reg.baseAnchor();
             if (anchor == null) {
                 anchor = com.warfront.region.generator.ProceduralRegionGenerator.getInstance()
@@ -358,9 +364,6 @@ public final class PersistentBaseProtectionManager {
                 level.playSound(null, anchor, SoundEvents.ANVIL_USE, SoundSource.BLOCKS, 0.4F, 1.4F);
                 Warfront.LOGGER.info("[Warfront] Base at {} in Region ({}, {}) integrity: {}%. Repaired {} damaged blocks.",
                         anchor, rx, rz, (int)(integrity * 100), repaired);
-                if (regions != null && !regions.isBasePlaced(rx, rz)) {
-                    regions.markBasePlaced(rx, rz, anchor);
-                }
             }
         }
     }

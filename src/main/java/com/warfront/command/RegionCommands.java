@@ -75,7 +75,7 @@ public final class RegionCommands {
     private static int setOwner(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            context.getSource().sendFailure(Component.translatable("command.warfront.overworld_only"));
             return 0;
         }
         Faction faction = Faction.byCommandName(StringArgumentType.getString(context, "faction"))
@@ -98,7 +98,7 @@ public final class RegionCommands {
     private static int wipeFaction(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            context.getSource().sendFailure(Component.translatable("command.warfront.overworld_only"));
             return 0;
         }
         Faction faction = Faction.byCommandName(StringArgumentType.getString(context, "faction"))
@@ -128,14 +128,14 @@ public final class RegionCommands {
 
         final int count = wipedCount;
         context.getSource().sendSuccess(
-                () -> Component.literal(String.format("§a[Warfront] Wiped %d region(s) owned by %s from visible 24x24 grid.", count, faction.displayName())), true);
+                () -> Component.translatable("command.warfront.wipe_success", count, faction.displayName()), true);
         return Command.SINGLE_SUCCESS;
     }
 
     private static int locateBase(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            context.getSource().sendFailure(Component.translatable("command.warfront.overworld_only"));
             return 0;
         }
         ServerLevel level = player.serverLevel();
@@ -170,7 +170,7 @@ public final class RegionCommands {
     private static int placeBaseHere(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            context.getSource().sendFailure(Component.translatable("command.warfront.overworld_only"));
             return 0;
         }
         ServerLevel level = player.serverLevel();
@@ -195,7 +195,7 @@ public final class RegionCommands {
         RegionData.Region region = regions.regionAt(rx, rz);
 
         if (region.baseType() == BaseType.NONE) {
-            context.getSource().sendFailure(Component.literal(String.format("§cRegion (%d, %d) has no base type assigned (NONE).", rx, rz)));
+            context.getSource().sendFailure(Component.translatable("command.warfront.base.no_type_coords", rx, rz));
             return 0;
         }
 
@@ -203,11 +203,11 @@ public final class RegionCommands {
         if (success) {
             BlockPos anchor = regions.regionAt(rx, rz).baseAnchor();
             context.getSource().sendSuccess(
-                    () -> Component.literal(String.format("§a[Warfront] Successfully placed base for %s at %s in region (%d, %d)!",
-                            region.owner().displayName().getString(), anchor != null ? anchor.toShortString() : "anchor", rx, rz)), true);
+                    () -> Component.translatable("command.warfront.base.place_success",
+                            region.owner().displayName().getString(), anchor != null ? anchor.toShortString() : "anchor", rx, rz), true);
             return Command.SINGLE_SUCCESS;
         } else {
-            context.getSource().sendFailure(Component.literal(String.format("§cFailed to place base for region (%d, %d). Check owner and anchor validity.", rx, rz)));
+            context.getSource().sendFailure(Component.translatable("command.warfront.base.place_failure", rx, rz));
             return 0;
         }
     }
@@ -215,7 +215,7 @@ public final class RegionCommands {
     private static int clearBasePlacement(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            context.getSource().sendFailure(Component.translatable("command.warfront.overworld_only"));
             return 0;
         }
         ServerLevel level = player.serverLevel();
@@ -223,14 +223,14 @@ public final class RegionCommands {
         RegionData.Region region = regions.regionAt(player.blockPosition());
         regions.setBasePlaced(region.x(), region.z(), false);
         context.getSource().sendSuccess(
-                () -> Component.literal(String.format("§a[Warfront] Reset base placement state for region (%d, %d). You can now test placing it again.", region.x(), region.z())), true);
+                () -> Component.translatable("command.warfront.base.reset_success", region.x(), region.z()), true);
         return Command.SINGLE_SUCCESS;
     }
 
     private static int exportBase(CommandContext<CommandSourceStack> context, String customName) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         if (player.serverLevel().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            context.getSource().sendFailure(Component.literal("§c[Warfront] This command can only be executed in the Overworld!"));
+            context.getSource().sendFailure(Component.translatable("command.warfront.overworld_only"));
             return 0;
         }
         ServerLevel level = player.serverLevel();
@@ -238,7 +238,7 @@ public final class RegionCommands {
         RegionData.Region region = regions.regionAt(player.blockPosition());
 
         if (region.baseType() == BaseType.NONE) {
-            context.getSource().sendFailure(Component.literal("§cCurrent region has no base type assigned (NONE)."));
+            context.getSource().sendFailure(Component.translatable("command.warfront.base.no_type"));
             return 0;
         }
 
@@ -249,7 +249,7 @@ public final class RegionCommands {
                     .orElse(null);
         }
         if (anchor == null) {
-            context.getSource().sendFailure(Component.literal("§cCould not resolve base anchor for current region."));
+            context.getSource().sendFailure(Component.translatable("command.warfront.base.no_anchor"));
             return 0;
         }
 
@@ -278,15 +278,10 @@ public final class RegionCommands {
         boolean saved = manager.save(id);
 
         if (saved) {
-            context.getSource().sendSuccess(() -> Component.literal(String.format(
-                    "§a[Warfront] Successfully exported structure to template: §f%s§a!\n" +
-                    "§7Saved in world: §e<world>/generated/warfront/structures/%s.nbt\n" +
-                    "§6To bundle in mod: Copy file to §bsrc/main/resources/data/warfront/structure/%s.nbt",
-                    id, path, path
-            )), true);
+            context.getSource().sendSuccess(() -> Component.translatable("command.warfront.structure.export_success", id, path), true);
             return Command.SINGLE_SUCCESS;
         } else {
-            context.getSource().sendFailure(Component.literal("§cFailed to save structure template to world directory."));
+            context.getSource().sendFailure(Component.translatable("command.warfront.structure.export_failure"));
             return 0;
         }
     }
@@ -298,7 +293,7 @@ public final class RegionCommands {
         RegionData.Region region = regions.regionAt(player.blockPosition());
 
         if (region.baseType() == BaseType.NONE) {
-            context.getSource().sendFailure(Component.literal("§cCurrent region has no base type assigned (NONE)."));
+            context.getSource().sendFailure(Component.translatable("command.warfront.base.no_type"));
             return 0;
         }
 
@@ -309,7 +304,7 @@ public final class RegionCommands {
                     .orElse(null);
         }
         if (anchor == null) {
-            context.getSource().sendFailure(Component.literal("§cCould not resolve base anchor for current region."));
+            context.getSource().sendFailure(Component.translatable("command.warfront.base.no_anchor"));
             return 0;
         }
 
@@ -337,11 +332,8 @@ public final class RegionCommands {
             level.sendBlockUpdated(sbPos, level.getBlockState(sbPos), level.getBlockState(sbPos), 3);
         }
 
-        context.getSource().sendSuccess(() -> Component.literal(String.format(
-                "§a[Warfront] Placed pre-configured Structure Block at §f%s§a!\n" +
-                "§7Right-click it to inspect bounding box (%dx%dx%d), edit blocks, and click [SAVE]!",
-                sbPos.toShortString(), sizeX, sizeY, sizeZ
-        )), true);
+        context.getSource().sendSuccess(() -> Component.translatable("command.warfront.structure.block_placed",
+                sbPos.toShortString(), sizeX, sizeY, sizeZ), true);
         return Command.SINGLE_SUCCESS;
     }
 }

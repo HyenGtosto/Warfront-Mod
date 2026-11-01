@@ -65,7 +65,7 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
     private static final RawAnimation ATTACK1 = RawAnimation.begin().thenPlay("attack1");
     private static final RawAnimation ATTACK2 = RawAnimation.begin().thenPlay("attack2");
     private static final RawAnimation LOOK = RawAnimation.begin().thenPlay("look");
-    private static final RawAnimation ALERT = RawAnimation.begin().thenLoop("alert");
+    private static final RawAnimation ALERT = RawAnimation.begin().thenPlay("alert");
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private boolean alternateAttack = false;
@@ -125,26 +125,25 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
         this.goalSelector.addGoal(10, new RandomLookAroundGoal(this));
 
         this.targetSelector.addGoal(1, new HurtByTargetGoal(this, Raider.class).setAlertOthers());
-        // Condition player targeting so random passive sightings don't bypass the spyglass look mechanic
+        // Condition player targeting so random passive sightings don't bypass the spyglass look mechanic and creative players are ignored
         this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, 10, true, false,
-                living -> this.areDaggersDrawn() || this.getTarget() != null));
+                living -> living instanceof Player player && !player.isCreative() && !player.isSpectator() && (this.areDaggersDrawn() || this.getTarget() != null)));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractVillager.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, IronGolem.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Zombie.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractSkeleton.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Creeper.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Spider.class, true));
+        this.targetSelector.addGoal(4, new NearestAttackableTargetGoal<>(this, Monster.class, 10, true, false,
+                target -> !AlliedFactionHelper.isAllied(this, target)));
     }
 
     @Override
     public boolean hurt(DamageSource source, float amount) {
         if (!this.level().isClientSide) {
             byte currentAction = getActionState();
-            if (currentAction == ACTION_LOOK) {
-                // Option 2A: Interrupted by player attack before scan finishes!
-                // Cancel look state without blowing horn, immediately draw daggers to defend
+            if (currentAction == ACTION_LOOK || currentAction == ACTION_ALERT) {
+                // Interrupted by player attack!
+                // Cancel look/alert state, immediately draw daggers to defend
                 setActionState(ACTION_NONE, 0);
                 setDaggersDrawn(true);
+                setActionState(ACTION_UNSHEATHE, 18);
                 if (source.getEntity() instanceof LivingEntity attacker) {
                     this.setTarget(attacker);
                 }

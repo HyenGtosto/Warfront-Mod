@@ -282,6 +282,10 @@ public final class RegionData extends SavedData {
             com.warfront.mission.site.PendingSalvageManager.load(tag.getList("pending_salvage_sites", Tag.TAG_COMPOUND));
         }
 
+        if (tag.contains("player_constructions", Tag.TAG_COMPOUND)) {
+            com.warfront.claim.PlayerConstructionTracker.getInstance().load(tag.getCompound("player_constructions"));
+        }
+
         data.migrateLegacyClusterIds();
 
         return data;
@@ -437,6 +441,8 @@ public final class RegionData extends SavedData {
         tag.put("active_campaign_missions", activeMissionsTag);
 
         tag.put("pending_salvage_sites", com.warfront.mission.site.PendingSalvageManager.save());
+
+        tag.put("player_constructions", com.warfront.claim.PlayerConstructionTracker.getInstance().save(new CompoundTag()));
 
         return tag;
     }
@@ -771,6 +777,9 @@ public final class RegionData extends SavedData {
         if (activeSiege != null && playerFactionId.equals(activeSiege.attackerPlayerFactionId())) {
             return true;
         }
+        if (activeSiege != null && playerFactionId.equals(activeSiege.defenderPlayerFactionId())) {
+            return true;
+        }
         int[] dx = {0,  0, -1, 1};
         int[] dz = {-1, 1,  0, 0};
         for (int i = 0; i < 4; i++) {
@@ -797,6 +806,14 @@ public final class RegionData extends SavedData {
         if (region.owner() == Faction.HUMANITY && (playerFactionId == null || playerFactionId.equals(region.playerFactionId()))) {
             // Defense mission: all sub-regions under siege (not yet secured) are reachable at all times
             return 0xF & ~securedMask;
+        }
+
+        SiegeCampaign activeSiege = activeSieges.get(ChunkPos.asLong(regionX, regionZ));
+        if (region.owner() == Faction.UNCLAIMED && activeSiege != null && activeSiege.attacker() != Faction.HUMANITY) {
+            if (activeSiege.defenderPlayerFactionId() == null || (playerFactionId != null && playerFactionId.equals(activeSiege.defenderPlayerFactionId()))) {
+                // Wilderness Incursion Defense: defenders can contest any sector under siege
+                return 0xF & ~securedMask;
+            }
         }
 
         // Attack mission: Pre-fetch external and internal neighbor ownership
@@ -1085,8 +1102,12 @@ public final class RegionData extends SavedData {
         }
 
         UUID effectivePfId = playerFactionId;
-        if (effectivePfId == null && activeCampaign != null && activeCampaign.attacker() == faction) {
-            effectivePfId = activeCampaign.attackerPlayerFactionId();
+        if (effectivePfId == null && activeCampaign != null) {
+            if (activeCampaign.attacker() == faction) {
+                effectivePfId = activeCampaign.attackerPlayerFactionId();
+            } else if (faction == Faction.HUMANITY) {
+                effectivePfId = activeCampaign.defenderPlayerFactionId();
+            }
         }
 
         long key = subRegionKey(regionX, regionZ, subX, subZ);
@@ -1110,7 +1131,10 @@ public final class RegionData extends SavedData {
         int dominoThreshold = calculateDominoThreshold(regionX, regionZ);
         Region targetRegion = regionAt(regionX, regionZ);
 
-        if (targetRegion.owner() == Faction.HUMANITY && faction == Faction.HUMANITY && activeCampaign != null && activeCampaign.attacker() != Faction.HUMANITY) {
+        boolean isDefenseWar = faction == Faction.HUMANITY && activeCampaign != null && activeCampaign.attacker() != Faction.HUMANITY
+                && (targetRegion.owner() == Faction.HUMANITY || (targetRegion.owner() == Faction.UNCLAIMED && activeCampaign.defenderPlayerFactionId() != null));
+
+        if (isDefenseWar) {
             // DEFENSE RESOLUTION: Count how many sub-regions in this region are SECURED (not under siege)
             int securedCount = 0;
             for (int sx = 0; sx <= 1; sx++) {
@@ -1125,16 +1149,25 @@ public final class RegionData extends SavedData {
 
             if (securedCount >= dominoThreshold && allMandatorySecured) {
                 // Defense threshold reached and all base points secured -> DEFENSE SUCCESSFUL!
-                setRegionSiege(regionX, regionZ, false);
-                activeSieges.remove(regionKey);
-                String defName = "Defenders";
-                if (level != null && targetRegion.playerFactionId() != null) {
-                    com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(targetRegion.playerFactionId());
+                UUID winningDefenderPfId = activeCampaign.defenderPlayerFactionId() != null ? activeCampaign.defenderPlayerFactionId() : targetRegion.playerFactionId();
+                String defName = "Humanity";
+                if (level != null && winningDefenderPfId != null) {
+                    com.warfront.faction.PlayerFaction pf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(winningDefenderPfId);
                     if (pf != null) defName = pf.getName();
                 }
-                addLog(level, String.format("§aDefense successful: Region (%d, %d) secured by %s.", regionX, regionZ, defName));
-                broadcastTitle(level, Component.literal("§a§lDEFENSE SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) secured by %s", regionX, regionZ, defName)));
-                Warfront.LOGGER.info("Defense successful: Region ({}, {}), siege cleared by {}.", regionX, regionZ, defName);
+
+                if (targetRegion.owner() == Faction.UNCLAIMED && winningDefenderPfId != null) {
+                    claim(level, regionX, regionZ, Faction.HUMANITY, 20.0F, 20.0F, BaseType.NONE, winningDefenderPfId);
+                    addLog(level, String.format("§aWilderness incursion repelled: Region (%d, %d) claimed by %s!", regionX, regionZ, defName));
+                    broadcastTitle(level, Component.translatable("title.warfront.wilderness_secured"), Component.translatable("subtitle.warfront.wilderness_secured", regionX, regionZ, defName));
+                    Warfront.LOGGER.info("Wilderness incursion repelled: Region ({}, {}) claimed by {}.", regionX, regionZ, defName);
+                } else {
+                    setRegionSiege(regionX, regionZ, false);
+                    activeSieges.remove(regionKey);
+                    addLog(level, String.format("§aDefense successful: Region (%d, %d) secured by %s.", regionX, regionZ, defName));
+                    broadcastTitle(level, Component.translatable("title.warfront.defense_successful"), Component.translatable("subtitle.warfront.defense_successful", regionX, regionZ, defName));
+                    Warfront.LOGGER.info("Defense successful: Region ({}, {}), siege cleared by {}.", regionX, regionZ, defName);
+                }
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
                 }
@@ -1200,7 +1233,7 @@ public final class RegionData extends SavedData {
                         addLog(level, String.format("§e[Intel] Outpost demolished at (%d, %d) by %s! Forward garrison aura collapsed (-10%% Resistance/Stability in 3x3).", regionX, regionZ, attName));
                     }
                     addLog(level, String.format("§aRegion conquered: Region (%d, %d) captured by %s.", regionX, regionZ, attName));
-                    broadcastTitle(level, Component.literal("§a§lATTACK SUCCESSFUL!"), Component.literal(String.format("§7Region (%d, %d) captured by %s", regionX, regionZ, attName)));
+                    broadcastTitle(level, Component.translatable("title.warfront.attack_successful"), Component.translatable("subtitle.warfront.attack_successful", regionX, regionZ, attName));
                 }
                 if (level != null) {
                     com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
@@ -1304,6 +1337,8 @@ public final class RegionData extends SavedData {
 
         long finalClusterId = (faction == Faction.HUMANITY) ? 0L : clusterId;
         RegionState existing = regions.get(regionId);
+        Faction oldFaction = (existing != null) ? existing.owner() : Faction.UNCLAIMED;
+        UUID oldPlayerFactionId = (existing != null) ? existing.playerFactionId() : null;
         boolean basePlaced = (existing != null && existing.baseType() == baseType) && existing.basePlaced();
         float finalStability = (faction == Faction.HUMANITY) ? 20.0F : Math.clamp(stability, 0.0F, 100.0F);
         float finalResistance = (faction == Faction.HUMANITY) ? 20.0F : Math.clamp(resistance, 0.0F, 100.0F);
@@ -1320,6 +1355,11 @@ public final class RegionData extends SavedData {
             for (int sz = 0; sz <= 1; sz++) {
                 subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, finalStability, false, finalClusterId, playerFactionId));
             }
+        }
+
+        if (effectiveLevel != null) {
+            com.warfront.claim.PlayerConstructionTracker.getInstance().onRegionOwnershipChanged(
+                    effectiveLevel, regionX, regionZ, oldFaction, oldPlayerFactionId, faction, playerFactionId);
         }
 
         // Gambit Mechanic: Triggered ONLY on FULL REGION CAPTURE for Humanity!
@@ -1575,7 +1615,13 @@ public final class RegionData extends SavedData {
         }
         float baseValue = region.resistance();
         float boost = calculateSurroundingBaseBoost(regionX, regionZ, region.owner());
-        return Math.clamp(baseValue + boost, 0.0F, 100.0F);
+        float fortificationBoost = 0.0F;
+        if (region.owner() == Faction.HUMANITY && this.level != null) {
+            int operationalMortars = com.warfront.claim.PlayerConstructionTracker.getInstance()
+                    .getOperationalFriendlyMortarCount(this.level, regionX, regionZ);
+            fortificationBoost = Math.min(4, operationalMortars) * 5.0F;
+        }
+        return Math.clamp(baseValue + boost + fortificationBoost, 0.0F, 100.0F);
     }
 
     public float calculateEffectiveStability(int regionX, int regionZ) {
@@ -1585,7 +1631,13 @@ public final class RegionData extends SavedData {
         }
         float baseValue = region.stability();
         float boost = calculateSurroundingBaseBoost(regionX, regionZ, region.owner());
-        return Math.clamp(baseValue + boost, 0.0F, 100.0F);
+        float fortificationBoost = 0.0F;
+        if (region.owner() == Faction.HUMANITY && this.level != null) {
+            int operationalMortars = com.warfront.claim.PlayerConstructionTracker.getInstance()
+                    .getOperationalFriendlyMortarCount(this.level, regionX, regionZ);
+            fortificationBoost = Math.min(4, operationalMortars) * 5.0F;
+        }
+        return Math.clamp(baseValue + boost + fortificationBoost, 0.0F, 100.0F);
     }
 
     public long findAdjacentClusterId(int regionX, int regionZ, Faction faction) {

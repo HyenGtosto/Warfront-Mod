@@ -82,6 +82,15 @@ public final class AlliedFactionHelper {
             if (isAllied(entity, newTarget)) {
                 event.setNewAboutToBeSetTarget(null);
                 event.setCanceled(true);
+                return;
+            }
+
+            // Smoke Screen: Blocks target acquisition if either entity is inside smoke or line of sight is obstructed
+            if (SmokeScreenEntity.isInsideSmoke(entity.position())
+                    || SmokeScreenEntity.isInsideSmoke(newTarget.position())
+                    || SmokeScreenEntity.isObstructedBySmoke(entity.getEyePosition(), newTarget.getEyePosition())) {
+                event.setNewAboutToBeSetTarget(null);
+                event.setCanceled(true);
             }
         }
     }

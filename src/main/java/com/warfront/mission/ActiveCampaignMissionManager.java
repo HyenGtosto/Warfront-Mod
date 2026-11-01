@@ -849,7 +849,7 @@ public final class ActiveCampaignMissionManager {
                         }
                     }
                     if (pNotice != null) {
-                        pNotice.sendSystemMessage(net.minecraft.network.chat.Component.literal("§a§l[WARFRONT] §eRe-entered battle region (" + rx + ", " + rz + ")! Mission countdown cancelled."), true);
+                        pNotice.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.mission.reentered", rx, rz), true);
                     }
                 }
 
@@ -1139,8 +1139,14 @@ public final class ActiveCampaignMissionManager {
                 isDefense
         );
 
+        int subCenterBlockX = (regionX * 128) + (subX * 64) + 32;
+        int subCenterBlockZ = (regionZ * 128) + (subZ * 64) + 32;
+        double maxDistSq = 192.0D * 192.0D;
+
         for (ServerPlayer player : level.players()) {
-            player.connection.send(hudUpdate);
+            if (player.distanceToSqr(subCenterBlockX, player.getY(), subCenterBlockZ) <= maxDistSq) {
+                player.connection.send(hudUpdate);
+            }
         }
     }
 }

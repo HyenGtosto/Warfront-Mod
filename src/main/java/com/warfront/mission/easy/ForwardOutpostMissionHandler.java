@@ -108,7 +108,7 @@ public final class ForwardOutpostMissionHandler implements MissionObjectiveHandl
                 }
 
                 if (player != null) {
-                    player.displayClientMessage(Component.literal("§c⚠️ Enemy outpost has repaired fortifications and reinforced the site!"), true);
+                    player.displayClientMessage(Component.translatable("chat.warfront.mission.outpost_repaired"), true);
                 }
                 ActiveCampaignMissionManager.broadcastHudUpdate(level, regionX, regionZ, subX, subZ, progress);
             }

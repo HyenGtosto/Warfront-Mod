@@ -23,6 +23,7 @@ public final class Warfront {
         WarfrontBlocks.BLOCKS.register(modEventBus);
         WarfrontBlocks.ITEMS.register(modEventBus);
         com.warfront.block.entity.WarfrontBlockEntities.BLOCK_ENTITIES.register(modEventBus);
+        com.warfront.menu.WarfrontMenus.MENUS.register(modEventBus);
         com.warfront.entity.ModEntities.register(modEventBus);
         NeoForge.EVENT_BUS.addListener(ClaimCoreEvents::onBlockPlaced);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {
@@ -83,4 +84,3 @@ public final class Warfront {
         });
     }
 }
-

@@ -108,16 +108,46 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         if (cached != null) {
             return cached;
         }
-        samplePos.set(chunkX * 16 + 8, seaLevel, chunkZ * 16 + 8);
-        int color = BiomeMapColors.colorFor(level.getBiome(samplePos));
+        int surfaceY;
+        if (level.hasChunk(chunkX, chunkZ)) {
+            surfaceY = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, chunkX * 16 + 8, chunkZ * 16 + 8);
+        } else {
+            surfaceY = com.warfront.region.terrain.BiomeElevation.getEstimatedSurfaceHeight(level, chunkX, chunkZ);
+        }
+        int sampleY = Math.clamp(surfaceY, level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
+        samplePos.set(chunkX * 16 + 8, sampleY, chunkZ * 16 + 8);
+        net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biomeHolder = level.getBiome(samplePos);
+
+        // Cave-Bypass: Prevent subterranean cave biomes (dripstone, lush, deep dark) from leaking onto surface map
+        if (com.warfront.region.terrain.BiomeElevation.isCaveBiome(biomeHolder)) {
+            int upwardY = Math.max(sampleY + 32, 120);
+            while (upwardY < level.getMaxBuildHeight() - 16) {
+                samplePos.set(chunkX * 16 + 8, upwardY, chunkZ * 16 + 8);
+                net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> candidate = level.getBiome(samplePos);
+                if (!com.warfront.region.terrain.BiomeElevation.isCaveBiome(candidate)) {
+                    biomeHolder = candidate;
+                    break;
+                }
+                upwardY += 32;
+            }
+        }
+
+        int color = com.warfront.map.BiomeMapColors.colorFor(biomeHolder) & 0x00FFFFFF;
+        int elevation = com.warfront.region.terrain.BiomeElevation.getChunkElevation(level, chunkX, chunkZ, biomeHolder, surfaceY);
+        int clampedElevation = Math.clamp(elevation, 0, 255);
+        int packed = (clampedElevation << 24) | color;
+
         if (CHUNK_BIOME_COLOR_CACHE.size() > 262144) {
             CHUNK_BIOME_COLOR_CACHE.clear();
         }
-        CHUNK_BIOME_COLOR_CACHE.put(key, color);
-        return color;
+        CHUNK_BIOME_COLOR_CACHE.put(key, packed);
+        return packed;
     }
 
     private static void buildAndSendSnapshot(ServerPlayer player, MapViewType viewType, boolean isExplicitRequest) {
+        if (isExplicitRequest) {
+            CHUNK_BIOME_COLOR_CACHE.clear();
+        }
         long startNano = System.nanoTime();
         ServerLevel level = player.serverLevel();
         RegionData regions = RegionData.get(level);
@@ -198,7 +228,9 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
 
             boolean warPermitted = !viewType.hasFogOfWar() || regions.isRegionVisitedForPlayer(level, player.getUUID(), trx, trz);
             if (warPermitted) {
-                boolean isDefense = (campaign.attacker() != com.warfront.region.Faction.HUMANITY);
+                RegionData.Region targetReg = regions.regionAt(trx, trz);
+                boolean isDefense = (campaign.attacker() != com.warfront.region.Faction.HUMANITY)
+                        && (targetReg.owner() == com.warfront.region.Faction.HUMANITY || targetReg.owner() == com.warfront.region.Faction.UNCLAIMED);
                 activeWars.add(new RegionMapPayload.ActiveWarData(trx, trz, campaign.attacker().id(), isDefense));
             }
 

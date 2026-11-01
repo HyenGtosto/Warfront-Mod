@@ -1,0 +1,27 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "ICI",
+    "ISI",
+    "SRS"
+  ],
+  "key": {
+    "I": {
+      "item": "minecraft:iron_block"
+    },
+    "C": {
+      "item": "warfront:salvaged_mortar_core"
+    },
+    "S": {
+      "item": "minecraft:smooth_stone"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    }
+  },
+  "result": {
+    "id": "warfront:friendly_mortar",
+    "count": 1
+  }
+}

@@ -41,7 +41,7 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
 
         com.warfront.faction.PlayerFaction playerFaction = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(player.getUUID());
         if (playerFaction == null) {
-            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot interact with the war without being in a faction!"));
+            player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.cancel.must_be_in_faction"));
             return;
         }
 
@@ -56,7 +56,7 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                 boolean isAttackerFaction = existingSiege.attackerPlayerFactionId() != null && existingSiege.attackerPlayerFactionId().equals(playerFaction.getId());
                 boolean isDefenderFaction = existingSiege.defenderPlayerFactionId() != null && existingSiege.defenderPlayerFactionId().equals(playerFaction.getId());
                 if (!isAttackerFaction && !isDefenderFaction) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot cancel a field battle your faction is not part of!"));
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.cancel.not_in_field_battle"));
                     return;
                 }
                 regions.setRegionSiege(payload.regionX(), payload.regionZ(), false);
@@ -68,7 +68,7 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                         player.getName().getString(), payload.regionX(), payload.regionZ());
             } else {
                 if (!isDefense) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Commitment to War: Attack campaigns cannot be voluntarily cancelled! You must achieve victory or await campaign timeout."));
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.cancel.commitment_to_war"));
                     return;
                 } else {
                     java.util.UUID defenderId = existingSiege.defenderPlayerFactionId();
@@ -79,7 +79,7 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                         }
                     }
                     if (defenderId != null && !defenderId.equals(playerFaction.getId())) {
-                        player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Only the defending faction can cancel defense missions!"));
+                        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.cancel.defense_owner_only"));
                         return;
                     }
                     // Cancel player defense missions on server (AI siege remains active at region level)
@@ -121,6 +121,7 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
 
             long missionSeed = regions.calculateMissionSeed(region.x(), region.z());
             net.minecraft.core.BlockPos baseAnchor = region.baseAnchor();
+            String terrainName = com.warfront.region.terrain.TerrainClassifier.getRegionTerrainName(level, region.x(), region.z());
 
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
@@ -129,7 +130,7 @@ public record CancelAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                     remainingTicks, dominoThreshold, reachableMask, regionReachable, 0, conqueredMask,
                     isDefense ? existingSiege.attacker().id() : Faction.UNCLAIMED.id(),
                     isAwaitingReinf, reinfRemainingTicks, isEncircled,
-                    baseAnchor, missionSeed));
+                    baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false, terrainName));
         }
     }
 

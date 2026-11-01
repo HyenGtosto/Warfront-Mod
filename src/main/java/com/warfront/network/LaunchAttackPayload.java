@@ -32,14 +32,14 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         ServerPlayer player = (ServerPlayer) context.player();
         ServerLevel level = player.serverLevel();
         if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
-            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Strategic campaigns can only be launched in the Overworld!"));
+            player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.overworld_only"));
             return;
         }
         RegionData regions = RegionData.get(level);
 
         com.warfront.faction.PlayerFaction playerFaction = com.warfront.faction.PlayerFactionData.get(level).getFactionByPlayer(player.getUUID());
         if (playerFaction == null) {
-            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot interact with the war without being in a faction!"));
+            player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.must_be_in_faction"));
             return;
         }
 
@@ -51,21 +51,45 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
         RegionData.SiegeCampaign existingSiege = regions.getSiege(payload.regionX(), payload.regionZ());
 
         if (existingSiege != null && existingSiege.isFieldBattle()) {
-            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§e[Warfront] Field battle is already active in this region!"));
+            player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.field_battle_active"));
             return;
         }
 
         if (existingSiege != null && existingSiege.attacker() != com.warfront.region.Faction.HUMANITY) {
+            UUID defPfId;
             if (targetRegion.owner() == com.warfront.region.Faction.HUMANITY) {
                 // Defense Campaign Confirmation: player is activating defense missions for an ongoing AI siege
                 UUID ownerPfId = targetRegion.playerFactionId();
                 if (ownerPfId != null && !ownerPfId.equals(playerFaction.getId())) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Only the defending faction owning this territory can activate defense missions!"));
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.defense_owner_only"));
                     return;
                 }
+                defPfId = ownerPfId;
+            } else if (targetRegion.owner() == com.warfront.region.Faction.UNCLAIMED) {
+                // Wilderness Incursion Defense: player faction commits to defending unowned wilderness against AI expansion
+                if (existingSiege.defenderPlayerFactionId() != null && !existingSiege.defenderPlayerFactionId().equals(playerFaction.getId())) {
+                    com.warfront.faction.PlayerFaction defPf = com.warfront.faction.PlayerFactionData.get(level).getFactionById(existingSiege.defenderPlayerFactionId());
+                    String defName = (defPf != null) ? defPf.getName() : "Another faction";
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            String.format("§c[Warfront] %s is already defending this wilderness incursion!", defName)));
+                    return;
+                }
+                if (existingSiege.defenderPlayerFactionId() == null) {
+                    if (!regions.isRegionReachable(payload.regionX(), payload.regionZ(), playerFaction.getId())) {
+                        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.bordering_required_defend"));
+                        return;
+                    }
+                    RegionData.Region playerRegion = regions.regionAt(player.blockPosition());
+                    boolean playerInFactionRegion = (playerRegion.owner() == com.warfront.region.Faction.HUMANITY) && playerFaction.getId().equals(playerRegion.playerFactionId());
+                    if (!playerInFactionRegion) {
+                        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.must_be_in_friendly_defend"));
+                        return;
+                    }
+                }
+                defPfId = playerFaction.getId();
             } else {
                 // Region is an AI region engaged in war between AI factions
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] This region is already in an ongoing war!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.ai_war_ongoing"));
                 return;
             }
 
@@ -79,7 +103,10 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             regions.setRegionSiegeWithCampaign(payload.regionX(), payload.regionZ(),
                     new RegionData.SiegeCampaign(existingSiege.attacker(), payload.regionX(), payload.regionZ(),
                             existingSiege.sources(), existingSiege.encircled(),
-                            existingSiege.startTick(), existingSiege.durationTicks(), finalMask));
+                            existingSiege.startTick(), existingSiege.durationTicks(), finalMask,
+                            existingSiege.attackerClusterId(), existingSiege.attackerPlayerFactionId(),
+                            defPfId, existingSiege.attackerProgress(), existingSiege.defenderProgress(),
+                            existingSiege.isFieldBattle()));
 
             float effectiveResistance = regions.calculateEffectiveResistance(payload.regionX(), payload.regionZ());
             float effectiveStability = regions.calculateEffectiveStability(payload.regionX(), payload.regionZ());
@@ -88,8 +115,12 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                     existingSiege.attacker(), targetRegion.baseType(),
                     effectiveResistance, effectiveStability, validDefenseMask);
 
-            Warfront.LOGGER.info("Defense missions confirmed: {} → Region ({}, {}), active mask {}.",
-                    player.getName().getString(), payload.regionX(), payload.regionZ(), finalMask);
+            Warfront.LOGGER.info("Defense missions confirmed: {} ({}) → Region ({}, {}), active mask {}.",
+                    player.getName().getString(), playerFaction.getName(), payload.regionX(), payload.regionZ(), finalMask);
+            if (targetRegion.owner() == com.warfront.region.Faction.UNCLAIMED) {
+                regions.addLog(level, String.format("§a⚔ Wilderness defense launched: %s committed to defending Region (%d, %d) against %s incursion!",
+                        playerFaction.getName(), payload.regionX(), payload.regionZ(), existingSiege.attacker().commandName()));
+            }
             RequestRegionMapPayload.notifyActiveMapTerminals(level);
             return;
         }
@@ -99,17 +130,17 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             RegionData.Region playerRegion = regions.regionAt(player.blockPosition());
             boolean playerInFactionRegion = (playerRegion.owner() == com.warfront.region.Faction.HUMANITY) && playerFaction.getId().equals(playerRegion.playerFactionId());
             if (!playerInFactionRegion) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You must be inside a region owned by your faction to launch an attack!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.must_be_in_friendly_attack"));
                 return;
             }
 
             UUID defenderPfId = targetRegion.playerFactionId();
             if (defenderPfId != null && defenderPfId.equals(playerFaction.getId())) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You cannot attack your own faction's territory!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.cannot_attack_own"));
                 return;
             }
             if (existingSiege != null) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§e[Warfront] This region is already under siege!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.already_under_siege"));
                 return;
             }
 
@@ -126,7 +157,7 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             }
 
             if (sources.isEmpty()) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Your faction must own a bordering region to attack this territory!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.bordering_required_attack"));
                 return;
             }
 
@@ -155,14 +186,14 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
                 regions.addLog(level, String.format("§c⚔ Flank attack launched: %s (%d vectors) → Region (%d, %d) [%s] - Field battle commenced!",
                         attackerName, sources.size(), payload.regionX(), payload.regionZ(), defenderName));
                 regions.broadcastTitle(level,
-                        net.minecraft.network.chat.Component.literal("§c§lFLANK ASSAULT!"),
-                        net.minecraft.network.chat.Component.literal(String.format("§7%s assaulting %s from %d vectors at Region (%d, %d)", attackerName, defenderName, sources.size(), payload.regionX(), payload.regionZ())));
+                        net.minecraft.network.chat.Component.translatable("title.warfront.flank_assault"),
+                        net.minecraft.network.chat.Component.translatable("subtitle.warfront.flank_assault", attackerName, defenderName, sources.size(), payload.regionX(), payload.regionZ()));
             } else {
                 regions.addLog(level, String.format("§c⚔ Attack launched: %s → Region (%d, %d) [%s] - Field battle commenced!",
                         attackerName, payload.regionX(), payload.regionZ(), defenderName));
                 regions.broadcastTitle(level,
-                        net.minecraft.network.chat.Component.literal("§c§lFIELD BATTLE!"),
-                        net.minecraft.network.chat.Component.literal(String.format("§7%s vs %s at Region (%d, %d)", attackerName, defenderName, payload.regionX(), payload.regionZ())));
+                        net.minecraft.network.chat.Component.translatable("title.warfront.field_battle"),
+                        net.minecraft.network.chat.Component.translatable("subtitle.warfront.field_battle", attackerName, defenderName, payload.regionX(), payload.regionZ()));
             }
 
             Warfront.LOGGER.info("Field battle launched: {} vs {} at Region ({}, {}) with {} vectors.",
@@ -211,12 +242,12 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             RegionData.Region playerRegion = regions.regionAt(player.blockPosition());
             boolean playerInFactionRegion = (playerRegion.owner() == com.warfront.region.Faction.HUMANITY) && playerFaction.getId().equals(playerRegion.playerFactionId());
             if (!playerInFactionRegion) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] You must be inside a region owned by your faction to launch an attack!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.must_be_in_friendly_attack"));
                 return;
             }
 
             if (sources.isEmpty()) {
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Warfront] Your faction must own a bordering region to attack this territory!"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("chat.warfront.attack.bordering_required_attack"));
                 return;
             }
         }
@@ -265,14 +296,14 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             regions.addLog(level, String.format("§c⚔ Flank attack launched: %s (%d vectors) → Region (%d, %d) [%s].",
                     playerFaction.getName(), sources.size(), payload.regionX(), payload.regionZ(), targetFactionName));
             regions.broadcastTitle(level,
-                    net.minecraft.network.chat.Component.literal("§c§lFLANK ASSAULT!"),
-                    net.minecraft.network.chat.Component.literal(String.format("§7%s attacking Region (%d, %d) from %d axes", playerFaction.getName(), payload.regionX(), payload.regionZ(), sources.size())));
+                    net.minecraft.network.chat.Component.translatable("title.warfront.flank_assault"),
+                    net.minecraft.network.chat.Component.translatable("subtitle.warfront.player_flank_assault", playerFaction.getName(), payload.regionX(), payload.regionZ(), sources.size()));
         } else {
             regions.addLog(level, String.format("§c⚔ Attack launched: %s → Region (%d, %d) [%s].",
                     playerFaction.getName(), payload.regionX(), payload.regionZ(), targetFactionName));
             regions.broadcastTitle(level,
-                    net.minecraft.network.chat.Component.literal("§c§lATTACK COMMENCED!"),
-                    net.minecraft.network.chat.Component.literal(String.format("§7%s attacking Region (%d, %d)", playerFaction.getName(), payload.regionX(), payload.regionZ())));
+                    net.minecraft.network.chat.Component.translatable("title.warfront.attack_commenced"),
+                    net.minecraft.network.chat.Component.translatable("subtitle.warfront.attack_commenced", playerFaction.getName(), payload.regionX(), payload.regionZ()));
         }
 
         Warfront.LOGGER.info("Campaign launched/updated: {} ({}) → Region ({}, {}), active mask {}, vectors {}.",

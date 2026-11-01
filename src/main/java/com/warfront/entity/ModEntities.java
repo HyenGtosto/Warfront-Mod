@@ -86,6 +86,30 @@ public final class ModEntities {
                             .updateInterval(1)
                             .build("artillery_shell"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<FriendlyArtilleryShellEntity>> FRIENDLY_ARTILLERY_SHELL =
+            ENTITY_TYPES.register("friendly_artillery_shell", () ->
+                    EntityType.Builder.<FriendlyArtilleryShellEntity>of(FriendlyArtilleryShellEntity::new, MobCategory.MISC)
+                            .sized(0.8f, 0.8f)
+                            .clientTrackingRange(20)
+                            .updateInterval(1)
+                            .build("friendly_artillery_shell"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<FriendlyClusterBombletEntity>> FRIENDLY_CLUSTER_BOMBLET =
+            ENTITY_TYPES.register("friendly_cluster_bomblet", () ->
+                    EntityType.Builder.<FriendlyClusterBombletEntity>of(FriendlyClusterBombletEntity::new, MobCategory.MISC)
+                            .sized(0.35f, 0.35f)
+                            .clientTrackingRange(16)
+                            .updateInterval(1)
+                            .build("friendly_cluster_bomblet"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<SmokeScreenEntity>> SMOKE_SCREEN =
+            ENTITY_TYPES.register("smoke_screen", () ->
+                    EntityType.Builder.<SmokeScreenEntity>of(SmokeScreenEntity::new, MobCategory.MISC)
+                            .sized(7.0f, 3.5f)
+                            .clientTrackingRange(16)
+                            .updateInterval(5)
+                            .build("smoke_screen"));
+
     public static final DeferredHolder<EntityType<?>, EntityType<PillagerCannoneerEntity>> PILLAGER_CANNONEER =
             ENTITY_TYPES.register("pillager_cannoneer", () ->
                     EntityType.Builder.of(PillagerCannoneerEntity::new, MobCategory.MONSTER)
@@ -114,6 +138,14 @@ public final class ModEntities {
                             .clientTrackingRange(16)
                             .updateInterval(1)
                             .build("cannon_bomb"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<BallistaBoltEntity>> BALLISTA_BOLT =
+            ENTITY_TYPES.register("ballista_bolt", () ->
+                    EntityType.Builder.<BallistaBoltEntity>of(BallistaBoltEntity::new, MobCategory.MISC)
+                            .sized(0.5f, 0.5f)
+                            .clientTrackingRange(20)
+                            .updateInterval(1)
+                            .build("ballista_bolt"));
 
     private ModEntities() {
     }

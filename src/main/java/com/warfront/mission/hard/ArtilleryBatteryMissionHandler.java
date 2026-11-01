@@ -103,7 +103,7 @@ public final class ArtilleryBatteryMissionHandler implements MissionObjectiveHan
                 }
 
                 if (player != null) {
-                    player.displayClientMessage(Component.literal("§c⚠️ Enemy battery has repaired fortifications and reinforced the site!"), true);
+                    player.displayClientMessage(Component.translatable("chat.warfront.mission.battery_repaired"), true);
                 }
                 RegionData regions = RegionData.get(level);
                 if (regions != null) {
@@ -331,7 +331,7 @@ public final class ArtilleryBatteryMissionHandler implements MissionObjectiveHan
             ServerPlayer player
     ) {
         if (player != null) {
-            player.sendSystemMessage(Component.literal("§a§l[WARFRONT] 🏆 Mortar Emplacement Neutralized! All Mortars Destroyed."));
+            player.sendSystemMessage(Component.translatable("chat.warfront.mission.battery_neutralized"));
         } else {
             ActiveCampaignMissionManager.notifyAttackingPlayers(level, regionX, regionZ,
                     "§a§l[WARFRONT] 🏆 Mortar Emplacement Neutralized! All Mortars Destroyed.");

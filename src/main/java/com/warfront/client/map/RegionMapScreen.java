@@ -282,7 +282,7 @@ public final class RegionMapScreen extends Screen {
         int mapAreaWidth = frameWidth - (PANEL_MARGIN * 2);
         int mapAreaHeight = frameHeight - HEADER_HEIGHT - (PANEL_MARGIN * 2);
 
-        int sidePanelWidth = Math.max(80, (int) (mapAreaWidth * 0.22D));
+        int sidePanelWidth = Math.max(95, (int) (mapAreaWidth * 0.23D));
         int centerAvailableW = Math.max(64, mapAreaWidth - (sidePanelWidth * 2) - (PANEL_GAP * 2));
         int mapSize = Math.max(64, Math.min(centerAvailableW, mapAreaHeight));
 
@@ -304,13 +304,13 @@ public final class RegionMapScreen extends Screen {
         int top = viewport.mapTop() + 4;
         int btnHeight = Math.clamp((int) (viewport.mapSize() * 0.08D), 16, 22);
 
-        launchAttackButton = addRenderableWidget(Button.builder(Component.literal("LAUNCH ATTACK"),
+        launchAttackButton = addRenderableWidget(Button.builder(Component.translatable("screen.warfront.action.launch_attack"),
                 b -> onLaunchAttack())
                 .bounds(rightLeft, top, rightWidth, btnHeight)
                 .build());
         launchAttackButton.visible = false;
 
-        defendAreaButton = addRenderableWidget(Button.builder(Component.literal("DEFEND AREA"),
+        defendAreaButton = addRenderableWidget(Button.builder(Component.translatable("screen.warfront.action.defend_area"),
                 b -> onDefendArea())
                 .bounds(rightLeft, top, rightWidth, btnHeight)
                 .build());
@@ -337,14 +337,14 @@ public final class RegionMapScreen extends Screen {
         // Unchanged confirm campaign button fitting below the 4th button
         int confirmY = top + 4 * (btnSize + btnGap) + btnGap;
         confirmCampaignButton = addRenderableWidget(Button.builder(
-                Component.literal("§a§lCONFIRM CAMPAIGN"),
+                Component.translatable("screen.warfront.action.confirm_campaign"),
                 b -> onConfirmCampaign())
                 .bounds(rightLeft, confirmY, rightWidth, btnHeight)
                 .build());
         confirmCampaignButton.visible = false;
 
         int cancelY = confirmY + btnHeight + btnGap;
-        cancelAttackButton = addRenderableWidget(Button.builder(Component.literal("§c§lCANCEL CAMPAIGN"),
+        cancelAttackButton = addRenderableWidget(Button.builder(Component.translatable("screen.warfront.action.cancel_campaign"),
                 b -> onCancelAttack())
                 .bounds(rightLeft, cancelY, rightWidth, btnHeight)
                 .build());
@@ -352,18 +352,18 @@ public final class RegionMapScreen extends Screen {
 
         int tabY = viewport.frameTop() + 3;
         int tabWidth = Math.clamp((int) (viewport.frameWidth() * 0.12D), 60, 90);
-        mapTabButton = addRenderableWidget(Button.builder(Component.literal("MAP VIEW"), b -> {
+        mapTabButton = addRenderableWidget(Button.builder(Component.translatable("screen.warfront.tab.map_view"), b -> {
             state.setActiveTab(RegionMapState.ActiveTab.MAP_VIEW);
             updateActionButtons();
         }).bounds(viewport.frameLeft() + 6, tabY, tabWidth, 18).build());
 
-        logsTabButton = addRenderableWidget(Button.builder(Component.literal("INTEL"), b -> {
+        logsTabButton = addRenderableWidget(Button.builder(Component.translatable("screen.warfront.tab.intel"), b -> {
             state.setActiveTab(RegionMapState.ActiveTab.INTELLIGENCE_LOGS);
             updateActionButtons();
         }).bounds(viewport.frameLeft() + 10 + tabWidth, tabY, tabWidth, 18).build());
 
         int factionTabX = viewport.frameLeft() + viewport.frameWidth() - tabWidth - 6;
-        factionTabButton = addRenderableWidget(Button.builder(Component.literal("FACTION"), b -> {
+        factionTabButton = addRenderableWidget(Button.builder(Component.translatable("screen.warfront.tab.faction"), b -> {
             state.setActiveTab(RegionMapState.ActiveTab.FACTION);
             updateActionButtons();
             PacketDistributor.sendToServer(new com.warfront.network.faction.RequestFactionDataPayload());
@@ -384,12 +384,21 @@ public final class RegionMapScreen extends Screen {
         String myFaction = com.warfront.client.faction.FactionClientState.get().getFactionName();
         boolean isOwnFaction = !myFaction.isEmpty() && myFaction.equalsIgnoreCase(sel.playerFactionName());
 
-        if (sel.underSiege()) {
-            if (sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED) {
-                return true;
-            }
+        if (sel.underSiege() && sel.attacker() != Faction.HUMANITY && sel.attacker() != Faction.UNCLAIMED) {
+            // Case 1: Territory owned by player's faction
             if (sel.owner() == Faction.HUMANITY && isOwnFaction) {
                 return true;
+            }
+            // Case 2: Territory is UNCLAIMED wilderness under AI siege
+            if (sel.owner() == Faction.UNCLAIMED) {
+                // If player's faction is already defending it
+                if (isOwnFaction) {
+                    return true;
+                }
+                // If uncommitted (no defender yet) and player faction borders the region and player is in faction territory
+                if (sel.playerFactionName().isEmpty() && sel.regionReachable() && sel.playerInFactionRegion()) {
+                    return true;
+                }
             }
         }
         return false;
@@ -420,23 +429,23 @@ public final class RegionMapScreen extends Screen {
         int subZ = index / 2;
         SelectedRegion sel = state.getSelectedRegion();
         if (sel != null && sel.isFieldBattle()) {
-            return String.format("(%d,%d)\n★ Field", subX, subZ);
+            return Component.translatable("screen.warfront.subregion.field_label", subX, subZ).getString();
         }
         boolean isDefense = isDefense(sel);
         if (sel != null) {
             int bit = subZ * 2 + subX;
             if (!isDefense && (sel.conqueredMask() & (1 << bit)) != 0) {
-                return String.format("(%d,%d)\n§aSecured", subX, subZ);
+                return Component.translatable("screen.warfront.subregion.secured_label", subX, subZ).getString();
             }
             if (!isDefense && (sel.reachableMask() & (1 << bit)) == 0) {
-                return String.format("(%d,%d)\n§8Blocked", subX, subZ);
+                return Component.translatable("screen.warfront.subregion.blocked_label", subX, subZ).getString();
             }
         }
         com.warfront.mission.SubRegionMission[] missions =
                 (sel != null) ? state.getCachedMissions(sel.regionX(), sel.regionZ()) : null;
         String label = (missions != null && index < missions.length)
                 ? missions[index].displayLabel()
-                : "Mission";
+                : Component.translatable("screen.warfront.subregion.mission_fallback").getString();
         return String.format("(%d,%d)\n%s", subX, subZ, label);
     }
 
@@ -472,7 +481,7 @@ public final class RegionMapScreen extends Screen {
             if (subRegionMissionButtons[0] != null) {
                 subRegionMissionButtons[0].visible = true;
                 subRegionMissionButtons[0].active = false;
-                subRegionMissionButtons[0].setMessage(Component.literal("§6★ Field battle"));
+                subRegionMissionButtons[0].setMessage(Component.translatable("hud.warfront.field_battle"));
             }
             for (int i = 1; i < 4; i++) {
                 if (subRegionMissionButtons[i] != null) subRegionMissionButtons[i].visible = false;
@@ -495,7 +504,7 @@ public final class RegionMapScreen extends Screen {
             if (launchAttackButton != null) {
                 launchAttackButton.visible = true;
                 launchAttackButton.active = false;
-                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cRegion is currently in war.")));
+                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.region_in_war")));
             }
             if (defendAreaButton != null) defendAreaButton.visible = false;
             if (cancelAttackButton != null) cancelAttackButton.visible = false;
@@ -516,11 +525,11 @@ public final class RegionMapScreen extends Screen {
             boolean canAttack = inFaction && selectedRegion.regionReachable() && selectedRegion.playerInFactionRegion();
             launchAttackButton.active = canAttack;
             if (!inFaction) {
-                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("Must be in a faction to engage in war.")));
+                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.must_be_in_faction")));
             } else if (!selectedRegion.regionReachable()) {
-                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cMust own a bordering region to attack.")));
+                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.must_own_bordering")));
             } else if (!selectedRegion.playerInFactionRegion()) {
-                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cYou must be in an allied region to initiate attacks.")));
+                launchAttackButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.must_be_in_allied")));
             } else {
                 launchAttackButton.setTooltip(null);
             }
@@ -566,7 +575,7 @@ public final class RegionMapScreen extends Screen {
                     com.warfront.mission.SubRegionMission[] missions = state.getCachedMissions(selectedRegion.regionX(), selectedRegion.regionZ());
                     if (missions != null && i < missions.length && missions[i] != null) {
                         subRegionMissionButtons[i].setTooltip(net.minecraft.client.gui.components.Tooltip.create(
-                                Component.literal("§eSector (" + sx + "," + sz + ") - " + missions[i].displayLabel() + "\n§7" + missions[i].description())));
+                                Component.translatable("screen.warfront.subregion.tooltip", sx, sz, missions[i].displayLabel(), missions[i].description())));
                     } else {
                         subRegionMissionButtons[i].setTooltip(null);
                     }
@@ -581,18 +590,18 @@ public final class RegionMapScreen extends Screen {
                 }
                 confirmCampaignButton.active = canConfirm;
                 if (!inFaction) {
-                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("Must be in a faction to engage in war.")));
+                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.must_be_in_faction")));
                 } else if (!isDefense && !selectedRegion.regionReachable()) {
-                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cMust own a bordering region to attack.")));
+                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.must_own_bordering")));
                 } else if (!isDefense && !selectedRegion.playerInFactionRegion()) {
-                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal("§cYou must be in an allied region to initiate attacks.")));
+                    confirmCampaignButton.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.warfront.tooltip.must_be_in_allied")));
                 } else {
                     confirmCampaignButton.setTooltip(null);
                 }
                 if (isDefense) {
-                    confirmCampaignButton.setMessage(Component.literal("§a§lCONFIRM DEFENCE"));
+                    confirmCampaignButton.setMessage(Component.translatable("screen.warfront.action.confirm_defence"));
                 } else {
-                    confirmCampaignButton.setMessage(Component.literal("§a§lCONFIRM ATTACK"));
+                    confirmCampaignButton.setMessage(Component.translatable("screen.warfront.action.confirm_attack"));
                 }
             }
 
@@ -600,7 +609,7 @@ public final class RegionMapScreen extends Screen {
                 cancelAttackButton.visible = selectedRegion.underSiege() && isDefense;
                 cancelAttackButton.active = inFaction;
                 if (isDefense) {
-                    cancelAttackButton.setMessage(Component.literal("§c§lCANCEL DEFENSE"));
+                    cancelAttackButton.setMessage(Component.translatable("screen.warfront.action.cancel_defense"));
                 }
             }
         }

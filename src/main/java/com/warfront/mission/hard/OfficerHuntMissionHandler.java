@@ -115,7 +115,7 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
                 spawnCampEntities(level, result, instanceId, regionX, regionZ, subX, subZ, progress, data);
 
                 if (player != null) {
-                    player.displayClientMessage(Component.literal("§c⚠️ Field Commander camp has been repaired and reinforced!"), true);
+                    player.displayClientMessage(Component.translatable("chat.warfront.mission.officer_camp_repaired"), true);
                 }
                 RegionData regions = RegionData.get(level);
                 if (regions != null) {
@@ -310,7 +310,7 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
         }
 
         if (player != null) {
-            player.sendSystemMessage(Component.literal("§a§l[WARFRONT] 🏆 Commander Encampment Neutralized! Tactical Headquarters Disarmed."));
+            player.sendSystemMessage(Component.translatable("chat.warfront.mission.officer_neutralized"));
         } else {
             ActiveCampaignMissionManager.notifyAttackingPlayers(level, regionX, regionZ,
                     "§a§l[WARFRONT] 🏆 Commander Encampment Neutralized! Tactical Headquarters Disarmed.");
@@ -348,7 +348,7 @@ public final class OfficerHuntMissionHandler implements MissionObjectiveHandler 
             var kbAttr = commander.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE);
             if (kbAttr != null) kbAttr.setBaseValue(0.60D);
 
-            commander.setCustomName(Component.literal("§cField Commander §4[Target]"));
+            commander.setCustomName(Component.translatable("entity.warfront.field_commander_target"));
             commander.setCustomNameVisible(true);
 
             net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(commander, level, level.getCurrentDifficultyAt(result.commanderSpawnPos()), MobSpawnType.EVENT, null);

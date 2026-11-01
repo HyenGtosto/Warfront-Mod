@@ -194,14 +194,14 @@ public class FactionPanel {
         int centerY = y + height / 2;
 
         // 1. Not in faction main buttons
-        createFactionBtn = addButton(Button.builder(Component.literal("Create a faction"), b -> {
+        createFactionBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.create_btn"), b -> {
             subview = Subview.CREATE;
             selectedColor = PRESET_COLORS[0];
             if (createHexBox != null) createHexBox.setValue(String.format("%06X", selectedColor));
             updateWidgetVisibility();
         }).bounds(centerX - 90, centerY - 28, 180, 24).build(), widgetConsumer);
 
-        joinFactionBtn = addButton(Button.builder(Component.literal("Join a Faction"), b -> {
+        joinFactionBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.join_btn"), b -> {
             showJoinPopup = true;
             if (joinNameBox != null) joinNameBox.setValue("");
             updateWidgetVisibility();
@@ -213,13 +213,13 @@ public class FactionPanel {
         int popupX = centerX - popupW / 2;
         int popupY = centerY - popupH / 2;
 
-        joinNameBox = addEditBox(new EditBox(font, popupX + 16, popupY + 22, popupW - 32, 18, Component.literal("Faction Name")), widgetConsumer);
-        joinNameBox.setHint(Component.literal("Enter faction name..."));
+        joinNameBox = addEditBox(new EditBox(font, popupX + 16, popupY + 22, popupW - 32, 18, Component.translatable("gui.warfront.faction.name_hint")), widgetConsumer);
+        joinNameBox.setHint(Component.translatable("gui.warfront.faction.enter_name_hint"));
 
-        joinSendBtn = addButton(Button.builder(Component.literal("Send"), b -> onSendJoinRequest())
+        joinSendBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.send_btn"), b -> onSendJoinRequest())
                 .bounds(popupX + 16, popupY + 46, (popupW - 38) / 2, 20).build(), widgetConsumer);
 
-        joinCancelBtn = addButton(Button.builder(Component.literal("Cancel"), b -> {
+        joinCancelBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.cancel_btn"), b -> {
             showJoinPopup = false;
             updateWidgetVisibility();
         }).bounds(popupX + 22 + (popupW - 38) / 2, popupY + 46, (popupW - 38) / 2, 20).build(), widgetConsumer);
@@ -229,22 +229,22 @@ public class FactionPanel {
         int formX = centerX - formW / 2;
         int formY = y + 25;
 
-        createNameBox = addEditBox(new EditBox(font, formX, formY + 20, formW, 18, Component.literal("Name")), widgetConsumer);
-        createNameBox.setHint(Component.literal("Faction Name (required)"));
+        createNameBox = addEditBox(new EditBox(font, formX, formY + 20, formW, 18, Component.translatable("gui.warfront.faction.name_hint")), widgetConsumer);
+        createNameBox.setHint(Component.translatable("gui.warfront.faction.name_required_hint"));
         createNameBox.setMaxLength(24);
 
-        createDescBox = addEditBox(new EditBox(font, formX, formY + 55, formW, 18, Component.literal("Description")), widgetConsumer);
-        createDescBox.setHint(Component.literal("Description (optional)"));
+        createDescBox = addEditBox(new EditBox(font, formX, formY + 55, formW, 18, Component.translatable("gui.warfront.faction.desc_hint")), widgetConsumer);
+        createDescBox.setHint(Component.translatable("gui.warfront.faction.desc_label"));
         createDescBox.setMaxLength(100);
 
-        createHexBox = addEditBox(new EditBox(font, formX + 40, formY + 90, 80, 18, Component.literal("Hex Color")), widgetConsumer);
+        createHexBox = addEditBox(new EditBox(font, formX + 40, formY + 90, 80, 18, Component.translatable("gui.warfront.faction.hex_color_hint")), widgetConsumer);
         createHexBox.setValue(String.format("%06X", selectedColor));
         createHexBox.setResponder(this::onHexChanged);
 
-        createSubmitBtn = addButton(Button.builder(Component.literal("§a§lCREATE FACTION"), b -> onSubmitCreateFaction())
+        createSubmitBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.submit_create"), b -> onSubmitCreateFaction())
                 .bounds(formX, formY + 140, formW / 2 - 4, 22).build(), widgetConsumer);
 
-        createCancelBtn = addButton(Button.builder(Component.literal("Cancel"), b -> {
+        createCancelBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.cancel_btn"), b -> {
             subview = Subview.MAIN;
             updateWidgetVisibility();
         }).bounds(formX + formW / 2 + 4, formY + 140, formW / 2 - 4, 22).build(), widgetConsumer);
@@ -254,7 +254,7 @@ public class FactionPanel {
         int rightColX = x + leftColW + 6;
         int rightColW = width - leftColW - 12;
 
-        settingsBtn = addButton(Button.builder(Component.literal("⚙ Settings"), b -> {
+        settingsBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.settings_btn"), b -> {
             subview = Subview.SETTINGS;
             FactionClientState state = FactionClientState.get();
             if (settingsNameBox != null) settingsNameBox.setValue(state.getFactionName());
@@ -266,41 +266,41 @@ public class FactionPanel {
 
         // Invite controls (Bottom Left)
         int inviteY = y + height - 44;
-        inviteBtn = addButton(Button.builder(Component.literal("Invite Player"), b -> onInvitePlayer())
+        inviteBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.invite_player_btn"), b -> onInvitePlayer())
                 .bounds(x + 6, inviteY, leftColW - 12, 18).build(), widgetConsumer);
 
-        inviteBox = addEditBox(new EditBox(font, x + 6, inviteY + 22, leftColW - 12, 18, Component.literal("Invite")), widgetConsumer);
-        inviteBox.setHint(Component.literal("Player username..."));
+        inviteBox = addEditBox(new EditBox(font, x + 6, inviteY + 22, leftColW - 12, 18, Component.translatable("gui.warfront.faction.invite_player_btn")), widgetConsumer);
+        inviteBox.setHint(Component.translatable("gui.warfront.faction.invite_hint"));
 
         // Chat controls (Bottom Right)
         int chatY = y + height - 24;
         int chatInputW = rightColW - 54;
-        chatBox = addEditBox(new EditBox(font, rightColX, chatY, chatInputW, 18, Component.literal("Chat")), widgetConsumer);
-        chatBox.setHint(Component.literal("Type faction message..."));
+        chatBox = addEditBox(new EditBox(font, rightColX, chatY, chatInputW, 18, Component.translatable("gui.warfront.faction.chat_hint")), widgetConsumer);
+        chatBox.setHint(Component.translatable("gui.warfront.faction.chat_hint"));
         chatBox.setMaxLength(256);
 
-        chatSendBtn = addButton(Button.builder(Component.literal("Send"), b -> onSendChat())
+        chatSendBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.send_btn"), b -> onSendChat())
                 .bounds(rightColX + chatInputW + 4, chatY, 48, 18).build(), widgetConsumer);
 
         // 5. Settings widgets
-        settingsNameBox = addEditBox(new EditBox(font, formX, formY + 20, formW, 18, Component.literal("Settings Name")), widgetConsumer);
+        settingsNameBox = addEditBox(new EditBox(font, formX, formY + 20, formW, 18, Component.translatable("gui.warfront.faction.name_hint")), widgetConsumer);
         settingsNameBox.setMaxLength(24);
 
-        settingsDescBox = addEditBox(new EditBox(font, formX, formY + 55, formW, 18, Component.literal("Settings Desc")), widgetConsumer);
+        settingsDescBox = addEditBox(new EditBox(font, formX, formY + 55, formW, 18, Component.translatable("gui.warfront.faction.desc_hint")), widgetConsumer);
         settingsDescBox.setMaxLength(100);
 
-        settingsHexBox = addEditBox(new EditBox(font, formX + 40, formY + 90, 80, 18, Component.literal("Settings Hex")), widgetConsumer);
+        settingsHexBox = addEditBox(new EditBox(font, formX + 40, formY + 90, 80, 18, Component.translatable("gui.warfront.faction.hex_color_hint")), widgetConsumer);
         settingsHexBox.setResponder(this::onHexChanged);
 
-        settingsSaveBtn = addButton(Button.builder(Component.literal("§aSave Changes"), b -> onSaveSettings())
+        settingsSaveBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.settings_save"), b -> onSaveSettings())
                 .bounds(formX, formY + 140, formW / 2 - 4, 20).build(), widgetConsumer);
 
-        settingsBackBtn = addButton(Button.builder(Component.literal("Back"), b -> {
+        settingsBackBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.back_btn"), b -> {
             subview = Subview.MAIN;
             updateWidgetVisibility();
         }).bounds(formX + formW / 2 + 4, formY + 140, formW / 2 - 4, 20).build(), widgetConsumer);
 
-        settingsDisbandBtn = addButton(Button.builder(Component.literal("§c§lDISBAND FACTION"), b -> onDisbandFaction())
+        settingsDisbandBtn = addButton(Button.builder(Component.translatable("gui.warfront.faction.disband_btn"), b -> onDisbandFaction())
                 .bounds(formX, formY + 168, formW, 20).build(), widgetConsumer);
 
         updateWidgetVisibility();
@@ -478,8 +478,8 @@ public class FactionPanel {
 
     private void renderNotInFactionScreen(GuiGraphics graphics, Font font, int mouseX, int mouseY) {
         if (!showJoinPopup) {
-            graphics.drawCenteredString(font, "§6§lFACTION SYSTEM", x + width / 2, y + height / 2 - 50, 0xFFFFFFFF);
-            graphics.drawCenteredString(font, "§7Join an existing faction or create your own to claim territory and lead wars.", x + width / 2, y + height / 2 - 38, 0xFFAAAAAA);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.system_title"), x + width / 2, y + height / 2 - 50, 0xFFFFFFFF);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.system_desc"), x + width / 2, y + height / 2 - 38, 0xFFAAAAAA);
         } else {
             // Render modal join box
             int popupW = 200;
@@ -494,7 +494,7 @@ public class FactionPanel {
             graphics.fill(popupX, popupY, popupX + 1, popupY + popupH, 0xFFCCA84E);
             graphics.fill(popupX + popupW - 1, popupY, popupX + popupW, popupY + popupH, 0xFFCCA84E);
 
-            graphics.drawCenteredString(font, "§e§lJoin a Faction", popupX + popupW / 2, popupY + 8, 0xFFFFFFFF);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.join_title"), popupX + popupW / 2, popupY + 8, 0xFFFFFFFF);
         }
     }
 
@@ -503,10 +503,10 @@ public class FactionPanel {
         int formX = x + width / 2 - formW / 2;
         int formY = y + 25;
 
-        graphics.drawCenteredString(font, "§6§lCREATE A FACTION", x + width / 2, formY, 0xFFFFFFFF);
-        graphics.drawString(font, "Faction Name:", formX, formY + 10, 0xFFCCCCCC, false);
-        graphics.drawString(font, "Description (optional):", formX, formY + 45, 0xFFCCCCCC, false);
-        graphics.drawString(font, "Faction Color:", formX, formY + 80, 0xFFCCCCCC, false);
+        graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.create_title"), x + width / 2, formY, 0xFFFFFFFF);
+        graphics.drawString(font, Component.translatable("gui.warfront.faction.name_label"), formX, formY + 10, 0xFFCCCCCC, false);
+        graphics.drawString(font, Component.translatable("gui.warfront.faction.desc_label"), formX, formY + 45, 0xFFCCCCCC, false);
+        graphics.drawString(font, Component.translatable("gui.warfront.faction.color_label"), formX, formY + 80, 0xFFCCCCCC, false);
 
         // Preview box
         renderColorPicker(graphics, font, formX, formY + 90, mouseX, mouseY);
@@ -517,10 +517,10 @@ public class FactionPanel {
         int formX = x + width / 2 - formW / 2;
         int formY = y + 25;
 
-        graphics.drawCenteredString(font, "§6§lFACTION SETTINGS", x + width / 2, formY, 0xFFFFFFFF);
-        graphics.drawString(font, "Faction Name:", formX, formY + 10, 0xFFCCCCCC, false);
-        graphics.drawString(font, "Description:", formX, formY + 45, 0xFFCCCCCC, false);
-        graphics.drawString(font, "Faction Color:", formX, formY + 80, 0xFFCCCCCC, false);
+        graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.settings_title"), x + width / 2, formY, 0xFFFFFFFF);
+        graphics.drawString(font, Component.translatable("gui.warfront.faction.name_label"), formX, formY + 10, 0xFFCCCCCC, false);
+        graphics.drawString(font, Component.translatable("gui.warfront.faction.desc_label_short"), formX, formY + 45, 0xFFCCCCCC, false);
+        graphics.drawString(font, Component.translatable("gui.warfront.faction.color_label"), formX, formY + 80, 0xFFCCCCCC, false);
 
         renderColorPicker(graphics, font, formX, formY + 90, mouseX, mouseY);
     }
@@ -643,7 +643,7 @@ public class FactionPanel {
             // Draw Player Name
             String nameDisplay = m.name();
             if (m.uuid().equals(myUuid)) {
-                nameDisplay = "§a" + nameDisplay + " (You)";
+                nameDisplay = Component.translatable("gui.warfront.faction.you_tag", nameDisplay).getString();
             }
             graphics.drawString(font, nameDisplay, listX + 24, rowY + 6, 0xFFFFFFFF, false);
 
@@ -686,12 +686,12 @@ public class FactionPanel {
 
         for (FactionChatMessage msg : history) {
             if (msg.type() == FactionMessageType.JOIN_REQUEST) {
-                String prefix = "§e" + msg.senderName() + " requested to join. ";
-                String acceptBtn = "§a§l[ACCEPT]";
+                String prefix = Component.translatable("gui.warfront.faction.join_request_chat", msg.senderName()).getString();
+                String acceptBtn = Component.translatable("gui.warfront.faction.accept_action").getString();
                 wrappedLines.add(new RenderChatLine(msg, prefix, acceptBtn));
             } else if (msg.type() == FactionMessageType.SYSTEM) {
-                String text = "§dSystem: " + msg.text();
-                for (FormattedCharSequence seq : font.split(Component.literal(text), maxTextWidth)) {
+                Component comp = Component.translatable("gui.warfront.faction.system_prefix").append(Component.literal(msg.text()));
+                for (FormattedCharSequence seq : font.split(comp, maxTextWidth)) {
                     wrappedLines.add(new RenderChatLine(msg, seq, null));
                 }
             } else {
@@ -797,7 +797,7 @@ public class FactionPanel {
         graphics.fill(px, py, px + 1, py + ph, border);
         graphics.fill(px + pw - 1, py, px + pw, py + ph, border);
 
-        String btnLabel = activeMemberPopup.isKick ? "Kick" : "Leave";
+        String btnLabel = Component.translatable(activeMemberPopup.isKick ? "gui.warfront.faction.kick_popup" : "gui.warfront.faction.leave_popup").getString();
         graphics.drawCenteredString(font, btnLabel, px + pw / 2, py + (ph - 8) / 2, 0xFFFFFFFF);
     }
 
@@ -821,13 +821,13 @@ public class FactionPanel {
 
         // Header and description
         if (confirmationType == ConfirmationType.DISBAND) {
-            graphics.drawCenteredString(font, "§c§lDISBAND FACTION?", modalX + modalW / 2, modalY + 14, 0xFFFFFFFF);
-            graphics.drawCenteredString(font, "§7All territory will be unowned.", modalX + modalW / 2, modalY + 28, 0xFFAAAAAA);
-            graphics.drawCenteredString(font, "§cThis action cannot be undone!", modalX + modalW / 2, modalY + 40, 0xFFFF5555);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.disband_modal_title"), modalX + modalW / 2, modalY + 14, 0xFFFFFFFF);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.disband_modal_desc"), modalX + modalW / 2, modalY + 28, 0xFFAAAAAA);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.disband_modal_warning"), modalX + modalW / 2, modalY + 40, 0xFFFF5555);
         } else if (confirmationType == ConfirmationType.KICK) {
-            graphics.drawCenteredString(font, "§c§lKICK PLAYER?", modalX + modalW / 2, modalY + 14, 0xFFFFFFFF);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.kick_modal_title"), modalX + modalW / 2, modalY + 14, 0xFFFFFFFF);
             String targetDisplay = confirmTargetName.isEmpty() ? "this player" : confirmTargetName;
-            graphics.drawCenteredString(font, "§7Kick §e" + targetDisplay + "§7 from faction?", modalX + modalW / 2, modalY + 30, 0xFFAAAAAA);
+            graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.kick_modal_desc", targetDisplay), modalX + modalW / 2, modalY + 30, 0xFFAAAAAA);
         }
 
         // Action Buttons
@@ -848,7 +848,7 @@ public class FactionPanel {
         graphics.fill(btnConfirmX, btnY + btnH - 1, btnConfirmX + btnW, btnY + btnH, 0xFFFFFFFF);
         graphics.fill(btnConfirmX, btnY, btnConfirmX + 1, btnY + btnH, 0xFFFFFFFF);
         graphics.fill(btnConfirmX + btnW - 1, btnY, btnConfirmX + btnW, btnY + btnH, 0xFFFFFFFF);
-        graphics.drawCenteredString(font, "§f§lConfirm", btnConfirmX + btnW / 2, btnY + 6, 0xFFFFFFFF);
+        graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.confirm_btn"), btnConfirmX + btnW / 2, btnY + 6, 0xFFFFFFFF);
 
         // Cancel button
         boolean cancelHovered = (mouseX >= btnCancelX && mouseX <= btnCancelX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
@@ -858,7 +858,7 @@ public class FactionPanel {
         graphics.fill(btnCancelX, btnY + btnH - 1, btnCancelX + btnW, btnY + btnH, 0xFF888E99);
         graphics.fill(btnCancelX, btnY, btnCancelX + 1, btnY + btnH, 0xFF888E99);
         graphics.fill(btnCancelX + btnW - 1, btnY, btnCancelX + btnW, btnY + btnH, 0xFF888E99);
-        graphics.drawCenteredString(font, "§fCancel", btnCancelX + btnW / 2, btnY + 6, 0xFFFFFFFF);
+        graphics.drawCenteredString(font, Component.translatable("gui.warfront.faction.cancel_btn"), btnCancelX + btnW / 2, btnY + 6, 0xFFFFFFFF);
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {

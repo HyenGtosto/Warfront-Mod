@@ -73,7 +73,7 @@ public class MortarBlock extends Block implements EntityBlock {
     public void attack(BlockState state, Level level, BlockPos pos, Player player) {
         if (!level.isClientSide()) {
             player.displayClientMessage(
-                    Component.literal("§c[Warfront] §7Heavy reinforced chassis is §eimmune to mining§7! Detonate with §cTNT / Explosives§7."),
+                    Component.translatable("chat.warfront.mortar.immune_to_mining"),
                     true
             );
             if (level instanceof ServerLevel serverLevel) {

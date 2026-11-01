@@ -128,7 +128,7 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
                 level.playSound(null, anc.above(28), SoundEvents.RAID_HORN.value(), SoundSource.HOSTILE, 3.0F, 0.8F);
 
                 if (player != null) {
-                    player.displayClientMessage(Component.literal("§c⚠️ War Horn Tower signal has been re-activated!"), true);
+                    player.displayClientMessage(Component.translatable("chat.warfront.mission.warhorn_reactivated"), true);
                 }
                 RegionData regions = RegionData.get(level);
                 if (regions != null) {
@@ -485,7 +485,7 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
 
             if (player != null) {
                 player.displayClientMessage(
-                        Component.literal("§a⚡ Signal Fuse Relay Sabotaged! Enemy reinforcements severed!"),
+                        Component.translatable("chat.warfront.mission.signal_fuse_sabotaged"),
                         true
                 );
             }
@@ -514,7 +514,7 @@ public final class WarHornRelayMissionHandler implements MissionObjectiveHandler
         }
 
         if (player != null) {
-            player.sendSystemMessage(Component.literal("§a§l[WARFRONT] 🏆 Warhorn Broadcast Tower Neutralized! Acoustic Horn Bell Disarmed."));
+            player.sendSystemMessage(Component.translatable("chat.warfront.mission.warhorn_neutralized"));
         } else {
             ActiveCampaignMissionManager.notifyAttackingPlayers(level, regionX, regionZ,
                     "§a§l[WARFRONT] 🏆 Warhorn Broadcast Tower Neutralized! Acoustic Horn Bell Disarmed.");

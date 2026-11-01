@@ -193,10 +193,8 @@ public class PillagerRiflemanEntity extends AbstractIllager implements GeoEntity
         this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractVillager.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, IronGolem.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Zombie.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractSkeleton.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Creeper.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Spider.class, true));
+        this.targetSelector.addGoal(4, new NearestAttackableTargetGoal<>(this, Monster.class, 10, true, false,
+                target -> !AlliedFactionHelper.isAllied(this, target)));
     }
 
     @Override
@@ -240,13 +238,13 @@ public class PillagerRiflemanEntity extends AbstractIllager implements GeoEntity
         Vec3 rayDir = rayVec.normalize();
         AABB corridorBox = this.getBoundingBox().expandTowards(rayVec).inflate(1.5D);
 
-        List<PillagerRiflemanEntity> fellows = this.level().getEntitiesOfClass(
-                PillagerRiflemanEntity.class,
+        List<LivingEntity> fellows = this.level().getEntitiesOfClass(
+                LivingEntity.class,
                 corridorBox,
-                other -> other != this && other.isAlive()
+                other -> other != this && other.isAlive() && AlliedFactionHelper.isAllied(this, other) && !(other instanceof PillagerIroncladEntity)
         );
 
-        for (PillagerRiflemanEntity other : fellows) {
+        for (LivingEntity other : fellows) {
             Vec3 toOther = other.getBoundingBox().getCenter().subtract(start);
             double projection = toOther.dot(rayDir);
             if (projection <= 0.2D || projection >= distTarget - 0.4D) continue;

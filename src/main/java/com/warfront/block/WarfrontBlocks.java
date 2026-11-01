@@ -51,7 +51,7 @@ public final class WarfrontBlocks {
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_SCOUT, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
     public static final DeferredItem<Item> PILLAGER_RIFLEMAN_SPAWN_EGG = ITEMS.register("pillager_rifleman_spawn_egg",
-            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_RIFLEMAN, 0x4B5320, 0x8B4513, new Item.Properties()));
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_RIFLEMAN, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
     public static final DeferredItem<Item> PILLAGER_MARKSMAN_SPAWN_EGG = ITEMS.register("pillager_marksman_spawn_egg",
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_MARKSMAN, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
@@ -128,8 +128,29 @@ public final class WarfrontBlocks {
     public static final DeferredBlock<MortarBlock> MORTAR = BLOCKS.register("mortar", MortarBlock::new);
     public static final DeferredItem<BlockItem> MORTAR_ITEM = ITEMS.registerSimpleBlockItem("mortar", MORTAR);
 
+    public static final DeferredBlock<PillagerBallistaBlock> PILLAGER_BALLISTA = BLOCKS.register("pillager_ballista", PillagerBallistaBlock::new);
+    public static final DeferredItem<BlockItem> PILLAGER_BALLISTA_ITEM = ITEMS.registerSimpleBlockItem("pillager_ballista", PILLAGER_BALLISTA);
+
     public static final DeferredBlock<AmmoRackBlock> AMMO_RACK = BLOCKS.register("ammo_rack", () -> new AmmoRackBlock());
     public static final DeferredItem<BlockItem> AMMO_RACK_ITEM = ITEMS.registerSimpleBlockItem("ammo_rack", AMMO_RACK);
+
+    public static final DeferredBlock<FriendlyMortarBlock> FRIENDLY_MORTAR = BLOCKS.register("friendly_mortar", FriendlyMortarBlock::new);
+    public static final DeferredItem<BlockItem> FRIENDLY_MORTAR_ITEM = ITEMS.registerSimpleBlockItem("friendly_mortar", FRIENDLY_MORTAR);
+
+    public static final DeferredBlock<FriendlyBallistaBlock> FRIENDLY_BALLISTA = BLOCKS.register("friendly_ballista", FriendlyBallistaBlock::new);
+    public static final DeferredItem<BlockItem> FRIENDLY_BALLISTA_ITEM = ITEMS.registerSimpleBlockItem("friendly_ballista", FRIENDLY_BALLISTA);
+
+    // --- Artillery & Ballista Ammunition ---
+    public static final DeferredItem<Item> BALLISTA_BOLT_ITEM = ITEMS.register("ballista_bolt",
+            () -> new Item(new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> HE_ARTILLERY_SHELL = ITEMS.register("he_artillery_shell",
+            () -> new Item(new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> INCENDIARY_ARTILLERY_SHELL = ITEMS.register("incendiary_artillery_shell",
+            () -> new Item(new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> AIRBURST_ARTILLERY_SHELL = ITEMS.register("airburst_artillery_shell",
+            () -> new Item(new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> SMOKE_ARTILLERY_SHELL = ITEMS.register("smoke_artillery_shell",
+            () -> new Item(new Item.Properties().stacksTo(16)));
 
     private WarfrontBlocks() {
     }
@@ -148,9 +169,25 @@ public final class WarfrontBlocks {
             event.accept(HEAVY_MACHINERY_VAULT_ITEM);
             event.accept(MORTAR_CANNON_MOUNT_ITEM);
             event.accept(MORTAR_ITEM);
+            event.accept(PILLAGER_BALLISTA_ITEM);
             event.accept(AMMO_RACK_ITEM);
+            event.accept(FRIENDLY_MORTAR_ITEM);
+            event.accept(FRIENDLY_BALLISTA_ITEM);
+            event.accept(BALLISTA_BOLT_ITEM);
+            event.accept(HE_ARTILLERY_SHELL);
+            event.accept(INCENDIARY_ARTILLERY_SHELL);
+            event.accept(AIRBURST_ARTILLERY_SHELL);
+            event.accept(SMOKE_ARTILLERY_SHELL);
             event.accept(COMMANDER_WAR_DESK_ITEM);
             event.accept(ACOUSTIC_HORN_BELL_ITEM);
+        } else if (event.getTabKey() == CreativeModeTabs.COMBAT) {
+            event.accept(FRIENDLY_MORTAR_ITEM);
+            event.accept(FRIENDLY_BALLISTA_ITEM);
+            event.accept(BALLISTA_BOLT_ITEM);
+            event.accept(HE_ARTILLERY_SHELL);
+            event.accept(INCENDIARY_ARTILLERY_SHELL);
+            event.accept(AIRBURST_ARTILLERY_SHELL);
+            event.accept(SMOKE_ARTILLERY_SHELL);
         } else if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(MAP_TERMINAL);
             event.accept(TESTING_MAP_TERMINAL);

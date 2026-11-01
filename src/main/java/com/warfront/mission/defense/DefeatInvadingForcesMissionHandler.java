@@ -222,8 +222,8 @@ public final class DefeatInvadingForcesMissionHandler implements MissionObjectiv
             }
 
             player.displayClientMessage(
-                    Component.literal(String.format("§c🚨 Hostile assault wave %d/%d invading from the border!",
-                            state.currentWave, state.totalWaves)),
+                    Component.translatable("chat.warfront.mission.invading_wave",
+                            state.currentWave, state.totalWaves),
                     true
             );
             level.playSound(null, player.getX(), player.getY(), player.getZ(),

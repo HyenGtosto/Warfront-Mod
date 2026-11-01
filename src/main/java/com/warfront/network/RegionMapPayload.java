@@ -179,6 +179,14 @@ public record RegionMapPayload(
         public ChunkData(int chunkX, int chunkZ, int biomeColor, int factionId, boolean underSiege, boolean isVisited) {
             this(chunkX, chunkZ, biomeColor, factionId, underSiege, isVisited, 0L);
         }
+
+        public int elevation() {
+            return (biomeColor >>> 24) & 0xFF;
+        }
+
+        public int rawRgb() {
+            return biomeColor & 0x00FFFFFF;
+        }
     }
 
     public record RegionMarkerData(int regionX, int regionZ, int factionId, int baseTypeId) {

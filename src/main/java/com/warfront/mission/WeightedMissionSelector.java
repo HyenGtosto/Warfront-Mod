@@ -23,6 +23,45 @@ public final class WeightedMissionSelector {
     /** Weight multiplier applied to candidates that have already been picked once in the region. */
     public static final double REPEAT_DAMPENING_FACTOR = 0.45;
 
+    /** Lower resistance bound for the progressive S-curve (0% chance for Hard tier at or below this value). */
+    public static final float S_CURVE_MIN_RESISTANCE = 20.0f;
+
+    /** Upper resistance bound for the progressive S-curve (100% chance for Hard tier at or above this value). */
+    public static final float S_CURVE_MAX_RESISTANCE = 80.0f;
+
+    /** Deterministic salt for subregion tier rolls. */
+    private static final long TIER_ROLL_SALT = 0x7E3A9F1D4B2C8895L;
+
+    /**
+     * Calculates the probability (0.0 to 1.0) that a subregion rolls a Hard tier mission
+     * based on a cubic Hermite smoothstep S-curve across [S_CURVE_MIN_RESISTANCE, S_CURVE_MAX_RESISTANCE].
+     */
+    public static float calculateHardMissionProbability(float resistance) {
+        float clamped = Math.clamp(resistance, 0.0f, 100.0f);
+        if (clamped <= S_CURVE_MIN_RESISTANCE) {
+            return 0.0f;
+        }
+        if (clamped >= S_CURVE_MAX_RESISTANCE) {
+            return 1.0f;
+        }
+        float t = (clamped - S_CURVE_MIN_RESISTANCE) / (S_CURVE_MAX_RESISTANCE - S_CURVE_MIN_RESISTANCE);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+    /**
+     * Deterministically rolls whether a subregion should generate a Hard tier mission
+     * using the S-curve probability and the subregion's pseudo-random seed.
+     */
+    public static boolean rollHardTier(float resistance, long subSeed) {
+        float pHard = calculateHardMissionProbability(resistance);
+        if (pHard <= 0.0f) return false;
+        if (pHard >= 1.0f) return true;
+
+        long hash = mix64(subSeed ^ TIER_ROLL_SALT);
+        double roll = ((hash & 0x7FFFFFFFFFFFFFFFL) % 100000) / 100000.0;
+        return roll < pHard;
+    }
+
     private WeightedMissionSelector() {
     }
 

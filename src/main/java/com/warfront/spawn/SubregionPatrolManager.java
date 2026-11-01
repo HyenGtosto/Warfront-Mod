@@ -56,6 +56,7 @@ public final class SubregionPatrolManager {
     public static final int HOLD_GROUND_DURATION_TICKS = 15 * 20; // 15 seconds = 300 ticks
 
     public static final long SCOUT_SPAWN_COOLDOWN_TICKS = 5L * 60L * 20L; // 5 minutes = 6000 ticks
+    public static final long REINFORCEMENT_COOLDOWN_TICKS = 3L * 60L * 20L; // 3 minutes = 3600 ticks (Option 1b)
 
     private static final int EVAL_INTERVAL_TICKS = 20; // 1 second evaluation cadence
     private static final int PLAYER_SCAN_RADIUS_BLOCKS = 128;
@@ -113,13 +114,31 @@ public final class SubregionPatrolManager {
 
         public int countLiving(ServerLevel level) {
             int living = 0;
+            int unloaded = 0;
+            int minChunkX = (regionX * 8) + (subX * 4);
+            int minChunkZ = (regionZ * 8) + (subZ * 4);
+            boolean anyLoaded = false;
+            for (int cx = minChunkX; cx < minChunkX + 4; cx++) {
+                for (int cz = minChunkZ; cz < minChunkZ + 4; cz++) {
+                    if (level.getChunkSource().hasChunk(cx, cz)) {
+                        anyLoaded = true;
+                        break;
+                    }
+                }
+                if (anyLoaded) break;
+            }
+
             for (UUID id : memberUuids) {
                 Entity e = level.getEntity(id);
-                if (e instanceof Mob mob && mob.isAlive()) {
-                    living++;
+                if (e instanceof Mob mob) {
+                    if (mob.isAlive()) {
+                        living++;
+                    }
+                } else if (e == null && !anyLoaded) {
+                    unloaded++;
                 }
             }
-            return living;
+            return living + unloaded;
         }
 
         public List<Mob> getLivingMembers(Level level) {
@@ -238,6 +257,9 @@ public final class SubregionPatrolManager {
 
     /** Natural patrol spawn suppression until game time: SubKey -> GameTime */
     private static final Map<Long, Long> NATURAL_SPAWN_SUPPRESSION_UNTIL = new ConcurrentHashMap<>();
+
+    /** Last reinforcement horn alert game time per subregion: SubKey -> GameTime */
+    private static final Map<Long, Long> LAST_REINFORCEMENT_HORN_TIME = new ConcurrentHashMap<>();
 
     /** Scheduled reinforcement actions from scout horn alerts */
     public static class ScheduledReinforcementTask {
@@ -836,6 +858,15 @@ public final class SubregionPatrolManager {
     }
 
     /**
+     * Checks whether reinforcement calls in this subregion are currently on cooldown.
+     */
+    public static boolean isReinforcementOnCooldown(long gameTime, int rx, int rz, int sx, int sz) {
+        long subKey = makeSubKey(rx, rz, sx, sz);
+        long lastHorn = LAST_REINFORCEMENT_HORN_TIME.getOrDefault(subKey, 0L);
+        return gameTime < lastHorn + REINFORCEMENT_COOLDOWN_TICKS;
+    }
+
+    /**
      * Called by a Pillager Scout upon concluding a successful spyglass scan on a player.
      * Evaluates current active squads in the subregion and triggers reinforcements per Scenarios 1, 2, or 3.
      */
@@ -848,11 +879,19 @@ public final class SubregionPatrolManager {
             return; // Restrict strictly to pillager regions
         }
 
+        long gameTime = level.getGameTime();
         long subKey = makeSubKey(rx, rz, sx, sz);
+        long lastHorn = LAST_REINFORCEMENT_HORN_TIME.getOrDefault(subKey, 0L);
+        if (gameTime < lastHorn + REINFORCEMENT_COOLDOWN_TICKS) {
+            Warfront.LOGGER.info("[SCOUT REINFORCE] Horn ignored in Subregion ({}, {} - {}, {}): On cooldown ({}s remaining).",
+                    rx, rz, sx, sz, (lastHorn + REINFORCEMENT_COOLDOWN_TICKS - gameTime) / 20L);
+            return;
+        }
+        LAST_REINFORCEMENT_HORN_TIME.put(subKey, gameTime);
+
         List<PatrolSquad> squads = ACTIVE_PATROLS.computeIfAbsent(subKey, k -> new CopyOnWriteArrayList<>());
         squads.removeIf(s -> s.countLiving(level) == 0);
         int currentSquadCount = squads.size();
-        long gameTime = level.getGameTime();
         UUID playerUuid = player.getUUID();
 
         Warfront.LOGGER.info("[SCOUT REINFORCE] Horn sounded in Subregion ({}, {} - {}, {}). Current squads: {}",

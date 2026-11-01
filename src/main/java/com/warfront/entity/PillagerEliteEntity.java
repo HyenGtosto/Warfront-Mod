@@ -120,7 +120,7 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     public static final float ATTACK_2_ARC_DEGREES = 150.0F;
     public static final float ATTACK_3_ARC_DEGREES = 80.0F;
     public static final float ATTACK_4_ARC_DEGREES = 40.0F;
-    public static final float STAB_ARC_DEGREES = 40.0F;
+    public static final float STAB_ARC_DEGREES = 60.0F;
 
     private static final EntityDataAccessor<Byte> ACTION_STATE =
             SynchedEntityData.defineId(PillagerEliteEntity.class, EntityDataSerializers.BYTE);
@@ -179,7 +179,17 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                 .add(Attributes.ATTACK_DAMAGE, 8.0D) // Base damage 8 as requested
                 .add(Attributes.ARMOR, 8.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.75D)
-                .add(Attributes.FOLLOW_RANGE, 32.0D);
+                .add(Attributes.FOLLOW_RANGE, 32.0D)
+                .add(Attributes.STEP_HEIGHT, 0.6D);
+    }
+
+    @Override
+    public float maxUpStep() {
+        byte state = getActionState();
+        if (state == ACTION_STAB_CHARGE || state == ACTION_STAB_THRUST) {
+            return 1.0625F; // 1 full block + carpet/snow layer allowance during charge
+        }
+        return super.maxUpStep();
     }
 
     @Override
@@ -258,10 +268,8 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
         this.targetSelector.addGoal(2, new NearestAttackableTargetGoal<>(this, Player.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractVillager.class, true));
         this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, IronGolem.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Zombie.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, AbstractSkeleton.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Creeper.class, true));
-        this.targetSelector.addGoal(3, new NearestAttackableTargetGoal<>(this, Spider.class, true));
+        this.targetSelector.addGoal(4, new NearestAttackableTargetGoal<>(this, Monster.class, 10, true, false,
+                target -> !AlliedFactionHelper.isAllied(this, target)));
     }
 
     @Override
@@ -280,8 +288,8 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
 
             byte state = getActionState();
 
-            // 1. Proactive Projectile Sensing for Sword Deflection
-            if (state == ACTION_STANCE_SWORD && isSwordDrawn() && !isCrossbowDrawn() && this.blockCooldownTicks <= 0) {
+            // 1. Proactive Projectile Sensing for Sword Deflection (Interleaved Modulo Throttled)
+            if (state == ACTION_STANCE_SWORD && isSwordDrawn() && !isCrossbowDrawn() && this.blockCooldownTicks <= 0 && ((this.tickCount + this.getId()) % 4 == 0)) {
                 checkIncomingProjectilesForBlock();
                 state = getActionState(); // update in case block triggered
             }
@@ -620,7 +628,7 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                     if (this.actionTicks >= BLOCK_TICKS) {
                         setActionState(ACTION_STANCE_SWORD);
                         this.actionTicks = 0;
-                        this.blockCooldownTicks = 40; // 2s cooldown between deflections
+                        this.blockCooldownTicks = 50; // 2.5s cooldown between deflections
                     }
                     break;
 
@@ -1012,12 +1020,19 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
 
     /**
      * Executes the heavy thrust finisher damage at Tick 4 (0.20s).
-     * Inflicts 11.0 HP piercing damage and 0.75D knockback in a 3.0m frontal cone (dot > 0.40).
+     * Inflicts 11.0 HP piercing damage and 0.75D knockback in a forward-projecting linear thrust corridor.
+     * Spans from -0.2m (against chest / point-blank) up to 3.5m (sword tip), with +/- 1.0m lateral allowance (2.0m total width).
      */
     private void executeThrustDamage() {
-        double reach = 3.0D;
+        double reach = 3.5D;
         Vec3 look = this.getLookAngle();
-        Vec3 origin = this.position().add(0, 1.2, 0);
+        Vec3 lookHorizontal = new Vec3(look.x, 0.0D, look.z);
+        if (lookHorizontal.lengthSqr() > 1.0E-5D) {
+            lookHorizontal = lookHorizontal.normalize();
+        } else {
+            lookHorizontal = new Vec3(0, 0, 1);
+        }
+        Vec3 myPos = this.position();
 
         AABB attackBox = this.getBoundingBox().inflate(reach, 1.5D, reach);
         List<LivingEntity> potentialTargets = this.level().getEntitiesOfClass(LivingEntity.class, attackBox,
@@ -1025,32 +1040,34 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
 
         float damage = 11.0F; // 1.375x base damage (11 HP)
         boolean hitAny = false;
-        double minDot = Math.cos(Math.toRadians(STAB_ARC_DEGREES * 0.5F));
 
         for (LivingEntity victim : potentialTargets) {
-            Vec3 toTarget = victim.position().add(0, victim.getEyeHeight() * 0.5, 0).subtract(origin);
-            if (toTarget.lengthSqr() <= reach * reach) {
-                // Frontal cone check: dot product with look vector > minDot (40 degree cone)
-                Vec3 dir = toTarget.normalize();
-                double dot = look.x * dir.x + look.z * dir.z;
-                if (dot > minDot) {
-                    DamageSource source = this.damageSources().mobAttack(this);
-                    if (victim.hurt(source, damage)) {
-                        hitAny = true;
-                        victim.knockback(0.75D, -dir.x, -dir.z);
-                        if (victim instanceof ServerPlayer sPlayer) {
-                            sPlayer.hurtMarked = true;
-                            sPlayer.connection.send(new ClientboundSetEntityMotionPacket(sPlayer));
-                        }
+            Vec3 rel = victim.position().subtract(myPos);
+            double forwardDist = rel.x * lookHorizontal.x + rel.z * lookHorizontal.z;
+            double lateralDist = rel.x * (-lookHorizontal.z) + rel.z * lookHorizontal.x;
+            double dy = Math.abs(victim.getY() - this.getY());
+
+            // Thrust corridor:
+            // - forwardDist: from -0.2m (against chest / point-blank) up to 3.5m (sword tip)
+            // - lateralDist: within +/- 1.0m from blade centerline (2.0m total corridor width)
+            // - vertical: within 2.0m height delta
+            if (forwardDist >= -0.2D && forwardDist <= reach && Math.abs(lateralDist) <= 1.0D && dy <= 2.0D) {
+                DamageSource source = this.damageSources().mobAttack(this);
+                if (victim.hurt(source, damage)) {
+                    hitAny = true;
+                    victim.knockback(0.75D, -lookHorizontal.x, -lookHorizontal.z);
+                    if (victim instanceof ServerPlayer sPlayer) {
+                        sPlayer.hurtMarked = true;
+                        sPlayer.connection.send(new ClientboundSetEntityMotionPacket(sPlayer));
                     }
                 }
             }
         }
 
         if (this.level() instanceof ServerLevel serverLevel) {
-            double px = this.getX() + look.x * 1.8D;
+            double px = this.getX() + lookHorizontal.x * 1.8D;
             double py = this.getY() + 1.2D;
-            double pz = this.getZ() + look.z * 1.8D;
+            double pz = this.getZ() + lookHorizontal.z * 1.8D;
             serverLevel.sendParticles(ParticleTypes.CRIT, px, py, pz, 15, 0.3, 0.3, 0.3, 0.2);
         }
 
@@ -1096,7 +1113,13 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
             return state.setAndContinue(WALK);
         }
 
-        // When stationary or during committed attacks:
+        // When committed into an attack, yield movement controller so it does not contend for arm/body bones
+        if (isAttacking) {
+            state.getController().stop();
+            return PlayState.STOP;
+        }
+
+        // When stationary or during non-attack actions:
         if (action == ACTION_STANCE_XBOW || action == ACTION_SHOOT_XBOW) {
             return state.setAndContinue(STANCE_CROSSBOW);
         }
@@ -1106,9 +1129,19 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
         return state.setAndContinue(IDLE);
     }
 
+    private static boolean isAttackAction(byte action) {
+        return action == ACTION_ATTACK_1 || action == ACTION_ATTACK_2 || action == ACTION_ATTACK_3 || action == ACTION_ATTACK_4;
+    }
+
     private PlayState actionPredicate(AnimationState<PillagerEliteEntity> state) {
         byte action = getActionState();
         if (action != this.lastActionState) {
+            boolean isComboChain = isAttackAction(this.lastActionState) && isAttackAction(action);
+            if (isComboChain) {
+                state.getController().transitionLength(0);
+            } else {
+                state.getController().transitionLength(2);
+            }
             state.getController().forceAnimationReset();
             this.lastActionState = action;
         }

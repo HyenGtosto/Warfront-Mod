@@ -2095,6 +2095,239 @@
           }
         }
       }
+    },
+    "alert": {
+      "animation_length": 3.0,
+      "bones": {
+        "head": {
+          "rotation": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.35": {
+              "vector": [
+                -10.0,
+                0,
+                0
+              ],
+              "easing": "easeOutQuad"
+            },
+            "1.5": {
+              "vector": [
+                -12.0,
+                0,
+                0
+              ]
+            },
+            "2.65": {
+              "vector": [
+                -10.0,
+                0,
+                0
+              ]
+            },
+            "3.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInOutQuad"
+            }
+          }
+        },
+        "body": {
+          "rotation": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.35": {
+              "vector": [
+                -3.0,
+                0,
+                0
+              ],
+              "easing": "easeOutQuad"
+            },
+            "1.5": {
+              "vector": [
+                -4.0,
+                0,
+                0
+              ]
+            },
+            "2.65": {
+              "vector": [
+                -3.0,
+                0,
+                0
+              ]
+            },
+            "3.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInOutQuad"
+            }
+          },
+          "position": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.35": {
+              "vector": [
+                0,
+                0.25,
+                0
+              ],
+              "easing": "easeOutQuad"
+            },
+            "2.65": {
+              "vector": [
+                0,
+                0.25,
+                0
+              ]
+            },
+            "3.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInOutQuad"
+            }
+          }
+        },
+        "right_arm": {
+          "rotation": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.35": {
+              "vector": [
+                -65.0,
+                -15.0,
+                10.0
+              ],
+              "easing": "easeOutQuad"
+            },
+            "1.5": {
+              "vector": [
+                -67.0,
+                -15.0,
+                10.0
+              ]
+            },
+            "2.65": {
+              "vector": [
+                -65.0,
+                -15.0,
+                10.0
+              ]
+            },
+            "3.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInOutQuad"
+            }
+          },
+          "position": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.35": {
+              "vector": [
+                0,
+                0,
+                -1.0
+              ],
+              "easing": "easeOutQuad"
+            },
+            "2.65": {
+              "vector": [
+                0,
+                0,
+                -1.0
+              ]
+            },
+            "3.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInOutQuad"
+            }
+          }
+        },
+        "right_forearm": {
+          "rotation": {
+            "0.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ]
+            },
+            "0.35": {
+              "vector": [
+                -20.0,
+                10.0,
+                -25.0
+              ],
+              "easing": "easeOutQuad"
+            },
+            "1.5": {
+              "vector": [
+                -21.0,
+                10.0,
+                -25.0
+              ]
+            },
+            "2.65": {
+              "vector": [
+                -20.0,
+                10.0,
+                -25.0
+              ]
+            },
+            "3.0": {
+              "vector": [
+                0,
+                0,
+                0
+              ],
+              "easing": "easeInOutQuad"
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -48,6 +48,9 @@ public final class MissionBlockEventHandler {
 
         // Post-war salvage tracking (Scenario 3)
         com.warfront.mission.site.PendingSalvageManager.onBlockBroken(level, pos, player);
+
+        // Tracked player construction cleanup
+        com.warfront.claim.PlayerConstructionTracker.getInstance().onBlockBroken(level, pos, state);
     }
 
     public static void onExplosionDetonate(net.neoforged.neoforge.event.level.ExplosionEvent.Detonate event) {
@@ -75,6 +78,7 @@ public final class MissionBlockEventHandler {
             }
 
             com.warfront.mission.site.PendingSalvageManager.onBlockBroken(level, pos, null);
+            com.warfront.claim.PlayerConstructionTracker.getInstance().onBlockBroken(level, pos, level.getBlockState(pos));
         }
     }
 }

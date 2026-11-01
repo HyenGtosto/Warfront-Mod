@@ -121,7 +121,8 @@ public class RifleBulletEntity extends Projectile {
     @Override
     protected boolean canHitEntity(Entity entity) {
         if (!super.canHitEntity(entity)) return false;
-        if (getOwner() != null && AlliedFactionHelper.isAllied(getOwner(), entity)) {
+        // Allied Pillager Ironclad allows allied ballistics to pass through safely per bodyguard design
+        if (entity instanceof PillagerIroncladEntity && getOwner() != null && AlliedFactionHelper.isAllied(getOwner(), entity)) {
             return false;
         }
         return true;

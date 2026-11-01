@@ -9,11 +9,8 @@ import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
@@ -66,6 +63,11 @@ public class ScoutReconGoal extends Goal {
     }
 
     @Override
+    public boolean requiresUpdateEveryTick() {
+        return true;
+    }
+
+    @Override
     public boolean canUse() {
         if (!this.scout.isAlive()) return false;
         // Yield if already engaged in combat
@@ -77,6 +79,10 @@ public class ScoutReconGoal extends Goal {
     @Override
     public boolean canContinueToUse() {
         if (!this.scout.isAlive()) return false;
+        // If actively sounding the horn, allow alert to conclude unless interrupted by damage
+        if (this.currentState == ReconSubState.ALERTING) {
+            return this.scout.getActionState() == PillagerScoutEntity.ACTION_ALERT;
+        }
         if (this.scout.getTarget() != null && this.scout.getTarget().isAlive()) return false;
         if (this.scout.areDaggersDrawn()) return false;
         return true;
@@ -100,9 +106,6 @@ public class ScoutReconGoal extends Goal {
         if (this.scout.getActionState() == PillagerScoutEntity.ACTION_LOOK ||
             this.scout.getActionState() == PillagerScoutEntity.ACTION_ALERT) {
             this.scout.setActionState(PillagerScoutEntity.ACTION_NONE, 0);
-        }
-        if (this.currentState == ReconSubState.ALERTING) {
-            this.scout.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
         }
         this.spottedPlayer = null;
         this.playerExposureTicks = 0;
@@ -203,13 +206,33 @@ public class ScoutReconGoal extends Goal {
     }
 
     private void enterAlertState(Player player) {
+        int rx = Math.floorDiv(this.scout.getBlockX(), 128);
+        int rz = Math.floorDiv(this.scout.getBlockZ(), 128);
+        int localX = Math.floorMod(this.scout.getBlockX(), 128);
+        int localZ = Math.floorMod(this.scout.getBlockZ(), 128);
+        int sx = localX >= 64 ? 1 : 0;
+        int sz = localZ >= 64 ? 1 : 0;
+
+        // If reinforcement call is currently on cooldown in this subregion, bypass horn alarm and directly engage/evade
+        if (SubregionPatrolManager.isReinforcementOnCooldown(this.scout.level().getGameTime(), rx, rz, sx, sz)) {
+            this.scout.getNavigation().stop();
+            this.scout.setActionState(PillagerScoutEntity.ACTION_NONE, 0);
+            this.scout.setDaggersDrawn(true);
+            this.scout.setActionState(PillagerScoutEntity.ACTION_UNSHEATHE, 18);
+            this.scout.setTarget(player);
+            this.currentState = ReconSubState.MOVING;
+            this.moveTicks = 0;
+            this.detectedPlayer = null;
+            this.spottedPlayer = null;
+            return;
+        }
+
         this.currentState = ReconSubState.ALERTING;
         this.detectedPlayer = player;
         this.stateTicks = ALERT_HORN_DURATION_TICKS;
 
         this.scout.getNavigation().stop();
         this.scout.setActionState(PillagerScoutEntity.ACTION_ALERT, ALERT_HORN_DURATION_TICKS + 20);
-        this.scout.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.GOAT_HORN));
 
         // Face the detected threat
         this.scout.getLookControl().setLookAt(player, 40.0F, 40.0F);
@@ -226,7 +249,7 @@ public class ScoutReconGoal extends Goal {
 
         // Notify spotted player
         player.displayClientMessage(
-                net.minecraft.network.chat.Component.literal("§c🚨 [SPOTTED] A Pillager Scout has spotted you and sounded the alarm!"),
+                net.minecraft.network.chat.Component.translatable("chat.warfront.scout.spotted"),
                 true
         );
 
@@ -240,17 +263,6 @@ public class ScoutReconGoal extends Goal {
                     8,
                     0.35D, 0.35D, 0.35D, 0.02D
             );
-        }
-
-        // Trigger SubregionPatrolManager reinforcements
-        int rx = Math.floorDiv(this.scout.getBlockX(), 128);
-        int rz = Math.floorDiv(this.scout.getBlockZ(), 128);
-        int localX = Math.floorMod(this.scout.getBlockX(), 128);
-        int localZ = Math.floorMod(this.scout.getBlockZ(), 128);
-        int sx = localX >= 64 ? 1 : 0;
-        int sz = localZ >= 64 ? 1 : 0;
-
-        if (this.scout.level() instanceof ServerLevel sl) {
             SubregionPatrolManager.triggerScoutReinforcements(sl, rx, rz, sx, sz, player);
         }
     }
@@ -263,10 +275,10 @@ public class ScoutReconGoal extends Goal {
 
         this.stateTicks--;
         if (this.stateTicks <= 0) {
-            // Option 1B: Horn sequence completed! Draw daggers and engage player in melee to stall them
-            this.scout.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+            // Horn sequence completed! Draw daggers and engage player in melee to stall them
             this.scout.setActionState(PillagerScoutEntity.ACTION_NONE, 0);
             this.scout.setDaggersDrawn(true);
+            this.scout.setActionState(PillagerScoutEntity.ACTION_UNSHEATHE, 18);
 
             if (this.detectedPlayer != null && this.detectedPlayer.isAlive()) {
                 this.scout.setTarget(this.detectedPlayer);
@@ -295,7 +307,7 @@ public class ScoutReconGoal extends Goal {
         }
 
         for (Player player : this.scout.level().players()) {
-            if (!player.isAlive() || player.isSpectator()) {
+            if (!player.isAlive() || player.isSpectator() || player.isCreative()) {
                 continue;
             }
             if (AlliedFactionHelper.isAllied(this.scout, player)) {

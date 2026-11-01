@@ -109,6 +109,11 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                 if (ownerPf != null) {
                     playerFactionName = ownerPf.getName();
                 }
+            } else if (siege != null && siege.defenderPlayerFactionId() != null) {
+                com.warfront.faction.PlayerFaction defPf = com.warfront.faction.PlayerFactionData.get(player.serverLevel()).getFactionById(siege.defenderPlayerFactionId());
+                if (defPf != null) {
+                    playerFactionName = defPf.getName();
+                }
             }
 
             String attackerFactionName = "";
@@ -127,6 +132,8 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                 defenderProgress = siege.defenderProgress();
             }
 
+            String terrainName = com.warfront.region.terrain.TerrainClassifier.getRegionTerrainName(player.serverLevel(), region.x(), region.z());
+
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
@@ -136,7 +143,7 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                     attackerFactionId, isAwaitingReinf, reinfRemainingTicks, isEncircled,
                     baseAnchor, missionSeed,
                     playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress,
-                    playerInFactionRegion));
+                    playerInFactionRegion, terrainName));
         }
     }
 

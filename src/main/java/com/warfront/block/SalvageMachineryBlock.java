@@ -71,7 +71,7 @@ public class SalvageMachineryBlock extends Block {
         if (!state.getValue(DISARMED) && !level.isClientSide) {
             level.playSound(null, pos, SoundEvents.SHIELD_BLOCK, SoundSource.BLOCKS, 0.8F, 1.2F);
             player.displayClientMessage(
-                    Component.literal("§e[Warfront] §6🛡 Armored Machinery: §fProtected during combat! Disarms on Sector Victory."),
+                    Component.translatable("chat.warfront.salvage.armored_info"),
                     true
             );
             if (level instanceof ServerLevel serverLevel) {

@@ -1,0 +1,33 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "combat",
+  "pattern": [
+    "IBI",
+    "LPL",
+    "SRS"
+  ],
+  "key": {
+    "I": {
+      "item": "minecraft:iron_block"
+    },
+    "B": {
+      "item": "minecraft:crossbow"
+    },
+    "L": {
+      "tag": "minecraft:logs"
+    },
+    "P": {
+      "item": "warfront:heavy_pivot_bearing"
+    },
+    "S": {
+      "item": "minecraft:smooth_stone"
+    },
+    "R": {
+      "item": "minecraft:redstone"
+    }
+  ],
+  "result": {
+    "id": "warfront:friendly_ballista",
+    "count": 1
+  }
+}
