@@ -1,5 +1,7 @@
 package com.warfront.entity;
 
+import java.util.List;
+
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -67,6 +69,25 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private byte lastCombatState = STATE_IDLE;
+    private long flagRallyExpiryGameTime = 0L;
+
+    public boolean isRallied() {
+        return this.level().getGameTime() < this.flagRallyExpiryGameTime;
+    }
+
+    public void setRallied(int durationTicks) {
+        this.flagRallyExpiryGameTime = Math.max(this.flagRallyExpiryGameTime, this.level().getGameTime() + durationTicks);
+    }
+
+    public boolean isAllyNearTargetBlast(LivingEntity target) {
+        if (target == null) return false;
+        List<LivingEntity> allies = this.level().getEntitiesOfClass(
+                LivingEntity.class,
+                target.getBoundingBox().inflate(2.5D),
+                e -> e != this && e.isAlive() && AlliedFactionHelper.isAllied(this, e)
+        );
+        return !allies.isEmpty();
+    }
 
     public PillagerCannoneerEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -75,7 +96,7 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 40.0D)
+                .add(Attributes.MAX_HEALTH, 20.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.20D)
                 .add(Attributes.ARMOR, 4.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.50D)
@@ -315,9 +336,14 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
 
                     // 30 ticks (1.5s) full aiming sequence, ending at braced aim pose
                     if (this.phaseTicks >= 30) {
-                        this.currentPhase = STATE_SHOOTING;
-                        this.phaseTicks = 0;
-                        this.cannoneer.setCombatState(STATE_SHOOTING);
+                        if (this.cannoneer.isRallied() && this.cannoneer.isAllyNearTargetBlast(target)) {
+                            // Hold fire while rallied: allied melee troops are in splash blast zone!
+                            this.phaseTicks = 30;
+                        } else {
+                            this.currentPhase = STATE_SHOOTING;
+                            this.phaseTicks = 0;
+                            this.cannoneer.setCombatState(STATE_SHOOTING);
+                        }
                     }
                 }
                 case STATE_SHOOTING -> {
@@ -325,6 +351,13 @@ public class PillagerCannoneerEntity extends AbstractIllager implements GeoEntit
 
                     // Firing cannon bomb on tick 3 synchronized with explosive blast frame (t = 0.125s) in animation
                     if (this.phaseTicks == 3 && target != null && !this.cannoneer.level().isClientSide) {
+                        if (this.cannoneer.isRallied() && this.cannoneer.isAllyNearTargetBlast(target)) {
+                            // Last-second hold fire: ally rushed into blast radius! Revert to braced aim
+                            this.currentPhase = STATE_AIMING;
+                            this.phaseTicks = 30;
+                            this.cannoneer.setCombatState(STATE_AIMING);
+                            return;
+                        }
                         CannonBombEntity bomb = new CannonBombEntity(this.cannoneer.level(), this.cannoneer);
                         double dX = target.getX() - this.cannoneer.getX();
                         double dY = target.getY(0.5D) - bomb.getY();

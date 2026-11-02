@@ -375,11 +375,11 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
                                     this.getNavigation().stop();
                                 } else {
                                     // Continue closing distance
-                                    this.getNavigation().moveTo(target, 1.25D);
+                                    moveToEngagedTarget(target, distSq, meleeReach);
                                 }
                             } else {
                                 this.spacedOutTicks = 0;
-                                this.getNavigation().moveTo(target, 1.25D);
+                                moveToEngagedTarget(target, distSq, meleeReach);
                             }
                         }
                     }
@@ -1194,6 +1194,27 @@ public class PillagerEliteEntity extends AbstractIllager implements GeoEntity {
     public boolean isAlliedTo(Entity other) {
         if (AlliedFactionHelper.isAllied(this, other)) return true;
         return super.isAlliedTo(other);
+    }
+
+    private void moveToEngagedTarget(LivingEntity target, double distSq, double meleeReach) {
+        int slot = MeleeEngagementManager.getEngagedSlotIndex(target, this);
+        if ((slot == 2 || slot == 3) && distSq > meleeReach * meleeReach && distSq < 144.0D) {
+            double dX = target.getX() - this.getX();
+            double dZ = target.getZ() - this.getZ();
+            double dist = Math.sqrt(dX * dX + dZ * dZ);
+            if (dist > 0.001D) {
+                double fX = dX / dist;
+                double fZ = dZ / dist;
+                double pX = -fZ;
+                double pZ = fX;
+                double side = (slot == 2) ? 1.0D : -1.0D;
+                double flankX = target.getX() - (fX * 2.0D) + (pX * side * 4.0D);
+                double flankZ = target.getZ() - (fZ * 2.0D) + (pZ * side * 4.0D);
+                this.getNavigation().moveTo(flankX, target.getY(), flankZ, 1.25D);
+                return;
+            }
+        }
+        this.getNavigation().moveTo(target, 1.25D);
     }
 
     @Override

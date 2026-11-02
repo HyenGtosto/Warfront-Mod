@@ -79,7 +79,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 26.0D)
+                .add(Attributes.MAX_HEALTH, 18.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.20D)
                 .add(Attributes.ATTACK_DAMAGE, 4.0D)
                 .add(Attributes.ARMOR, 4.0D)
@@ -143,10 +143,20 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
         this.level().addFreshEntity(arrow);
     }
 
+    private long flagRallyExpiryGameTime = 0L;
+
+    public boolean isRallied() {
+        return this.level().getGameTime() < this.flagRallyExpiryGameTime;
+    }
+
+    public void setRallied(int durationTicks) {
+        this.flagRallyExpiryGameTime = Math.max(this.flagRallyExpiryGameTime, this.level().getGameTime() + durationTicks);
+    }
+
     /**
-     * Hold Fire check: verifies if another allied Pillager Marksman is directly in this entity's line of fire.
-     * Prevents marksmen from shooting fellow marksmen in the back.
-     * Note: Only checks fellow Pillager Marksmen — other enemies are ignored, keeping the "don't care about friendly fire" attitude.
+     * Hold Fire check: verifies if another entity is directly in this entity's line of fire.
+     * Normally: only checks fellow Pillager Marksmen.
+     * Under Flag Rally (20s): checks ALL allied entities (Warriors, Elites, Commander, etc.), holding fire until the firing lane clears.
      */
     public boolean isMarksmanInLineOfSight(LivingEntity target) {
         if (target == null || !target.isAlive()) {
@@ -164,22 +174,31 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
         Vec3 rayDir = rayVec.normalize();
         AABB corridorBox = this.getBoundingBox().expandTowards(rayVec).inflate(1.5D);
 
-        List<PillagerMarksmanEntity> marksmen = this.level().getEntitiesOfClass(
-                PillagerMarksmanEntity.class,
-                corridorBox,
-                other -> other != this && other.isAlive()
-        );
+        List<? extends LivingEntity> obstructions;
+        if (isRallied()) {
+            obstructions = this.level().getEntitiesOfClass(
+                    LivingEntity.class,
+                    corridorBox,
+                    other -> other != this && other.isAlive() && AlliedFactionHelper.isAllied(this, other) && !(other instanceof PillagerIroncladEntity)
+            );
+        } else {
+            obstructions = this.level().getEntitiesOfClass(
+                    PillagerMarksmanEntity.class,
+                    corridorBox,
+                    other -> other != this && other.isAlive()
+            );
+        }
 
-        for (PillagerMarksmanEntity other : marksmen) {
+        for (LivingEntity other : obstructions) {
             Vec3 toOther = other.getBoundingBox().getCenter().subtract(start);
             double projection = toOther.dot(rayDir);
 
-            // Marksman must be in front of shooter and before the target
+            // Obstruction must be in front of shooter and before the target
             if (projection <= 0.2D || projection >= distTarget - 0.4D) {
                 continue;
             }
 
-            // Check if arrow line segment intersects other marksman's bounding box (inflated for safety margin)
+            // Check if arrow line segment intersects bounding box (inflated for safety margin)
             AABB inflatedBox = other.getBoundingBox().inflate(0.35D, 0.25D, 0.35D);
             if (inflatedBox.clip(start, end).isPresent() || inflatedBox.contains(start)) {
                 return true;

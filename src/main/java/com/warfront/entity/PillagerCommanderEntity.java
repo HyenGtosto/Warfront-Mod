@@ -1,5 +1,7 @@
 package com.warfront.entity;
 
+import com.warfront.ai.MeleeEngagementManager;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -7,6 +9,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
@@ -80,6 +84,9 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     private LivingEntity pendingAttackTarget = null;
     private int attackImpactTicks = -1;
     private byte lastActionState = ACTION_NONE;
+    private int lastHitTargetTick = 0;
+    private int sheatheCooldownTicks = 0;
+    private int tacticalCycleTimer = 300;
 
     public PillagerCommanderEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -88,7 +95,7 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 36.0D)
+                .add(Attributes.MAX_HEALTH, 25.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.21D)
                 .add(Attributes.ATTACK_DAMAGE, 8.5D)
                 .add(Attributes.ARMOR, 7.0D)
@@ -147,6 +154,22 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
             this.setAggressive(hasTarget);
             this.setSprinting(hasTarget && isDirectlyThreatened() && (this.getDeltaMovement().horizontalDistanceSqr() > 0.005D));
 
+            if (this.sheatheCooldownTicks > 0) {
+                this.sheatheCooldownTicks--;
+            }
+
+            // 12-second hit timeout: sheathe sword if no hits landed for 240 ticks, retaining aggro on target
+            if (this.isSwordDrawn()) {
+                if (this.tickCount - this.lastHitTargetTick >= 240) {
+                    this.setSwordDrawn(false);
+                    this.setActionState(ACTION_SHEATHE, 20);
+                    this.sheatheCooldownTicks = 80; // 4s grace cooldown before re-drawing
+                    this.lastHitTargetTick = 0;
+                    this.getNavigation().stop();
+                    this.playSound(SoundEvents.ARMOR_EQUIP_IRON.value(), 1.0F, 0.9F);
+                }
+            }
+
             if (this.actionDurationTicks > 0) {
                 this.actionDurationTicks--;
                 if (this.actionDurationTicks <= 0) {
@@ -170,6 +193,7 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
                         double reach = this.getBbWidth() * 2.0F + this.pendingAttackTarget.getBbWidth() + 1.2D;
                         if (this.distanceToSqr(this.pendingAttackTarget) <= reach * reach) {
                             super.doHurtTarget(this.pendingAttackTarget);
+                            this.lastHitTargetTick = this.tickCount; // Refresh 12-second timer on successful hit!
                             this.playSound(SoundEvents.PLAYER_ATTACK_CRIT, 1.0F, 0.85F);
                         }
                     }
@@ -188,25 +212,35 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
 
     public boolean isDirectlyThreatened() {
         LivingEntity target = getTarget();
-        if (target == null) return false;
+        if (target == null || !target.isAlive()) return false;
 
         // Player is right in face (< 4 blocks)
         if (distanceToSqr(target) < 16.0D) {
             return true;
         }
 
-        // Commander took recent damage
-        if (this.getLastHurtByMob() != null && (this.tickCount - this.getLastHurtByMobTimestamp() < 120)) {
+        // Sheathe grace cooldown: prevents instant re-unsheathing after 12s timeout
+        if (this.sheatheCooldownTicks > 0) {
+            return false;
+        }
+
+        // Commander took very recent damage (within 3 seconds)
+        if (this.getLastHurtByMob() != null && (this.tickCount - this.getLastHurtByMobTimestamp() < 60)) {
             return true;
         }
 
-        // No allies nearby to hide behind
+        // Currently drawn sword melee stance continues until timeout or target loss
+        if (this.isSwordDrawn()) {
+            return true;
+        }
+
+        // No allies nearby to hide behind, but only if target is within 10m
         List<AbstractIllager> allies = this.level().getEntitiesOfClass(
                 AbstractIllager.class,
                 this.getBoundingBox().inflate(18.0D),
                 e -> e != this && e.isAlive()
         );
-        return allies.isEmpty();
+        return allies.isEmpty() && distanceToSqr(target) < 100.0D;
     }
 
     @Override
@@ -327,12 +361,88 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     }
 
     /**
+     * Executes the Sword Raise ability: grants Speed I and weak Regeneration I to all allies within 20 blocks for 10 seconds.
+     */
+    public void castSwordRaise() {
+        setActionState(ACTION_SWORD_RAISE, 28);
+        this.playSound(SoundEvents.PILLAGER_CELEBRATE, 1.2F, 1.0F);
+        this.getNavigation().stop();
+
+        if (this.level() instanceof ServerLevel sl) {
+            sl.sendParticles(ParticleTypes.HAPPY_VILLAGER, this.getX(), this.getEyeY() + 0.5D, this.getZ(), 10, 0.5D, 0.5D, 0.5D, 0.1D);
+
+            List<LivingEntity> allies = this.level().getEntitiesOfClass(
+                    LivingEntity.class,
+                    this.getBoundingBox().inflate(20.0D),
+                    e -> e.isAlive() && AlliedFactionHelper.isAllied(this, e)
+            );
+
+            for (LivingEntity ally : allies) {
+                // Speed I for 10 seconds (200 ticks)
+                ally.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 200, 0));
+                // Weak Regeneration I for 10 seconds (200 ticks)
+                ally.addEffect(new MobEffectInstance(MobEffects.REGENERATION, 200, 0));
+                sl.sendParticles(ParticleTypes.HAPPY_VILLAGER, ally.getX(), ally.getY() + ally.getBbHeight() * 0.7D, ally.getZ(), 5, 0.3D, 0.3D, 0.3D, 0.05D);
+            }
+        }
+    }
+
+    /**
+     * Executes the Flag Rally ability:
+     * - Ranged allies (Marksmen, Cannoneers) hold fire if allies are in danger of friendly fire.
+     * - Player melee engagement limit is raised to 4 from 2 in MeleeEngagementManager.
+     * - 3rd and 4th attackers coordinate lateral pincer flanking.
+     * - Lasts 20 seconds (400 ticks) with clean post-buff expiry.
+     */
+    public void castFlagRally() {
+        setActionState(ACTION_BANNER_SWING, 52);
+        this.playSound(SoundEvents.RAID_HORN.value(), 1.5F, 1.0F);
+        this.getNavigation().stop();
+
+        if (this.level() instanceof ServerLevel sl) {
+            sl.sendParticles(ParticleTypes.ANGRY_VILLAGER, this.getX(), this.getEyeY() + 0.8D, this.getZ(), 8, 0.4D, 0.4D, 0.4D, 0.05D);
+
+            List<LivingEntity> allies = this.level().getEntitiesOfClass(
+                    LivingEntity.class,
+                    this.getBoundingBox().inflate(24.0D),
+                    e -> e.isAlive() && AlliedFactionHelper.isAllied(this, e)
+            );
+
+            long rallyExpiryGameTime = this.level().getGameTime() + 400L;
+
+            for (LivingEntity ally : allies) {
+                if (ally instanceof PillagerMarksmanEntity marksman) {
+                    marksman.setRallied(400);
+                } else if (ally instanceof PillagerCannoneerEntity cannoneer) {
+                    cannoneer.setRallied(400);
+                }
+                ally.getPersistentData().putLong("warfront_rallied_until", rallyExpiryGameTime);
+                sl.sendParticles(ParticleTypes.ANGRY_VILLAGER, ally.getX(), ally.getY() + ally.getBbHeight() * 0.8D, ally.getZ(), 3, 0.2D, 0.2D, 0.2D, 0.02D);
+            }
+
+            // Target players within 24m or current target if player: boost melee engagement limit from 2 to 4 for 400 ticks
+            List<Player> players = this.level().getEntitiesOfClass(
+                    Player.class,
+                    this.getBoundingBox().inflate(24.0D),
+                    p -> p.isAlive() && !AlliedFactionHelper.isAllied(this, p)
+            );
+
+            for (Player player : players) {
+                MeleeEngagementManager.applyRallyBoost(player.getUUID(), this.level(), 400);
+            }
+
+            LivingEntity target = this.getTarget();
+            if (target instanceof Player p && !players.contains(p)) {
+                MeleeEngagementManager.applyRallyBoost(p.getUUID(), this.level(), 400);
+            }
+        }
+    }
+
+    /**
      * AI Goal: Commander stands behind allies and periodically casts sword raise or banner swing to rally troops.
      */
     static class CommanderTacticsGoal extends Goal {
         private final PillagerCommanderEntity commander;
-        private int buffCooldownTicks = 100;
-        private boolean nextBuffIsBanner = true;
 
         public CommanderTacticsGoal(PillagerCommanderEntity commander) {
             this.commander = commander;
@@ -342,7 +452,13 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
         @Override
         public boolean canUse() {
             LivingEntity target = this.commander.getTarget();
-            return target != null && target.isAlive() && !this.commander.isDirectlyThreatened();
+            return target != null && target.isAlive() && !this.commander.isSwordDrawn() && !this.commander.isDirectlyThreatened();
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            LivingEntity target = this.commander.getTarget();
+            return target != null && target.isAlive() && !this.commander.isSwordDrawn() && !this.commander.isDirectlyThreatened();
         }
 
         @Override
@@ -381,19 +497,17 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
                 }
             }
 
-            // Periodic buff animation cycle (banner swing or sword raise)
-            this.buffCooldownTicks--;
-            if (this.buffCooldownTicks <= 0 && this.commander.getActionState() == ACTION_NONE) {
-                this.buffCooldownTicks = 160 + this.commander.getRandom().nextInt(80); // ~8-12 seconds
-                if (nextBuffIsBanner) {
-                    this.commander.setActionState(ACTION_BANNER_SWING, 44);
-                    this.commander.playSound(SoundEvents.RAID_HORN.value(), 1.2F, 1.0F);
-                } else {
-                    this.commander.setActionState(ACTION_SWORD_RAISE, 28);
-                    this.commander.playSound(SoundEvents.PILLAGER_CELEBRATE, 1.0F, 1.0F);
+            // Periodic 15-second ability cycle (300 ticks) when aggroed and sheathed (Option 1C & 2A)
+            this.commander.tacticalCycleTimer--;
+            if (this.commander.tacticalCycleTimer <= 0) {
+                this.commander.tacticalCycleTimer = 300;
+                if (this.commander.getActionState() == ACTION_NONE) {
+                    if (this.commander.getRandom().nextBoolean()) {
+                        this.commander.castFlagRally();
+                    } else {
+                        this.commander.castSwordRaise();
+                    }
                 }
-                nextBuffIsBanner = !nextBuffIsBanner;
-                this.commander.getNavigation().stop();
             }
         }
     }
@@ -415,11 +529,17 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
         }
 
         @Override
+        public boolean canContinueToUse() {
+            return super.canContinueToUse() && this.commander.isSwordDrawn();
+        }
+
+        @Override
         public void start() {
             super.start();
             if (!this.commander.isSwordDrawn()) {
                 this.commander.setSwordDrawn(true);
                 this.commander.setActionState(ACTION_UNSHEATHE, 20);
+                this.commander.lastHitTargetTick = this.commander.tickCount;
             }
         }
 
@@ -432,6 +552,7 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
                     && this.commander.getActionState() == ACTION_NONE) {
                 this.commander.setSwordDrawn(false);
                 this.commander.setActionState(ACTION_SHEATHE, 20);
+                this.commander.lastHitTargetTick = 0;
             }
         }
     }

@@ -94,7 +94,7 @@ public class PillagerRiflemanEntity extends AbstractIllager implements GeoEntity
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 30.0D)
+                .add(Attributes.MAX_HEALTH, 24.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.22D)
                 .add(Attributes.ATTACK_DAMAGE, 7.0D) // Bayonet strike damage
                 .add(Attributes.ARMOR, 6.0D)

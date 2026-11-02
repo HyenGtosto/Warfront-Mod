@@ -82,10 +82,10 @@ public class PillagerScoutEntity extends AbstractIllager implements GeoEntity {
 
     public static AttributeSupplier.Builder createAttributes() {
         return Monster.createMonsterAttributes()
-                .add(Attributes.MAX_HEALTH, 22.0D)
+                .add(Attributes.MAX_HEALTH, 16.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.28D)
                 .add(Attributes.ATTACK_DAMAGE, 5.0D)
-                .add(Attributes.ARMOR, 3.0D)
+                .add(Attributes.ARMOR, 2.0D)
                 .add(Attributes.FOLLOW_RANGE, 48.0D);
     }
 

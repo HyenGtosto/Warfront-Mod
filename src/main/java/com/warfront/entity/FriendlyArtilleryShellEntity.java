@@ -276,16 +276,58 @@ public class FriendlyArtilleryShellEntity extends Projectile implements GeoEntit
         serverLevel.playSound(null, blockPosition(), SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.BLOCKS, 6.0F, 0.9F);
         serverLevel.playSound(null, blockPosition(), SoundEvents.GENERIC_EXPLODE.value(), SoundSource.BLOCKS, 5.0F, 0.7F);
 
-        // Disperse 18 bomblets calibrated for a 20-meter radius coverage (R <= 20.0m)
-        // Freefall from h=25 under g=0.05 takes ~31.6 ticks. Max speed = 20.0 / 31.62 = 0.6325 blocks/tick.
-        // Randomized vertical velocity creates 0.2-0.3s (4-6 ticks) arrival time variation for a rolling strike.
-        for (int i = 0; i < 18; i++) {
-            double angle = (i * Math.PI * 2.0D / 18.0D) + (random.nextDouble() * 0.25D - 0.125D);
-            double rFraction = 0.20D + 0.80D * Math.sqrt((i + 0.5D) / 18.0D);
-            double speed = 0.6325D * rFraction;
+        // Disperse 18 bomblets across a 20-meter radius footprint using Mitchell's Best-Candidate algorithm
+        // (Blue noise semi-random scatter: each bomblet picks a location maximizing distance from previously chosen bomblets)
+        // Freefall from h=25 under g=0.05 takes ~31.62 ticks (t_fall = sqrt(2 * 25.0 / 0.05)).
+        // Randomized vertical velocity creates 0.2-0.3s (4-6 ticks) arrival time variation for an authentic rolling strike.
+        final int bombletCount = 18;
+        final int candidatesPerBomblet = 14;
+        final double maxRadius = 10.0D;
+        final double nominalFallTicks = 31.6227766D;
 
-            double vx = Math.cos(angle) * speed;
-            double vz = Math.sin(angle) * speed;
+        double[] chosenX = new double[bombletCount];
+        double[] chosenZ = new double[bombletCount];
+
+        for (int i = 0; i < bombletCount; i++) {
+            double bestX = 0.0D;
+            double bestZ = 0.0D;
+            double maxMinDistSq = -1.0D;
+
+            int candidateCount = (i == 0) ? 1 : candidatesPerBomblet;
+            for (int c = 0; c < candidateCount; c++) {
+                double theta = random.nextDouble() * Math.PI * 2.0D;
+                double r = maxRadius * Math.sqrt(0.04D + 0.96D * random.nextDouble());
+                double candX = r * Math.cos(theta);
+                double candZ = r * Math.sin(theta);
+
+                if (i == 0) {
+                    bestX = candX;
+                    bestZ = candZ;
+                    break;
+                }
+
+                double minDistSq = Double.MAX_VALUE;
+                for (int j = 0; j < i; j++) {
+                    double dx = candX - chosenX[j];
+                    double dz = candZ - chosenZ[j];
+                    double distSq = dx * dx + dz * dz;
+                    if (distSq < minDistSq) {
+                        minDistSq = distSq;
+                    }
+                }
+
+                if (minDistSq > maxMinDistSq) {
+                    maxMinDistSq = minDistSq;
+                    bestX = candX;
+                    bestZ = candZ;
+                }
+            }
+
+            chosenX[i] = bestX;
+            chosenZ[i] = bestZ;
+
+            double vx = bestX / nominalFallTicks;
+            double vz = bestZ / nominalFallTicks;
             double vy = (random.nextDouble() * 0.30D - 0.15D); // +/- 0.15 b/t produces 4-6 ticks (0.2-0.3s) arrival variation
 
             FriendlyClusterBombletEntity bomblet = new FriendlyClusterBombletEntity(serverLevel, getX(), getY(), getZ());

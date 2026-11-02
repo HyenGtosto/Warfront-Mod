@@ -117,7 +117,7 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
                 .add(Attributes.MAX_HEALTH, 24.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.23D)
                 .add(Attributes.ATTACK_DAMAGE, 8.0D)
-                .add(Attributes.ARMOR, 3.0D)
+                .add(Attributes.ARMOR, 5.0D)
                 .add(Attributes.KNOCKBACK_RESISTANCE, 0.20D)
                 .add(Attributes.FOLLOW_RANGE, 32.0D);
     }
@@ -701,6 +701,33 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
         }
 
         @Override
+        public void tick() {
+            super.tick();
+            LivingEntity target = this.warrior.getTarget();
+            if (target != null && target.isAlive()) {
+                int slot = MeleeEngagementManager.getEngagedSlotIndex(target, this.warrior);
+                if (slot == 2 || slot == 3) {
+                    double distSq = this.warrior.distanceToSqr(target);
+                    if (distSq > 12.0D && distSq < 144.0D && this.warrior.tickCount % 5 == 0) {
+                        double dX = target.getX() - this.warrior.getX();
+                        double dZ = target.getZ() - this.warrior.getZ();
+                        double dist = Math.sqrt(dX * dX + dZ * dZ);
+                        if (dist > 0.001D) {
+                            double fX = dX / dist;
+                            double fZ = dZ / dist;
+                            double pX = -fZ;
+                            double pZ = fX;
+                            double side = (slot == 2) ? 1.0D : -1.0D;
+                            double flankX = target.getX() - (fX * 2.0D) + (pX * side * 4.0D);
+                            double flankZ = target.getZ() - (fZ * 2.0D) + (pZ * side * 4.0D);
+                            this.warrior.getNavigation().moveTo(flankX, target.getY(), flankZ, 1.05D);
+                        }
+                    }
+                }
+            }
+        }
+
+        @Override
         protected void checkAndPerformAttack(LivingEntity target) {
             if (this.canPerformAttack(target)) {
                 this.resetAttackCooldown();
@@ -761,7 +788,26 @@ public class PillagerWarriorEntity extends AbstractIllager implements GeoEntity 
                     }
                 } else {
                     // Active duelist engagement: steadily advance forward
-                    this.warrior.getNavigation().moveTo(target, 0.85D);
+                    int slot = MeleeEngagementManager.getEngagedSlotIndex(target, this.warrior);
+                    if ((slot == 2 || slot == 3) && distSq > reach * reach && distSq < 144.0D) {
+                        double dX = target.getX() - this.warrior.getX();
+                        double dZ = target.getZ() - this.warrior.getZ();
+                        double dist = Math.sqrt(dX * dX + dZ * dZ);
+                        if (dist > 0.001D) {
+                            double fX = dX / dist;
+                            double fZ = dZ / dist;
+                            double pX = -fZ;
+                            double pZ = fX;
+                            double side = (slot == 2) ? 1.0D : -1.0D;
+                            double flankX = target.getX() - (fX * 2.0D) + (pX * side * 4.0D);
+                            double flankZ = target.getZ() - (fZ * 2.0D) + (pZ * side * 4.0D);
+                            this.warrior.getNavigation().moveTo(flankX, target.getY(), flankZ, 0.85D);
+                        } else {
+                            this.warrior.getNavigation().moveTo(target, 0.85D);
+                        }
+                    } else {
+                        this.warrior.getNavigation().moveTo(target, 0.85D);
+                    }
                 }
 
                 if (this.shieldAttackCooldown > 0) {

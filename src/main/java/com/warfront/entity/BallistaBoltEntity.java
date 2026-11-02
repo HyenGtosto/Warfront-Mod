@@ -47,7 +47,7 @@ import java.util.UUID;
 public class BallistaBoltEntity extends Projectile implements GeoEntity {
 
     public static final double GRAVITY = 0.005D;
-    public static final float PIERCING_DAMAGE = 20.0F;
+    public static final float PIERCING_DAMAGE = 30.0F;
     public static final double SHOCKWAVE_RADIUS = 4.0D;
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
@@ -196,10 +196,14 @@ public class BallistaBoltEntity extends Projectile implements GeoEntity {
                 continue;
             }
 
-            // Check direct piercing intersection against expanded entity hitbox
-            AABB targetBox = target.getBoundingBox().inflate(0.35D);
-            Optional<Vec3> clipHit = targetBox.clip(startPos, endPos);
-            boolean directHit = clipHit.isPresent() || targetBox.contains(startPos) || targetBox.contains(endPos);
+            // 3D Swept Hitbox: Expand entity box by the bolt's 0.55m physical cross-section
+            AABB targetBox = target.getBoundingBox().inflate(0.55D);
+            Vec3 targetCenter = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
+            Vec3 closestPoint = closestPointOnSegment(startPos, endPos, targetCenter);
+            boolean directHit = targetBox.contains(closestPoint)
+                    || targetBox.clip(startPos, endPos).isPresent()
+                    || targetBox.contains(startPos)
+                    || targetBox.contains(endPos);
 
             if (directHit) {
                 this.hitEntityIds.add(id);
@@ -223,8 +227,6 @@ public class BallistaBoltEntity extends Projectile implements GeoEntity {
 
             // Near-miss Sonic Boom Shockwave (Option B - Knockback Only within 2.0m perpendicular distance)
             if (!this.shockwavedEntityIds.contains(id)) {
-                Vec3 targetCenter = target.position().add(0.0D, target.getBbHeight() * 0.5D, 0.0D);
-                Vec3 closestPoint = closestPointOnSegment(startPos, endPos, targetCenter);
                 double perpDist = targetCenter.distanceTo(closestPoint);
 
                 if (perpDist <= SHOCKWAVE_RADIUS) {

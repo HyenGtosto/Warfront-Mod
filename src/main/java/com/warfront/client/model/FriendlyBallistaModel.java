@@ -9,7 +9,7 @@ import software.bernie.geckolib.model.DefaultedBlockGeoModel;
 public class FriendlyBallistaModel extends DefaultedBlockGeoModel<FriendlyBallistaBlockEntity> {
 
     public FriendlyBallistaModel() {
-        super(ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "friendly_ballista"));
+        super(ResourceLocation.fromNamespaceAndPath(Warfront.MOD_ID, "ballista_turret"));
     }
 
     @Override
@@ -25,6 +25,14 @@ public class FriendlyBallistaModel extends DefaultedBlockGeoModel<FriendlyBallis
 
         getBone("Ballista").ifPresent(ballista -> {
             ballista.setRotZ((float) Math.toRadians(-pitch));
+        });
+
+        getBone("Bolt").ifPresent(bolt -> {
+            if (animatable.getFireAnimTicks() <= 0 && !animatable.isBoltChambered()) {
+                bolt.setHidden(true);
+            } else {
+                bolt.setHidden(false);
+            }
         });
     }
 }

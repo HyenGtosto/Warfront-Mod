@@ -49,6 +49,7 @@ import org.jetbrains.annotations.Nullable;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.animation.AnimatableManager;
+import software.bernie.geckolib.animation.Animation;
 import software.bernie.geckolib.animation.AnimationController;
 import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
@@ -65,8 +66,10 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
 
     public static final float YAW_SPEED_DEG_PER_TICK = 0.75F;   // 15 deg/sec
     public static final float PITCH_SPEED_DEG_PER_TICK = 0.375F; // 7.5 deg/sec
+    public static final float MIN_PITCH = -25.0F;                // Maximum downward depression
+    public static final float MAX_PITCH = 35.0F;                 // Maximum upward elevation
     public static final int COOLDOWN_TICKS = 300;                // 15 seconds
-    public static final double MUZZLE_VELOCITY = 7.0D;           // 140 m/s
+    public static final double MUZZLE_VELOCITY = 8.0D;           // 160 m/s
     public static final double GRAVITY = BallistaBoltEntity.GRAVITY;
 
     public static final int AMMO_SLOTS = 5;
@@ -78,7 +81,9 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
     private static final int[] SLOTS_SIDES = new int[]{0, 1, 2, 3, 4, 5};
 
     private static final RawAnimation FIRE_AND_RELOAD_ANIM =
-            RawAnimation.begin().thenPlay("shoot").thenPlay("reload");
+            RawAnimation.begin()
+                    .then("shoot", Animation.LoopType.PLAY_ONCE)
+                    .then("reload", Animation.LoopType.PLAY_ONCE);
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private final NonNullList<ItemStack> items = NonNullList.withSize(TOTAL_SLOTS, ItemStack.EMPTY);
@@ -249,12 +254,14 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
         this.currentYaw = Mth.wrapDegrees(this.currentYaw + Mth.clamp(yawDiff, -YAW_SPEED_DEG_PER_TICK, YAW_SPEED_DEG_PER_TICK));
         this.currentPitch = Mth.approach(this.currentPitch, this.targetPitch, PITCH_SPEED_DEG_PER_TICK);
 
-        // 6. Fire ballista when aligned and ready
+        // 6. Fire ballista when aligned and ready (zero tolerance, snap directly onto target center)
         if (this.hasTarget && this.reloadCooldown <= 0 && isOperational() && this.boltChambered) {
             float absYawDiff = Math.abs(Mth.degreesDifference(this.currentYaw, this.targetYaw));
             float absPitchDiff = Math.abs(this.currentPitch - this.targetPitch);
 
-            if (absYawDiff <= 1.5F && absPitchDiff <= 1.0F) {
+            if (absYawDiff <= YAW_SPEED_DEG_PER_TICK && absPitchDiff <= PITCH_SPEED_DEG_PER_TICK) {
+                this.currentYaw = this.targetYaw;
+                this.currentPitch = this.targetPitch;
                 fireBallista(serverLevel);
                 stateChanged = true;
             }
@@ -340,6 +347,19 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
         double distSq = target.distanceToSqr(muzzlePos);
         if (distSq < 64.0D || distSq > 25600.0D) {
             return false;
+        }
+
+        // Mechanical vertical elevation check (pitch reachability)
+        double dx = target.getX() - muzzlePos.x;
+        double dz = target.getZ() - muzzlePos.z;
+        double dy = (target.getY() + target.getBbHeight() * 0.70D) - muzzlePos.y;
+        double distHoriz = Math.sqrt(dx * dx + dz * dz);
+        if (distHoriz < 1.0E-4D) return false;
+        double flightTicks = distHoriz / MUZZLE_VELOCITY;
+        double dropComp = 0.5D * GRAVITY * flightTicks * flightTicks;
+        double reqPitch = Math.toDegrees(Math.atan2(dy + dropComp, distHoriz));
+        if (reqPitch < MIN_PITCH || reqPitch > MAX_PITCH) {
+            return false; // Target is physically outside mechanical vertical elevation bounds
         }
 
         // 3x3 subregions footprint
@@ -433,9 +453,9 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
         double flightTicks = rawDist / MUZZLE_VELOCITY;
 
         Vec3 targetVel = target.getDeltaMovement();
-        double targetX = target.getX() + targetVel.x * flightTicks * 0.65D;
-        double targetY = target.getY() + target.getBbHeight() * 0.55D;
-        double targetZ = target.getZ() + targetVel.z * flightTicks * 0.65D;
+        double targetX = target.getX() + targetVel.x * flightTicks;
+        double targetY = target.getY() + target.getBbHeight() * 0.70D;
+        double targetZ = target.getZ() + targetVel.z * flightTicks;
 
         double dx = targetX - muzzleX;
         double dz = targetZ - muzzleZ;
@@ -446,7 +466,13 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
 
         double dropCompensation = 0.5D * GRAVITY * flightTicks * flightTicks;
         double pitchRad = Math.atan2(dy + dropCompensation, Math.max(1.0D, distHoriz));
-        this.targetPitch = Mth.clamp((float) Math.toDegrees(pitchRad), -25.0F, 35.0F);
+        float rawPitch = (float) Math.toDegrees(pitchRad);
+        if (rawPitch < MIN_PITCH || rawPitch > MAX_PITCH) {
+            this.hasTarget = false;
+            this.targetEntityUuid = null;
+            return;
+        }
+        this.targetPitch = rawPitch;
     }
 
     private void fireBallista(ServerLevel serverLevel) {
@@ -495,6 +521,14 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
     public void setOwnerFactionId(UUID ownerFactionId) {
         this.ownerFactionId = ownerFactionId;
         setChanged();
+    }
+
+    public boolean isBoltChambered() {
+        return this.boltChambered;
+    }
+
+    public int getFireAnimTicks() {
+        return this.fireAnimTicks;
     }
 
     public boolean isDeactivated() {
@@ -721,6 +755,7 @@ public class FriendlyBallistaBlockEntity extends BlockEntity implements GeoBlock
             if (this.fireAnimTicks > 0) {
                 return state.setAndContinue(FIRE_AND_RELOAD_ANIM);
             }
+            state.getController().stop();
             return PlayState.STOP;
         }).triggerableAnim("fire_cycle", FIRE_AND_RELOAD_ANIM));
     }

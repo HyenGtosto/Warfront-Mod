@@ -25,6 +25,7 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import software.bernie.geckolib.animatable.GeoBlockEntity;
 import software.bernie.geckolib.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.animation.AnimatableManager;
+import software.bernie.geckolib.animation.Animation;
 import software.bernie.geckolib.animation.AnimationController;
 import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
@@ -42,6 +43,10 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
     public static final float YAW_SPEED_DEG_PER_TICK = 0.75F;
     public static final float PITCH_SPEED_DEG_PER_TICK = 0.375F;
 
+    // Pitch angle limits
+    public static final float MIN_PITCH = -25.0F;
+    public static final float MAX_PITCH = 35.0F;
+
     // Firing cooldown: 15 seconds (300 ticks)
     public static final int COOLDOWN_TICKS = 300;
 
@@ -50,7 +55,9 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
     public static final double GRAVITY = BallistaBoltEntity.GRAVITY; // 0.005 blocks/tick^2
 
     private static final RawAnimation FIRE_AND_RELOAD_ANIM =
-            RawAnimation.begin().thenPlay("shoot").thenPlay("reload");
+            RawAnimation.begin()
+                    .then("shoot", Animation.LoopType.PLAY_ONCE)
+                    .then("reload", Animation.LoopType.PLAY_ONCE);
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
@@ -94,8 +101,8 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
         }
 
         if (targetPlayer != null) {
+            this.hasTarget = true;
             calculateAimAngles(targetPlayer);
-            hasTarget = true;
         }
 
         this.prevYaw = this.currentYaw;
@@ -109,7 +116,9 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
             float absYawDiff = Math.abs(Mth.degreesDifference(this.currentYaw, this.targetYaw));
             float absPitchDiff = Math.abs(this.currentPitch - this.targetPitch);
 
-            if (absYawDiff <= 1.5F && absPitchDiff <= 1.0F) {
+            if (absYawDiff <= YAW_SPEED_DEG_PER_TICK && absPitchDiff <= PITCH_SPEED_DEG_PER_TICK) {
+                this.currentYaw = this.targetYaw;
+                this.currentPitch = this.targetPitch;
                 fireBallista(serverLevel);
             }
         }
@@ -181,6 +190,19 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
         // Minimum range: 8 blocks; Maximum range: 160 blocks
         if (distSq < 64.0D || distSq > 25600.0D) {
             return false;
+        }
+
+        // Mechanical vertical elevation check (pitch reachability)
+        double dx = player.getX() - muzzlePos.x;
+        double dz = player.getZ() - muzzlePos.z;
+        double dy = (player.getY() + player.getBbHeight() * 0.70D) - muzzlePos.y;
+        double distHoriz = Math.sqrt(dx * dx + dz * dz);
+        if (distHoriz < 1.0E-4D) return false;
+        double flightTicks = distHoriz / MUZZLE_VELOCITY;
+        double dropComp = 0.5D * GRAVITY * flightTicks * flightTicks;
+        double reqPitch = Math.toDegrees(Math.atan2(dy + dropComp, distHoriz));
+        if (reqPitch < MIN_PITCH || reqPitch > MAX_PITCH) {
+            return false; // Target is physically outside mechanical vertical elevation bounds
         }
 
         Vec3 targetEye = player.getEyePosition();
@@ -256,11 +278,11 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
         double rawDist = Math.sqrt(rawDx * rawDx + rawDz * rawDz);
         double flightTicks = rawDist / MUZZLE_VELOCITY;
 
-        // Target velocity lead compensation
+        // Target velocity lead compensation (100% velocity vector without under-lead)
         Vec3 playerVel = player.getDeltaMovement();
-        double targetX = player.getX() + playerVel.x * flightTicks * 0.65D;
-        double targetY = player.getY() + player.getBbHeight() * 0.55D;
-        double targetZ = player.getZ() + playerVel.z * flightTicks * 0.65D;
+        double targetX = player.getX() + playerVel.x * flightTicks;
+        double targetY = player.getY() + player.getBbHeight() * 0.70D;
+        double targetZ = player.getZ() + playerVel.z * flightTicks;
 
         double dx = targetX - muzzleX;
         double dz = targetZ - muzzleZ;
@@ -270,10 +292,16 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
         // Yaw angle (Ballista faces North -Z at yaw 0: North=0, East=+90, South=180, West=-90)
         this.targetYaw = Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(dx, -dz)));
 
-        // Direct-fire flat ballistic elevation with slight gravity drop compensation
+        // Direct-fire flat ballistic elevation with gravity drop compensation
         double dropCompensation = 0.5D * GRAVITY * flightTicks * flightTicks;
         double pitchRad = Math.atan2(dy + dropCompensation, Math.max(1.0D, distHoriz));
-        this.targetPitch = Mth.clamp((float) Math.toDegrees(pitchRad), -25.0F, 35.0F);
+        float rawPitch = (float) Math.toDegrees(pitchRad);
+        if (rawPitch < MIN_PITCH || rawPitch > MAX_PITCH) {
+            this.hasTarget = false;
+            this.targetPlayerUuid = null;
+            return;
+        }
+        this.targetPitch = rawPitch;
     }
 
     private void fireBallista(ServerLevel serverLevel) {
@@ -395,6 +423,7 @@ public class PillagerBallistaBlockEntity extends BlockEntity implements GeoBlock
             if (this.fireAnimTicks > 0) {
                 return state.setAndContinue(FIRE_AND_RELOAD_ANIM);
             }
+            state.getController().stop();
             return PlayState.STOP;
         }).triggerableAnim("fire_cycle", FIRE_AND_RELOAD_ANIM));
     }

@@ -20,6 +20,9 @@ public class PillagerCommanderModel extends DefaultedEntityGeoModel<PillagerComm
         if (action == PillagerCommanderEntity.ACTION_UNSHEATHE || action == PillagerCommanderEntity.ACTION_SHEATHE) {
             getBone("sword_held").ifPresent(b -> b.setHidden(false));
             getBone("sword_sheathed").ifPresent(b -> b.setHidden(false));
+        } else if (action == PillagerCommanderEntity.ACTION_SWORD_RAISE) {
+            getBone("sword_held").ifPresent(b -> b.setHidden(false));
+            getBone("sword_sheathed").ifPresent(b -> b.setHidden(true));
         } else {
             boolean drawn = animatable.isSwordDrawn();
             getBone("sword_held").ifPresent(b -> b.setHidden(!drawn));

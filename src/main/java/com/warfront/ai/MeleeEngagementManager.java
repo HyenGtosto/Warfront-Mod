@@ -20,7 +20,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MeleeEngagementManager {
 
-    public static final int MAX_ACTIVE_SLOTS = 2;
+    public static final int BASE_ACTIVE_SLOTS = 2;
+    public static final int RALLIED_ACTIVE_SLOTS = 4;
+    public static final int MAX_ACTIVE_SLOTS = RALLIED_ACTIVE_SLOTS;
     private static final Map<UUID, EngagementGroup> GROUPS = new ConcurrentHashMap<>();
 
     private static class EngagementGroup {
@@ -28,24 +30,40 @@ public class MeleeEngagementManager {
         final UUID[] activeSlots = new UUID[MAX_ACTIVE_SLOTS];
         // Key: mob UUID, Value: boolean isElite
         final Map<UUID, Boolean> reserveMobs = new ConcurrentHashMap<>();
+        long rallyExpiryGameTime = 0L;
 
         EngagementGroup(UUID targetId) {
             this.targetId = targetId;
         }
 
+        int getMaxSlots(Level level) {
+            if (level != null && level.getGameTime() < rallyExpiryGameTime) {
+                return RALLIED_ACTIVE_SLOTS;
+            }
+            return BASE_ACTIVE_SLOTS;
+        }
+
         synchronized boolean requestSlot(Mob mob, boolean isElite) {
             UUID mobId = mob.getUUID();
+            int maxSlots = getMaxSlots(mob.level());
 
             // Already holding an active slot
             for (int i = 0; i < MAX_ACTIVE_SLOTS; i++) {
                 if (mobId.equals(activeSlots[i])) {
-                    reserveMobs.remove(mobId);
-                    return true;
+                    if (i < maxSlots) {
+                        reserveMobs.remove(mobId);
+                        return true;
+                    } else {
+                        // Slot is beyond current max capacity (rally expired): demote
+                        activeSlots[i] = null;
+                        reserveMobs.put(mobId, isElite);
+                        return false;
+                    }
                 }
             }
 
-            // Check for empty slot
-            for (int i = 0; i < MAX_ACTIVE_SLOTS; i++) {
+            // Check for empty slot within allowed capacity
+            for (int i = 0; i < maxSlots; i++) {
                 if (activeSlots[i] == null) {
                     activeSlots[i] = mobId;
                     reserveMobs.remove(mobId);
@@ -53,19 +71,31 @@ public class MeleeEngagementManager {
                 }
             }
 
-            // Both slots are occupied: mob must hold ground in reserve
+            // All available slots are occupied: mob must hold ground in reserve
             reserveMobs.put(mobId, isElite);
             return false;
         }
 
         synchronized boolean isEngaged(Mob mob) {
             UUID mobId = mob.getUUID();
-            for (int i = 0; i < MAX_ACTIVE_SLOTS; i++) {
+            int maxSlots = getMaxSlots(mob.level());
+            for (int i = 0; i < maxSlots; i++) {
                 if (mobId.equals(activeSlots[i])) {
                     return true;
                 }
             }
             return false;
+        }
+
+        synchronized int getSlotIndex(Mob mob) {
+            UUID mobId = mob.getUUID();
+            int maxSlots = getMaxSlots(mob.level());
+            for (int i = 0; i < maxSlots; i++) {
+                if (mobId.equals(activeSlots[i])) {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         synchronized void releaseSlot(Mob mob, Level level) {
@@ -87,8 +117,9 @@ public class MeleeEngagementManager {
         }
 
         synchronized void promoteReserve(Level level) {
+            int maxSlots = getMaxSlots(level);
             int vacantIdx = -1;
-            for (int i = 0; i < MAX_ACTIVE_SLOTS; i++) {
+            for (int i = 0; i < maxSlots; i++) {
                 if (activeSlots[i] == null) {
                     vacantIdx = i;
                     break;
@@ -141,7 +172,9 @@ public class MeleeEngagementManager {
                 return;
             }
 
-            // Verify active slots are still alive and targeting this player
+            int maxSlots = getMaxSlots(level);
+
+            // 1. Verify active slots are still alive and targeting this player
             for (int i = 0; i < MAX_ACTIVE_SLOTS; i++) {
                 if (activeSlots[i] != null) {
                     Entity ent = sl.getEntity(activeSlots[i]);
@@ -151,7 +184,58 @@ public class MeleeEngagementManager {
                 }
             }
 
-            // Promote if any slot became vacant
+            // 2. Post-buff expiry demotion: if active slots exceed current maxSlots, demote excess
+            List<UUID> currentActive = new ArrayList<>();
+            for (int i = 0; i < MAX_ACTIVE_SLOTS; i++) {
+                if (activeSlots[i] != null) {
+                    currentActive.add(activeSlots[i]);
+                    activeSlots[i] = null; // Cleared for repopulation
+                }
+            }
+
+            if (currentActive.size() > maxSlots) {
+                // Sort active mobs: Elites first, then closest distance to player
+                currentActive.sort((id1, id2) -> {
+                    Entity e1 = sl.getEntity(id1);
+                    Entity e2 = sl.getEntity(id2);
+                    boolean isElite1 = e1 instanceof com.warfront.entity.PillagerEliteEntity;
+                    boolean isElite2 = e2 instanceof com.warfront.entity.PillagerEliteEntity;
+                    if (isElite1 != isElite2) {
+                        return isElite1 ? -1 : 1; // Elites prioritized
+                    }
+                    if (e1 != null && e2 != null) {
+                        return Double.compare(e1.distanceToSqr(player), e2.distanceToSqr(player));
+                    }
+                    return 0;
+                });
+
+                // Keep up to maxSlots, demote remainder back to reserveMobs
+                for (int i = 0; i < currentActive.size(); i++) {
+                    UUID mobId = currentActive.get(i);
+                    Entity ent = sl.getEntity(mobId);
+                    boolean isElite = ent instanceof com.warfront.entity.PillagerEliteEntity;
+                    if (i < maxSlots) {
+                        activeSlots[i] = mobId;
+                    } else {
+                        // Demoted back to reserve!
+                        reserveMobs.put(mobId, isElite);
+                    }
+                }
+            } else {
+                for (int i = 0; i < currentActive.size(); i++) {
+                    activeSlots[i] = currentActive.get(i);
+                }
+            }
+
+            // 3. Promote if any slot became vacant below maxSlots
+            promoteReserve(level);
+        }
+
+        synchronized void applyRallyBoost(Level level, int durationTicks) {
+            long newExpiry = level.getGameTime() + durationTicks;
+            if (newExpiry > this.rallyExpiryGameTime) {
+                this.rallyExpiryGameTime = newExpiry;
+            }
             promoteReserve(level);
         }
     }
@@ -182,6 +266,25 @@ public class MeleeEngagementManager {
         EngagementGroup group = GROUPS.get(target.getUUID());
         if (group == null) return false;
         return group.isEngaged(mob);
+    }
+
+    /**
+     * Returns the active slot index (0..3) if engaged, or -1 if in reserve / not engaged.
+     */
+    public static int getEngagedSlotIndex(LivingEntity target, Mob mob) {
+        if (!(target instanceof Player)) return 0;
+        EngagementGroup group = GROUPS.get(target.getUUID());
+        if (group == null) return -1;
+        return group.getSlotIndex(mob);
+    }
+
+    /**
+     * Applies a flag rally boost to the target player, expanding melee engagement slots to 4.
+     */
+    public static void applyRallyBoost(UUID targetId, Level level, int durationTicks) {
+        if (targetId == null || level == null) return;
+        EngagementGroup group = GROUPS.computeIfAbsent(targetId, EngagementGroup::new);
+        group.applyRallyBoost(level, durationTicks);
     }
 
     /**
