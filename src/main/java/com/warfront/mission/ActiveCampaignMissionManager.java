@@ -2,6 +2,7 @@ package com.warfront.mission;
 
 import com.warfront.Warfront;
 import com.warfront.region.BaseType;
+import com.warfront.region.BiomeCategory;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import com.warfront.network.ActiveMissionHudPayload;
@@ -187,7 +188,7 @@ public final class ActiveCampaignMissionManager {
         public void incrementKills() { incrementProgress(); }
 
         public String formatProgressDisplay() {
-            if (missionType == MissionType.FORWARD_OUTPOST || missionType == MissionType.OUTPOST_DESTROY_BUILDING) {
+            if (missionType == MissionType.FORWARD_OUTPOST || missionType == MissionType.OUTPOST_DESTROY_BUILDING || objectiveType == ObjectiveType.DESTROY_STRUCTURE) {
                 int totalBlocks = trackedBlockPositions.size() + currentProgress;
                 int pct = totalBlocks > 0 ? Math.min(100, (currentProgress * 100) / totalBlocks) : 0;
                 return pct + "% / 50%";
@@ -200,11 +201,18 @@ public final class ActiveCampaignMissionManager {
             if (missionType == MissionType.ARTILLERY_BATTERY) {
                 return currentProgress + " / " + targetProgress + " Mortars Destroyed";
             }
-            if (missionType == MissionType.OFFICER_HUNT) {
+            if (missionType == MissionType.OFFICER_HUNT || objectiveType == ObjectiveType.ELIMINATE_LEADER) {
                 if (phaseIndex == 0) {
                     return "Assassinate Commander";
                 } else {
                     return "Survive: " + currentProgress + "s / " + targetProgress + "s";
+                }
+            }
+            if (missionType == MissionType.MOUNTAIN_BEACON_BASTION) {
+                if (phaseIndex == 0) {
+                    return "Extinguish Beacon";
+                } else {
+                    return "Eliminate Summit Commander";
                 }
             }
             if (missionType == MissionType.WAR_HORN_RELAY || missionType == MissionType.CUT_THE_SUPPLY_LINE) {
@@ -437,8 +445,24 @@ public final class ActiveCampaignMissionManager {
             }
         }
 
+        com.warfront.region.terrain.TerrainType[] subTerrains = new com.warfront.region.terrain.TerrainType[4];
+        int[] subElevations = new int[4];
+        for (int i = 0; i < 4; i++) {
+            int sx = i % 2;
+            int sz = i / 2;
+            com.warfront.region.terrain.TerrainClassifier.SubRegionTerrainData subData =
+                    com.warfront.region.terrain.TerrainClassifier.getSubRegionTerrain(level, regionX, regionZ, sx, sz);
+            subTerrains[i] = subData.primary();
+
+            int subCenterCX = (regionX * 8) + (sx * 4) + 2;
+            int subCenterCZ = (regionZ * 8) + (sz * 4) + 2;
+            subElevations[i] = com.warfront.region.terrain.BiomeElevation.getChunkElevation(
+                    level, subCenterCX, subCenterCZ, level.getBiome(new BlockPos(subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8)));
+        }
+
         SubRegionMission[] generatedMissions = MissionProfile.generateForRegion(
-                regionX, regionZ, targetFaction, baseType, resistance, stability, missionSeed, baseAnchor, isDefense);
+                regionX, regionZ, targetFaction, baseType, resistance, stability,
+                BiomeCategory.STANDARD, subTerrains, subElevations, missionSeed, baseAnchor, isDefense);
 
         Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.computeIfAbsent(regionKey, k -> new HashMap<>());
 

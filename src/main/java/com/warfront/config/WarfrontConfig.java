@@ -24,6 +24,7 @@ public final class WarfrontConfig {
         // Roaming Enemy AI Activation Settings
         public static final ModConfigSpec.IntValue ROAMING_AI_ACTIVATION_RADIUS;
         public static final ModConfigSpec.IntValue ROAMING_AI_DEACTIVATION_RADIUS;
+        public static final ModConfigSpec.IntValue ROAMING_DESPAWN_RADIUS;
         public static final ModConfigSpec.IntValue SUBREGION_SPAWN_COOLDOWN_SECONDS;
 
         static {
@@ -78,11 +79,15 @@ public final class WarfrontConfig {
                 builder.comment("Roaming Enemy AI Activation Settings").push("roaming_enemies");
                 ROAMING_AI_ACTIVATION_RADIUS = builder
                                 .comment("Block distance at which a Warfront roaming enemy's AI activates when a player approaches")
-                                .defineInRange("roaming_ai_activation_radius", 72, 8, 128);
+                                .defineInRange("roaming_ai_activation_radius", 128, 8, 512);
 
                 ROAMING_AI_DEACTIVATION_RADIUS = builder
                                 .comment("Block distance beyond which a Warfront roaming enemy's AI deactivates when all players move away. Must be > activation radius to prevent hysteresis oscillation.")
-                                .defineInRange("roaming_ai_deactivation_radius", 96, 8, 256);
+                                .defineInRange("roaming_ai_deactivation_radius", 160, 8, 768);
+
+                ROAMING_DESPAWN_RADIUS = builder
+                                .comment("Block distance beyond which Warfront roaming and patrol enemies despawn")
+                                .defineInRange("roaming_despawn_radius", 256, 64, 1024);
 
                 SUBREGION_SPAWN_COOLDOWN_SECONDS = builder
                                 .comment("Cooldown (in seconds) before the same subregion can spawn another exploration enemy encounter")

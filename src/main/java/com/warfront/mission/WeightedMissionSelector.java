@@ -133,6 +133,40 @@ public final class WeightedMissionSelector {
             long seed,
             Map<MissionType, Integer> regionTypeCounts
     ) {
+        return selectAndGenerate(
+                candidatePool,
+                fallbackDefinition,
+                regionX, regionZ,
+                subX, subZ,
+                faction,
+                baseType,
+                resistance,
+                biomeCategory,
+                null,
+                68,
+                seed,
+                regionTypeCounts
+        );
+    }
+
+    /**
+     * Generates a deterministic {@link SubRegionMission} from a candidate pool of definitions,
+     * incorporating physical terrain and elevation data into selection weights and objective quotas.
+     */
+    public static SubRegionMission selectAndGenerate(
+            List<MissionDefinition> candidatePool,
+            MissionDefinition fallbackDefinition,
+            int regionX, int regionZ,
+            int subX, int subZ,
+            Faction faction,
+            BaseType baseType,
+            float resistance,
+            BiomeCategory biomeCategory,
+            com.warfront.region.terrain.TerrainType terrain,
+            int elevation,
+            long seed,
+            Map<MissionType, Integer> regionTypeCounts
+    ) {
         float clampedRes = Math.clamp(resistance, 0.0f, 100.0f);
 
         // 1. Filter candidate definitions by BaseType, Resistance eligibility, and Regional Quota
@@ -160,12 +194,14 @@ public final class WeightedMissionSelector {
             eligible.add(fallbackDefinition);
         }
 
-        // 2. Calculate cumulative weights including biome modifiers and repeat dampening
+        // 2. Calculate cumulative weights including terrain, elevation modifiers, and repeat dampening
         double totalWeight = 0.0;
         double[] cumulativeWeights = new double[eligible.size()];
         for (int i = 0; i < eligible.size(); i++) {
             MissionDefinition def = eligible.get(i);
-            double baseWeight = def.calculateWeight(biomeCategory);
+            double baseWeight = (terrain != null)
+                    ? def.calculateWeight(terrain, elevation)
+                    : def.calculateWeight(biomeCategory);
             int count = (regionTypeCounts != null) ? regionTypeCounts.getOrDefault(def.type(), 0) : 0;
             double adjustedWeight = (count == 1) ? (baseWeight * REPEAT_DAMPENING_FACTOR) : baseWeight;
             totalWeight += Math.max(0.001, adjustedWeight);
@@ -188,21 +224,23 @@ public final class WeightedMissionSelector {
             regionTypeCounts.merge(selected.type(), 1, Integer::sum);
         }
 
-        // 4. Deterministically calculate target count based on resistance scaling and range
+        // 4. Deterministically calculate target count based on terrain, elevation, and resistance scaling
         int countSpan = Math.max(0, selected.baseCountMax() - selected.baseCountMin());
         long countHash = mix64(seed ^ 0x123456789L);
-        int baseCountOffset = (countSpan > 0) ? (int) ((countHash & 0x7FFFFFFFFFFFFFFFL) % (countSpan + 1)) : 0;
         int resBonus = (int) (clampedRes * selected.resistanceCountMultiplier());
         long varHash = mix64(seed ^ 0x987654321L);
         int subVariation = (int) ((varHash & 0x7FFFFFFFFFFFFFFFL) % 3); // 0, 1, or 2
 
-        int finalTargetCount;
-        if (selected.type() == MissionType.KILL_COUNT) {
-            int[] variations = {40, 45, 50};
-            finalTargetCount = variations[(int) ((countHash & 0x7FFFFFFFFFFFFFFFL) % variations.length)];
-        } else {
-            finalTargetCount = Math.max(1, selected.baseCountMin() + baseCountOffset + resBonus + subVariation);
-        }
+        int finalTargetCount = com.warfront.spawn.TerrainSpawnDoctrine.calculateTargetCount(
+                selected.type(),
+                terrain,
+                elevation,
+                selected.baseCountMin(),
+                selected.baseCountMax(),
+                resBonus,
+                subVariation,
+                countHash
+        );
 
         // 5. Deterministically pick target role
         String selectedRole = "BASIC";

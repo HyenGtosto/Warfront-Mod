@@ -134,6 +134,23 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
 
             String terrainName = com.warfront.region.terrain.TerrainClassifier.getRegionTerrainName(player.serverLevel(), region.x(), region.z());
 
+            int subTerrainsPacked = 0;
+            int subElevationsPacked = 0;
+            for (int i = 0; i < 4; i++) {
+                int sx = i % 2;
+                int sz = i / 2;
+                com.warfront.region.terrain.TerrainClassifier.SubRegionTerrainData subData =
+                        com.warfront.region.terrain.TerrainClassifier.getSubRegionTerrain(player.serverLevel(), region.x(), region.z(), sx, sz);
+                int tOrd = subData.primary().ordinal();
+                subTerrainsPacked |= ((tOrd & 0xF) << (i * 4));
+
+                int subCenterCX = (region.x() * 8) + (sx * 4) + 2;
+                int subCenterCZ = (region.z() * 8) + (sz * 4) + 2;
+                int elev = com.warfront.region.terrain.BiomeElevation.getChunkElevation(
+                        player.serverLevel(), subCenterCX, subCenterCZ, player.serverLevel().getBiome(new net.minecraft.core.BlockPos(subCenterCX * 16 + 8, player.serverLevel().getSeaLevel(), subCenterCZ * 16 + 8)));
+                subElevationsPacked |= ((Math.clamp(elev, 0, 255) & 0xFF) << (i * 8));
+            }
+
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
@@ -143,7 +160,8 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                     attackerFactionId, isAwaitingReinf, reinfRemainingTicks, isEncircled,
                     baseAnchor, missionSeed,
                     playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress,
-                    playerInFactionRegion, terrainName));
+                    playerInFactionRegion, terrainName,
+                    subTerrainsPacked, subElevationsPacked));
         }
     }
 

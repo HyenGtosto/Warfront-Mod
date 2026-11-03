@@ -733,4 +733,971 @@ public final class TemporaryStructureBuilder {
 
         return new WarHornTowerResult(structureBlocks, fusePositions, hornBellPositions);
     }
+
+    // =========================================================================
+    // Biome-Specific Procedural Temporary Structures
+    // =========================================================================
+
+    public record GenericStructureResult(
+            List<BlockPos> structureBlocks,
+            List<BlockPos> targetPositions
+    ) {}
+
+    public static void buildFoundationColumn(ServerLevel level, int x, int z, int startY, BlockState state, List<BlockPos> placed, MissionSiteSnapshot snapshot) {
+        BlockPos pos = new BlockPos(x, startY, z);
+        int depth = 0;
+        while (depth < 8 && (level.getBlockState(pos).isAir() || level.getBlockState(pos).liquid())) {
+            snapshot.setBlock(level, pos, state, 3);
+            placed.add(pos.immutable());
+            pos = pos.below();
+            depth++;
+        }
+    }
+
+    // --- 1. Highlands & Peaks (Mountain & Hills) ---
+
+    public static GenericStructureResult buildMountainLookoutPost(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState stone = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState fence = Blocks.DARK_OAK_FENCE.defaultBlockState();
+        BlockState planks = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -3; x <= 3; x++) {
+            for (int z = -3; z <= 3; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, stone, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, (Math.abs(x) == 3 || Math.abs(z) == 3) ? stone : planks, 3);
+                placed.add(fl);
+
+                if (Math.abs(x) == 3 || Math.abs(z) == 3) {
+                    if (!(x == 0 && z == -3)) { // Entrance gap
+                        BlockPos fPos = new BlockPos(bx + x, by + 1, bz + z);
+                        snapshot.setBlock(level, fPos, fence, 3);
+                        placed.add(fPos);
+                    }
+                }
+            }
+        }
+
+        BlockPos t1 = new BlockPos(bx - 1, by + 1, bz + 1);
+        BlockPos t2 = new BlockPos(bx + 1, by + 1, bz + 1);
+        snapshot.setBlock(level, t1, core, 3);
+        snapshot.setBlock(level, t2, core, 3);
+        placed.add(t1);
+        placed.add(t2);
+        targets.add(t1);
+        targets.add(t2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildMountainPassBarricade(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -1; z <= 1; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, cobble, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                for (int y = 0; y <= 2; y++) {
+                    BlockPos p = new BlockPos(bx + x, by + y, bz + z);
+                    snapshot.setBlock(level, p, (Math.abs(x) == 4 || y == 0) ? cobble : log, 3);
+                    placed.add(p);
+                }
+            }
+        }
+
+        BlockPos cPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildSummitBeaconBastion(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState stone = Blocks.STONE_BRICKS.defaultBlockState();
+        BlockState fuse = WarfrontBlocks.SIGNAL_FUSE_RELAY.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                if (x * x + z * z <= 18) {
+                    buildFoundationColumn(level, bx + x, bz + z, by - 1, stone, placed, snapshot);
+                    for (int y = 0; y <= 5; y++) {
+                        snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                    }
+                    BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                    snapshot.setBlock(level, fl, stone, 3);
+                    placed.add(fl);
+
+                    boolean isWall = x * x + z * z >= 10;
+                    if (isWall && !(z == -4 && Math.abs(x) <= 1)) {
+                        for (int y = 1; y <= 3; y++) {
+                            BlockPos w = new BlockPos(bx + x, by + y, bz + z);
+                            snapshot.setBlock(level, w, stone, 3);
+                            placed.add(w);
+                        }
+                    }
+                }
+            }
+        }
+
+        BlockPos center = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, center, fuse, 3);
+        placed.add(center);
+        targets.add(center);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildMountainRidgeBattery(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+        BlockState mortar = WarfrontBlocks.MORTAR_CANNON_MOUNT.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, cobble, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, cobble, 3);
+                placed.add(fl);
+
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    BlockPos w = new BlockPos(bx + x, by + 1, bz + z);
+                    snapshot.setBlock(level, w, cobble, 3);
+                    placed.add(w);
+                }
+            }
+        }
+
+        BlockPos mPos = new BlockPos(bx, by + 1, bz);
+        BlockPos a1 = new BlockPos(bx - 2, by + 1, bz);
+        BlockPos a2 = new BlockPos(bx + 2, by + 1, bz);
+        snapshot.setBlock(level, mPos, mortar, 3);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(mPos); placed.add(a1); placed.add(a2);
+        targets.add(mPos); targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    // --- 2. Dense Woodlands (Forest & Taiga) ---
+
+    public static GenericStructureResult buildForestLoggingDepot(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.SPRUCE_LOG.defaultBlockState();
+        BlockState planks = Blocks.SPRUCE_PLANKS.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, planks, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, planks, 3);
+                placed.add(fl);
+            }
+        }
+
+        // 3 Sawbench / Timber Stack target positions
+        BlockPos t1 = new BlockPos(bx - 2, by + 1, bz - 1);
+        BlockPos t2 = new BlockPos(bx + 2, by + 1, bz - 1);
+        BlockPos t3 = new BlockPos(bx, by + 1, bz + 2);
+        snapshot.setBlock(level, t1, core, 3);
+        snapshot.setBlock(level, t2, core, 3);
+        snapshot.setBlock(level, t3, core, 3);
+        placed.add(t1); placed.add(t2); placed.add(t3);
+        targets.add(t1); targets.add(t2); targets.add(t3);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildForestHuntingStash(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.SPRUCE_LOG.defaultBlockState();
+        BlockState planks = Blocks.SPRUCE_PLANKS.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -3; x <= 3; x++) {
+            for (int z = -3; z <= 3; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, log, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, planks, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 3 || Math.abs(z) == 3) {
+                    if (!(z == -3 && x == 0)) {
+                        BlockPos w = new BlockPos(bx + x, by + 1, bz + z);
+                        snapshot.setBlock(level, w, log, 3);
+                        placed.add(w);
+                    }
+                }
+            }
+        }
+
+        BlockPos a1 = new BlockPos(bx - 1, by + 1, bz + 1);
+        BlockPos a2 = new BlockPos(bx + 1, by + 1, bz + 1);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(a1); placed.add(a2);
+        targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildForestCanopyBlinds(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
+        BlockState planks = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+        BlockState fence = Blocks.DARK_OAK_FENCE.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -5; z <= 5; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, planks, placed, snapshot);
+                for (int y = 0; y <= 7; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, planks, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 5 || Math.abs(z) == 5) {
+                    BlockPos p = new BlockPos(bx + x, by + 1, bz + z);
+                    snapshot.setBlock(level, p, fence, 3);
+                    placed.add(p);
+                }
+            }
+        }
+
+        // Twin watch towers at opposite corners (Y+4)
+        int[][] towerOffsets = {{-3, -3}, {3, 3}};
+        for (int[] off : towerOffsets) {
+            int tx = bx + off[0];
+            int tz = bz + off[1];
+            for (int y = 1; y <= 4; y++) {
+                BlockPos pillar = new BlockPos(tx, by + y, tz);
+                snapshot.setBlock(level, pillar, log, 3);
+                placed.add(pillar);
+            }
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    BlockPos plat = new BlockPos(tx + dx, by + 4, tz + dz);
+                    snapshot.setBlock(level, plat, planks, 3);
+                    placed.add(plat);
+                }
+            }
+        }
+
+        BlockPos cPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildForestCommandCamp(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
+        BlockState fence = Blocks.DARK_OAK_FENCE.defaultBlockState();
+        BlockState desk = WarfrontBlocks.COMMANDER_WAR_DESK.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -5; z <= 5; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, log, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, Blocks.COARSE_DIRT.defaultBlockState(), 3);
+                placed.add(fl);
+                if (Math.abs(x) == 5 || Math.abs(z) == 5) {
+                    if (!(z == -5 && Math.abs(x) <= 1)) {
+                        BlockPos f = new BlockPos(bx + x, by + 1, bz + z);
+                        snapshot.setBlock(level, f, fence, 3);
+                        placed.add(f);
+                    }
+                }
+            }
+        }
+
+        BlockPos dPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, dPos, desk, 3);
+        placed.add(dPos);
+        targets.add(dPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    // --- 3. Wetlands & Murk (Swamp & Jungle) ---
+
+    public static GenericStructureResult buildSwampStrandedBarge(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.OAK_LOG.defaultBlockState();
+        BlockState planks = Blocks.OAK_PLANKS.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -2; z <= 2; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, log, placed, snapshot);
+                for (int y = 0; y <= 3; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, (Math.abs(z) == 2 || Math.abs(x) == 5) ? log : planks, 3);
+                placed.add(fl);
+            }
+        }
+
+        BlockPos t1 = new BlockPos(bx - 3, by + 1, bz);
+        BlockPos t2 = new BlockPos(bx, by + 1, bz);
+        BlockPos t3 = new BlockPos(bx + 3, by + 1, bz);
+        snapshot.setBlock(level, t1, ammo, 3);
+        snapshot.setBlock(level, t2, ammo, 3);
+        snapshot.setBlock(level, t3, ammo, 3);
+        placed.add(t1); placed.add(t2); placed.add(t3);
+        targets.add(t1); targets.add(t2); targets.add(t3);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildSwampFuelStill(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState planks = Blocks.OAK_PLANKS.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -3; x <= 3; x++) {
+            for (int z = -3; z <= 3; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, planks, placed, snapshot);
+                for (int y = 0; y <= 3; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, planks, 3);
+                placed.add(fl);
+            }
+        }
+
+        BlockPos a1 = new BlockPos(bx - 1, by + 1, bz);
+        BlockPos a2 = new BlockPos(bx + 1, by + 1, bz);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(a1); placed.add(a2);
+        targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildSwampStiltRedoubt(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.DARK_OAK_LOG.defaultBlockState();
+        BlockState planks = Blocks.DARK_OAK_PLANKS.defaultBlockState();
+        BlockState fence = Blocks.DARK_OAK_FENCE.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        int stiltY = by + 3;
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                boolean isStiltLeg = (Math.abs(x) == 4 || x == 0) && (Math.abs(z) == 4 || z == 0);
+                if (isStiltLeg) {
+                    buildFoundationColumn(level, bx + x, bz + z, stiltY - 1, log, placed, snapshot);
+                    for (int y = 0; y < 3; y++) {
+                        BlockPos leg = new BlockPos(bx + x, by + y, bz + z);
+                        snapshot.setBlock(level, leg, log, 3);
+                        placed.add(leg);
+                    }
+                }
+                for (int y = 3; y <= 7; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos deck = new BlockPos(bx + x, stiltY, bz + z);
+                snapshot.setBlock(level, deck, planks, 3);
+                placed.add(deck);
+
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    if (!(z == -4 && Math.abs(x) <= 1)) {
+                        BlockPos f = new BlockPos(bx + x, stiltY + 1, bz + z);
+                        snapshot.setBlock(level, f, fence, 3);
+                        placed.add(f);
+                    }
+                }
+            }
+        }
+
+        BlockPos cPos = new BlockPos(bx, stiltY + 1, bz);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildSwampIroncladHold(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState mud = Blocks.MUD_BRICKS.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, mud, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, mud, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    BlockPos berm = new BlockPos(bx + x, by + 1, bz + z);
+                    snapshot.setBlock(level, berm, mud, 3);
+                    placed.add(berm);
+                }
+            }
+        }
+
+        BlockPos a1 = new BlockPos(bx - 2, by + 1, bz);
+        BlockPos a2 = new BlockPos(bx + 2, by + 1, bz);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(a1); placed.add(a2);
+        targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    // --- 4. Arid Wastes & Canyons (Desert & Badlands) ---
+
+    public static GenericStructureResult buildDesertRoadCheckpoint(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState sand = Blocks.CUT_SANDSTONE.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -2; z <= 2; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, sand, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, sand, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 4 || (Math.abs(x) >= 2 && Math.abs(z) == 2)) {
+                    for (int y = 1; y <= 2; y++) {
+                        BlockPos w = new BlockPos(bx + x, by + y, bz + z);
+                        snapshot.setBlock(level, w, sand, 3);
+                        placed.add(w);
+                    }
+                }
+            }
+        }
+
+        BlockPos cPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildDesertCisternDepot(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState sand = Blocks.SMOOTH_SANDSTONE.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, sand, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, sand, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    if (!(z == -4 && Math.abs(x) <= 1)) {
+                        BlockPos w = new BlockPos(bx + x, by + 1, bz + z);
+                        snapshot.setBlock(level, w, sand, 3);
+                        placed.add(w);
+                    }
+                }
+            }
+        }
+
+        BlockPos t1 = new BlockPos(bx - 2, by + 1, bz);
+        BlockPos t2 = new BlockPos(bx + 2, by + 1, bz);
+        BlockPos t3 = new BlockPos(bx, by + 1, bz + 2);
+        snapshot.setBlock(level, t1, ammo, 3);
+        snapshot.setBlock(level, t2, ammo, 3);
+        snapshot.setBlock(level, t3, ammo, 3);
+        placed.add(t1); placed.add(t2); placed.add(t3);
+        targets.add(t1); targets.add(t2); targets.add(t3);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildBadlandsMesaBattery(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState redSand = Blocks.CUT_RED_SANDSTONE.defaultBlockState();
+        BlockState ballista = WarfrontBlocks.PILLAGER_BALLISTA.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, redSand, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, redSand, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    BlockPos parapet = new BlockPos(bx + x, by + 1, bz + z);
+                    snapshot.setBlock(level, parapet, redSand, 3);
+                    placed.add(parapet);
+                }
+            }
+        }
+
+        BlockPos b1 = new BlockPos(bx - 2, by + 1, bz);
+        BlockPos b2 = new BlockPos(bx + 2, by + 1, bz);
+        snapshot.setBlock(level, b1, ballista, 3);
+        snapshot.setBlock(level, b2, ballista, 3);
+        placed.add(b1); placed.add(b2);
+        targets.add(b1); targets.add(b2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildDesertCanyonStrongpoint(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState sand = Blocks.CUT_SANDSTONE.defaultBlockState();
+        BlockState desk = WarfrontBlocks.COMMANDER_WAR_DESK.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, sand, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, sand, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 5 || Math.abs(z) == 4) {
+                    if (!(z == -4 && Math.abs(x) <= 1)) {
+                        for (int y = 1; y <= 2; y++) {
+                            BlockPos w = new BlockPos(bx + x, by + y, bz + z);
+                            snapshot.setBlock(level, w, sand, 3);
+                            placed.add(w);
+                        }
+                    }
+                }
+            }
+        }
+
+        BlockPos dPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, dPos, desk, 3);
+        placed.add(dPos);
+        targets.add(dPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    // --- 5. Open Grasslands (Plains & Savanna) ---
+
+    public static GenericStructureResult buildPlainsScoutPaddock(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState fence = Blocks.OAK_FENCE.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, Blocks.DIRT.defaultBlockState(), placed, snapshot);
+                for (int y = 0; y <= 3; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    if (!(z == -4 && x == 0)) {
+                        BlockPos f = new BlockPos(bx + x, by + 1, bz + z);
+                        snapshot.setBlock(level, f, fence, 3);
+                        placed.add(f);
+                    }
+                }
+            }
+        }
+
+        BlockPos a1 = new BlockPos(bx - 2, by + 1, bz);
+        BlockPos a2 = new BlockPos(bx + 2, by + 1, bz);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(a1); placed.add(a2);
+        targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildPlainsSignalMast(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState log = Blocks.OAK_LOG.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -2; x <= 2; x++) {
+            for (int z = -2; z <= 2; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, cobble, placed, snapshot);
+                for (int y = 0; y <= 7; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, cobble, 3);
+                placed.add(fl);
+            }
+        }
+
+        for (int y = 1; y <= 6; y++) {
+            BlockPos mast = new BlockPos(bx, by + y, bz);
+            snapshot.setBlock(level, mast, log, 3);
+            placed.add(mast);
+        }
+
+        BlockPos cPos = new BlockPos(bx, by + 1, bz + 1);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildPlainsTrenchRedoubt(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState planks = Blocks.OAK_PLANKS.defaultBlockState();
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -5; z <= 5; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, cobble, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, planks, 3);
+                placed.add(fl);
+
+                if (Math.abs(x) == 5 || Math.abs(z) == 5) {
+                    BlockPos p = new BlockPos(bx + x, by + 1, bz + z);
+                    snapshot.setBlock(level, p, cobble, 3);
+                    placed.add(p);
+                }
+            }
+        }
+
+        BlockPos cPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildPlainsFieldCommand(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState fence = Blocks.OAK_FENCE.defaultBlockState();
+        BlockState desk = WarfrontBlocks.COMMANDER_WAR_DESK.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -5; z <= 5; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, cobble, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, cobble, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 5 || Math.abs(z) == 5) {
+                    if (!(z == -5 && Math.abs(x) <= 1)) {
+                        BlockPos f = new BlockPos(bx + x, by + 1, bz + z);
+                        snapshot.setBlock(level, f, fence, 3);
+                        placed.add(f);
+                    }
+                }
+            }
+        }
+
+        BlockPos dPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, dPos, desk, 3);
+        placed.add(dPos);
+        targets.add(dPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    // --- 6. Glacial Arctic (Tundra) ---
+
+    public static GenericStructureResult buildTundraSupplyCache(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState planks = Blocks.SPRUCE_PLANKS.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+
+        for (int x = -3; x <= 3; x++) {
+            for (int z = -3; z <= 3; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, planks, placed, snapshot);
+                for (int y = 0; y <= 3; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, planks, 3);
+                placed.add(fl);
+            }
+        }
+
+        BlockPos a1 = new BlockPos(bx - 1, by + 1, bz);
+        BlockPos a2 = new BlockPos(bx + 1, by + 1, bz);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(a1); placed.add(a2);
+        targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildTundraFrozenWatchpost(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState stone = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState log = Blocks.SPRUCE_LOG.defaultBlockState();
+        BlockState core = WarfrontBlocks.MISSION_TARGET_CORE.get().defaultBlockState();
+
+        for (int x = -3; x <= 3; x++) {
+            for (int z = -3; z <= 3; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, stone, placed, snapshot);
+                for (int y = 0; y <= 7; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, stone, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 3 && Math.abs(z) == 3) {
+                    for (int y = 1; y <= 5; y++) {
+                        BlockPos pillar = new BlockPos(bx + x, by + y, bz + z);
+                        snapshot.setBlock(level, pillar, log, 3);
+                        placed.add(pillar);
+                    }
+                }
+            }
+        }
+
+        BlockPos cPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, cPos, core, 3);
+        placed.add(cPos);
+        targets.add(cPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildTundraMortarPit(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState cobble = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState snow = Blocks.SNOW_BLOCK.defaultBlockState();
+        BlockState ammo = WarfrontBlocks.AMMUNITION_CRATE_TARGET.get().defaultBlockState();
+        BlockState mortar = WarfrontBlocks.MORTAR_CANNON_MOUNT.get().defaultBlockState();
+
+        for (int x = -4; x <= 4; x++) {
+            for (int z = -4; z <= 4; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, cobble, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, cobble, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 4 || Math.abs(z) == 4) {
+                    BlockPos p = new BlockPos(bx + x, by + 1, bz + z);
+                    snapshot.setBlock(level, p, snow, 3);
+                    placed.add(p);
+                }
+            }
+        }
+
+        BlockPos mPos = new BlockPos(bx, by + 1, bz);
+        BlockPos a1 = new BlockPos(bx - 2, by + 1, bz);
+        BlockPos a2 = new BlockPos(bx + 2, by + 1, bz);
+        snapshot.setBlock(level, mPos, mortar, 3);
+        snapshot.setBlock(level, a1, ammo, 3);
+        snapshot.setBlock(level, a2, ammo, 3);
+        placed.add(mPos); placed.add(a1); placed.add(a2);
+        targets.add(mPos); targets.add(a1); targets.add(a2);
+
+        return new GenericStructureResult(placed, targets);
+    }
+
+    public static GenericStructureResult buildTundraGarrisonRedoubt(ServerLevel level, BlockPos anchor, MissionSiteSnapshot snapshot) {
+        List<BlockPos> placed = new ArrayList<>();
+        List<BlockPos> targets = new ArrayList<>();
+        int bx = anchor.getX();
+        int by = anchor.getY();
+        int bz = anchor.getZ();
+
+        BlockState log = Blocks.SPRUCE_LOG.defaultBlockState();
+        BlockState stone = Blocks.COBBLESTONE.defaultBlockState();
+        BlockState desk = WarfrontBlocks.COMMANDER_WAR_DESK.get().defaultBlockState();
+
+        for (int x = -5; x <= 5; x++) {
+            for (int z = -5; z <= 5; z++) {
+                buildFoundationColumn(level, bx + x, bz + z, by - 1, stone, placed, snapshot);
+                for (int y = 0; y <= 4; y++) {
+                    snapshot.setBlock(level, new BlockPos(bx + x, by + y, bz + z), Blocks.AIR.defaultBlockState(), 3);
+                }
+                BlockPos fl = new BlockPos(bx + x, by, bz + z);
+                snapshot.setBlock(level, fl, stone, 3);
+                placed.add(fl);
+                if (Math.abs(x) == 5 || Math.abs(z) == 5) {
+                    if (!(z == -5 && Math.abs(x) <= 1)) {
+                        for (int y = 1; y <= 2; y++) {
+                            BlockPos w = new BlockPos(bx + x, by + y, bz + z);
+                            snapshot.setBlock(level, w, log, 3);
+                            placed.add(w);
+                        }
+                    }
+                }
+            }
+        }
+
+        BlockPos dPos = new BlockPos(bx, by + 1, bz);
+        snapshot.setBlock(level, dPos, desk, 3);
+        placed.add(dPos);
+        targets.add(dPos);
+
+        return new GenericStructureResult(placed, targets);
+    }
 }

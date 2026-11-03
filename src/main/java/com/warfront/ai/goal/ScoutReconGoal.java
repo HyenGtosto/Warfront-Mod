@@ -314,8 +314,9 @@ public class ScoutReconGoal extends Goal {
                 continue;
             }
 
+            double effectiveScanRange = getEffectiveScanRange();
             double distSq = this.scout.distanceToSqr(player);
-            if (distSq > SCAN_RANGE_SQ) {
+            if (distSq > (effectiveScanRange * effectiveScanRange)) {
                 continue;
             }
 
@@ -364,5 +365,18 @@ public class ScoutReconGoal extends Goal {
             }
         }
         this.currentWaypoint = new BlockPos(targetX, this.scout.getBlockY(), targetZ);
+    }
+
+    private double getEffectiveScanRange() {
+        int y = this.scout.getBlockY();
+        if (y >= 105) {
+            return 40.0D;
+        }
+        if (this.scout.level() instanceof ServerLevel sl) {
+            net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biome = sl.getBiome(this.scout.blockPosition());
+            com.warfront.region.terrain.TerrainType terrain = com.warfront.region.terrain.TerrainType.fromBiome(biome);
+            return com.warfront.spawn.TerrainSpawnDoctrine.getScoutScanRange(terrain, y);
+        }
+        return SCAN_RANGE_BLOCKS;
     }
 }

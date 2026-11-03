@@ -84,4 +84,24 @@ public interface FactionMissionGenerator {
     ) {
         return generateMissionsWithSeedAndBase(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor);
     }
+
+    /**
+     * Comprehensive entry point with terrain and elevation: Generates 4 deterministic subregion missions
+     * incorporating physical terrain types, elevations, seed, base anchor, and defense state.
+     */
+    default SubRegionMission[] generateMissionsWithTerrainAndElevation(
+            int regionX, int regionZ,
+            Faction faction,
+            BaseType baseType,
+            float resistance,
+            float stability,
+            BiomeCategory biomeCategory,
+            com.warfront.region.terrain.TerrainType[] subTerrains,
+            int[] subElevations,
+            long seed,
+            BlockPos baseAnchor,
+            boolean isDefense
+    ) {
+        return generateMissionsWithSeedAndBase(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, seed, baseAnchor, isDefense);
+    }
 }

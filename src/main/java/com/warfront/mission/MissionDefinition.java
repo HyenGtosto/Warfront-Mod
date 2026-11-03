@@ -95,4 +95,16 @@ public record MissionDefinition(
         double multiplier = biomeWeightMultipliers.getOrDefault(biome, 1.0);
         return Math.max(0.1, baseWeight * multiplier);
     }
+
+    /**
+     * Calculates the selection weight for this definition considering terrain and elevation multipliers.
+     *
+     * @param terrain   the subregion's primary tactical terrain type
+     * @param elevation the subregion's surface elevation (Y)
+     * @return positive weight value
+     */
+    public double calculateWeight(com.warfront.region.terrain.TerrainType terrain, int elevation) {
+        double multiplier = com.warfront.spawn.TerrainSpawnDoctrine.getMissionWeightMultiplier(type, terrain, elevation);
+        return Math.max(0.001, baseWeight * multiplier);
+    }
 }

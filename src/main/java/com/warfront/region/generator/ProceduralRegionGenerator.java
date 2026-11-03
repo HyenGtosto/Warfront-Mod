@@ -54,8 +54,9 @@ public class ProceduralRegionGenerator {
 
     // Physical base footprint sizes (in blocks)
     public static final int OUTPOST_FOOTPRINT = 32;
-    public static final int HQ_FOOTPRINT = 48;
-    public static final int MEGA_FOOTPRINT = 64;
+    public static final int HQ_WIDTH = 50;
+    public static final int HQ_LENGTH = 90;
+    public static final int MEGA_FOOTPRINT = 100;
 
     // 1. FACTION_BUFFER_DISTANCE: Minimum number of unclaimed regions required between different faction borders.
     public static final int FACTION_BUFFER_DISTANCE = 2;
@@ -278,7 +279,8 @@ public class ProceduralRegionGenerator {
 
     /**
      * Checks whether surface water or fluid exists at the given (x, z) coordinates.
-     * Uses fast biome lookup for unloaded chunks to prevent expensive 3D noise router getBaseHeight evaluations.
+     * Uses chunk fluid lookup when loaded, and 3D noise router getBaseHeight (WORLD_SURFACE_WG vs OCEAN_FLOOR_WG)
+     * for unloaded chunks to accurately detect lakes, ponds, and river bends in non-aquatic biomes.
      */
     public static boolean isSurfaceWaterAt(ServerLevel level, int blockX, int blockZ) {
         if (level == null) return false;
@@ -290,9 +292,19 @@ public class ProceduralRegionGenerator {
                 }
                 return false;
             }
-            // For unloaded chunks: fast O(1) multi-noise biome check avoids heavy 3D noise router getBaseHeight evaluations
+            // For unloaded chunks: fast O(1) multi-noise biome check
             Holder<Biome> biome = level.getBiome(new BlockPos(blockX, 64, blockZ));
-            return isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome);
+            if (isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome)) {
+                return true;
+            }
+
+            // Query 3D noise router for fluid height differential (WORLD_SURFACE_WG includes fluids; OCEAN_FLOOR_WG stops at solid ground)
+            var chunkSource = level.getChunkSource();
+            var generator = chunkSource.getGenerator();
+            var randomState = chunkSource.randomState();
+            int surfaceY = generator.getBaseHeight(blockX, blockZ, net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE_WG, level, randomState);
+            int oceanFloorY = generator.getBaseHeight(blockX, blockZ, net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG, level, randomState);
+            return surfaceY > oceanFloorY;
         } catch (Exception e) {
             Holder<Biome> biome = level.getBiome(new BlockPos(blockX, 64, blockZ));
             return isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome);
@@ -317,146 +329,81 @@ public class ProceduralRegionGenerator {
         }
     }
 
-    /**
-     * Validates whether a physical base footprint can be placed at [minBlockX, minBlockZ] with size sizeBlocks.
-     * Uses a dense, deterministic sample grid tailored to the footprint size to prevent rivers from going undetected.
-     * Checks that the center is solid land (never water, ocean, or river) and no more than 20% of the footprint is water.
-     */
-    /**
-     * Validates whether a physical base footprint can be placed at [minBlockX, minBlockZ] with size sizeBlocks.
-     * Uses a dense, deterministic sample grid tailored to the footprint size.
-     * ZERO TOLERANCE: Any sample point that touches ocean, river, beach/shore, or surface water
-     * immediately disqualifies the candidate location.
-     */
-    public boolean isFootprintSuitable(ServerLevel level, int minBlockX, int minBlockZ, int sizeBlocks) {
-        if (level == null) return true;
-
-        int halfSize = sizeBlocks / 2;
-        int centerBlockX = minBlockX + halfSize;
-        int centerBlockZ = minBlockZ + halfSize;
-
-        // 1. Center of the base structure MUST be dry land and not ocean, river, beach, or surface water
-        Holder<Biome> centerBiome = level.getBiome(new BlockPos(centerBlockX, 64, centerBlockZ));
-        if (isOceanBiome(centerBiome) || isRiverBiome(centerBiome) || isBeachBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
-            return false;
-        }
-
-        // 2. 4 corners check
-        int[][] corners = new int[][] {
-                { minBlockX, minBlockZ },
-                { minBlockX + sizeBlocks - 1, minBlockZ },
-                { minBlockX, minBlockZ + sizeBlocks - 1 },
-                { minBlockX + sizeBlocks - 1, minBlockZ + sizeBlocks - 1 }
-        };
-        for (int[] c : corners) {
-            Holder<Biome> cornerBiome = level.getBiome(new BlockPos(c[0], 64, c[1]));
-            if (isOceanBiome(cornerBiome) || isRiverBiome(cornerBiome) || isBeachBiome(cornerBiome) || isSurfaceWaterAt(level, c[0], c[1])) {
-                return false;
-            }
-        }
-
-        // 3. Dense deterministic grid of sample points across interior and perimeter
-        int step = (sizeBlocks <= 32) ? 6 : 8;
-
-        for (int ox = 0; ox < sizeBlocks; ox += step) {
-            for (int oz = 0; oz < sizeBlocks; oz += step) {
-                int x = minBlockX + ox;
-                int z = minBlockZ + oz;
-
-                if (x == centerBlockX && z == centerBlockZ) {
-                    continue; // Already verified center
-                }
-
-                Holder<Biome> biome = level.getBiome(new BlockPos(x, 64, z));
-                if (isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome) || isSurfaceWaterAt(level, x, z)) {
-                    return false; // Zero tolerance: ANY water, river, beach, or ocean point rejects candidate!
-                }
-            }
-        }
-
-        return true;
-    }
-
-    public boolean isFootprintSuitable(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
-        if (level == null) return true;
-
-        int centerBlockX = minBlockX + sizeX / 2;
-        int centerBlockZ = minBlockZ + sizeZ / 2;
-
-        // 1. Center of the base structure MUST be dry land and not ocean, river, beach, or surface water
-        Holder<Biome> centerBiome = level.getBiome(new BlockPos(centerBlockX, 64, centerBlockZ));
-        if (isOceanBiome(centerBiome) || isRiverBiome(centerBiome) || isBeachBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
-            return false;
-        }
-
-        // 2. 4 corners check
-        int[][] corners = new int[][] {
-                { minBlockX, minBlockZ },
-                { minBlockX + sizeX - 1, minBlockZ },
-                { minBlockX, minBlockZ + sizeZ - 1 },
-                { minBlockX + sizeX - 1, minBlockZ + sizeZ - 1 }
-        };
-        for (int[] c : corners) {
-            Holder<Biome> cornerBiome = level.getBiome(new BlockPos(c[0], 64, c[1]));
-            if (isOceanBiome(cornerBiome) || isRiverBiome(cornerBiome) || isBeachBiome(cornerBiome) || isSurfaceWaterAt(level, c[0], c[1])) {
-                return false;
-            }
-        }
-
-        // 3. Dense deterministic grid of sample points across interior and perimeter
-        int step = 8;
-        for (int ox = 0; ox < sizeX; ox += step) {
-            for (int oz = 0; oz < sizeZ; oz += step) {
-                int x = minBlockX + ox;
-                int z = minBlockZ + oz;
-
-                if (x == centerBlockX && z == centerBlockZ) {
-                    continue;
-                }
-
-                Holder<Biome> biome = level.getBiome(new BlockPos(x, 64, z));
-                if (isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome) || isSurfaceWaterAt(level, x, z)) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
+    public record FootprintFitnessResult(boolean valid, double fitness, int anchorY, int deltaY, int waterPoints) {}
 
     /**
-     * Mountain-friendly footprint evaluator for Headquarters (Medium Base).
-     * Enforces:
-     * - Center point must NEVER be ocean, deep ocean, frozen ocean, or surface water.
-     * - Vertical build clearance within world limits (baseY + 25 < maxBuildHeight - 10).
+     * Evaluates the placement suitability and fitness score of a candidate base footprint.
+     * Hard vetoes:
+     * - Center block MUST be solid ground (not surface water, river, or ocean).
      * - Deep ocean biomes are strictly banned across the entire footprint.
-     * - Aquatic ratio across footprint must not exceed 15% (allows small mountain brooks/springs).
+     * - Vertical clearance within world bounds (anchorY + 25 < maxBuildHeight - 10, anchorY >= minBuildHeight + 10).
+     * - Submerged ratio <= 35% (rejects predominantly sunken candidates).
      *
-     * @return downhill elevation drop (anchorY - minPerimeterY), or -1 if invalid (water/bounds/ocean).
+     * Fitness score:
+     * - Heavy penalty for slope/elevation variance (Delta Y): prevents carving mountains and casting high foundation pillars.
+     * - Moderate penalty for water points: prefers dry ground without rejecting regions with minor ponds or river bends.
+     * - Terrain bonuses for naturally flat biomes (Plains, Savanna, Desert, Meadow).
      */
-    public int evaluateHQFootprintDrop(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
-        if (level == null) return 0;
+    public FootprintFitnessResult evaluateFootprintFitness(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
+        if (level == null) {
+            return new FootprintFitnessResult(true, 0.0, 64, 0, 0);
+        }
 
         int centerBlockX = minBlockX + sizeX / 2;
         int centerBlockZ = minBlockZ + sizeZ / 2;
 
-        // 1. Center of the base structure MUST NEVER be ocean, deep ocean, frozen ocean, or surface water
+        // 1. Center of the base structure MUST be dry land and not ocean, river, beach, or surface water
         Holder<Biome> centerBiome = level.getBiome(new BlockPos(centerBlockX, 64, centerBlockZ));
-        if (isOceanBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
-            return -1;
+        if (isOceanBiome(centerBiome) || isRiverBiome(centerBiome) || isBeachBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
+            return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, 64, 0, 0);
         }
 
         // 2. Vertical build space check
         int anchorY = getSurfaceHeightAt(level, centerBlockX, centerBlockZ);
         if (anchorY + 25 >= level.getMaxBuildHeight() - 10 || anchorY < level.getMinBuildHeight() + 10) {
-            return -1;
+            return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, anchorY, 0, 0);
         }
 
-        // 3. Dense sample grid across footprint: enforce <= 15% aquatic points and reject deep ocean
-        int step = 8;
+        // 3. Perimeter corners fluid check: prevents base from straddling onto lakes, bays, or ocean inlets
+        int maxX = minBlockX + sizeX - 1;
+        int maxZ = minBlockZ + sizeZ - 1;
+        int cornerWaterCount = 0;
+        int[][] corners = new int[][] {
+                { minBlockX, minBlockZ },
+                { maxX, minBlockZ },
+                { minBlockX, maxZ },
+                { maxX, maxZ }
+        };
+        for (int[] c : corners) {
+            Holder<Biome> cornerBiome = level.getBiome(new BlockPos(c[0], 64, c[1]));
+            if (isOceanBiome(cornerBiome) || isRiverBiome(cornerBiome) || isBeachBiome(cornerBiome) || isSurfaceWaterAt(level, c[0], c[1])) {
+                cornerWaterCount++;
+            }
+        }
+        boolean isMega = Math.max(sizeX, sizeZ) >= 100;
+        // Outposts & HQs veto if >= 2 corners are water.
+        // Mega Bases (100x100) allow landfilling small rivers across 2 corners, but strictly veto whole lakes (>= 3 corners or any ocean corner)
+        if (isMega) {
+            if (cornerWaterCount >= 3) {
+                return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, anchorY, 0, cornerWaterCount);
+            }
+            if (cornerWaterCount >= 2) {
+                int oceanCorners = 0;
+                for (int[] c : corners) {
+                    Holder<Biome> cb = level.getBiome(new BlockPos(c[0], 64, c[1]));
+                    if (isOceanBiome(cb) || isBeachBiome(cb)) oceanCorners++;
+                }
+                if (oceanCorners > 0) {
+                    return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, anchorY, 0, cornerWaterCount);
+                }
+            }
+        } else if (cornerWaterCount >= 2) {
+            return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, anchorY, 0, cornerWaterCount);
+        }
+
+        int step = (Math.max(sizeX, sizeZ) <= 32) ? 8 : 10;
         int totalSamples = 0;
-        int aquaticSamples = 0;
-        int minPerimeterY = Integer.MAX_VALUE;
+        int waterSamples = cornerWaterCount;
 
         for (int ox = 0; ox < sizeX; ox += step) {
             for (int oz = 0; oz < sizeZ; oz += step) {
@@ -468,29 +415,87 @@ public class ProceduralRegionGenerator {
                 if (isOceanBiome(biome)) {
                     String id = biome.unwrapKey().map(k -> k.location().toString()).orElse("");
                     if (id.contains("deep_ocean")) {
-                        return -1;
+                        return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, anchorY, 0, 0);
                     }
                 }
 
-                if (isOceanBiome(biome) || isRiverBiome(biome) || isSurfaceWaterAt(level, x, z)) {
-                    aquaticSamples++;
-                }
-
-                boolean isPerimeter = (ox == 0 || ox + step >= sizeX || oz == 0 || oz + step >= sizeZ);
-                if (isPerimeter) {
-                    int surfaceY = getSurfaceHeightAt(level, x, z);
-                    if (surfaceY < minPerimeterY) {
-                        minPerimeterY = surfaceY;
-                    }
+                // Interior points use O(1) multi-noise biome check to preserve high performance
+                if (isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome)) {
+                    waterSamples++;
                 }
             }
         }
 
-        if (totalSamples > 0 && ((double) aquaticSamples / totalSamples) > 0.15) {
-            return -1;
+        // Reject if submerged ratio exceeds threshold:
+        // Outposts (32x32) must be strictly on dry land (<= 10% water)
+        // HQ (50x90) allows at most 15% water
+        // Mega Bases (100x100) allow up to 20% water, permitting small rivers in plains to be landfilled with foundations
+        double maxWaterRatio;
+        if (Math.max(sizeX, sizeZ) <= 32) {
+            maxWaterRatio = 0.10;
+        } else if (Math.max(sizeX, sizeZ) <= 90) {
+            maxWaterRatio = 0.15;
+        } else {
+            maxWaterRatio = 0.20;
+        }
+        if (totalSamples > 0 && ((double) waterSamples / totalSamples) > maxWaterRatio) {
+            return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, anchorY, 0, waterSamples);
         }
 
-        return (minPerimeterY != Integer.MAX_VALUE) ? Math.max(0, anchorY - minPerimeterY) : 0;
+        // True 3D noise surface elevation variance across 9 strategic points (center + 4 corners + 4 edge midpoints)
+        int minY = anchorY;
+        int maxY = anchorY;
+        int[] samplePointsX = new int[] {
+                minBlockX, maxX, minBlockX, maxX,             // 4 corners
+                centerBlockX, centerBlockX, minBlockX, maxX   // 4 edge midpoints
+        };
+        int[] samplePointsZ = new int[] {
+                minBlockZ, minBlockZ, maxZ, maxZ,             // 4 corners
+                minBlockZ, maxZ, centerBlockZ, centerBlockZ   // 4 edge midpoints
+        };
+        for (int i = 0; i < 8; i++) {
+            int h = getSurfaceHeightAt(level, samplePointsX[i], samplePointsZ[i]);
+            if (h < minY) minY = h;
+            if (h > maxY) maxY = h;
+        }
+
+        int deltaY = Math.max(0, maxY - minY);
+
+        // Terrain bonus for naturally flat biomes
+        com.warfront.region.terrain.TerrainType terrain = com.warfront.region.terrain.TerrainType.fromBiome(centerBiome);
+        int terrainBonus = switch (terrain) {
+            case PLAINS, SAVANNA, DESERT -> 20;
+            case HILLS, BADLANDS -> 5;
+            case SWAMP, JUNGLE -> -10;
+            case MOUNTAIN, TUNDRA -> -30;
+            default -> 0;
+        };
+
+        // Option 1A: Soft nonlinear slope penalty (moderate for natural undulation, steep quadratic penalty for mountain slopes)
+        double slopePenalty;
+        if (deltaY <= 5) {
+            slopePenalty = deltaY * 8.0;
+        } else {
+            slopePenalty = (deltaY * 8.0) + Math.pow(deltaY - 5, 2) * 4.0;
+        }
+
+        // Water penalty (40.0 for Mega Base to allow landfilling small rivers; 120.0 for Outpost/HQ)
+        double waterPenalty = isMega ? (waterSamples * 40.0) : (waterSamples * 120.0);
+        double fitness = - waterPenalty - slopePenalty + terrainBonus;
+        return new FootprintFitnessResult(true, fitness, anchorY, deltaY, waterSamples);
+    }
+
+    public boolean isFootprintSuitable(ServerLevel level, int minBlockX, int minBlockZ, int sizeBlocks) {
+        return evaluateFootprintFitness(level, minBlockX, minBlockZ, sizeBlocks, sizeBlocks).valid();
+    }
+
+    public boolean isFootprintSuitable(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
+        return evaluateFootprintFitness(level, minBlockX, minBlockZ, sizeX, sizeZ).valid();
+    }
+
+    public int evaluateHQFootprintDrop(ServerLevel level, int minBlockX, int minBlockZ, int sizeX, int sizeZ) {
+        FootprintFitnessResult res = evaluateFootprintFitness(level, minBlockX, minBlockZ, sizeX, sizeZ);
+        return res.valid() ? res.deltaY() : -1;
     }
 
     /**
@@ -528,49 +533,23 @@ public class ProceduralRegionGenerator {
         int startBlockZ = regionZ * RegionData.REGION_SIZE_BLOCKS;
 
         if (baseType == BaseType.MEGA_BASE) {
-            // Megabases: sit right in the middle and occupy all 4 subregions (64x64 footprint)
-            int candMinX = startBlockX + 32;
-            int candMinZ = startBlockZ + 32;
+            // Megabases: 100x100 footprint centered in region, straddling all 4 subregions
+            // Zero-shift: occupies ~61% of region area ([14..114]), canonically centered
+            int candMinX = startBlockX + 14;
+            int candMinZ = startBlockZ + 14;
 
-            // Phase 1: Test exact center
-            if (isFootprintSuitable(level, candMinX, candMinZ, MEGA_FOOTPRINT)) {
-                int anchorX = startBlockX + 64;
-                int anchorZ = startBlockZ + 64;
-                int anchorY = getSurfaceHeightAt(level, anchorX, anchorZ);
-                Optional<BlockPos> res = Optional.of(new BlockPos(anchorX, anchorY, anchorZ));
+            FootprintFitnessResult fit = evaluateFootprintFitness(level, candMinX, candMinZ, MEGA_FOOTPRINT, MEGA_FOOTPRINT);
+            if (fit.valid()) {
+                BlockPos anchor = new BlockPos(startBlockX + 64, fit.anchorY(), startBlockZ + 64);
+                Optional<BlockPos> res = Optional.of(anchor);
                 physicalBaseAnchorCache.put(key, res);
                 return res;
             }
 
-            // Phase 2: Apply 1D shifting logic along the middle axes while still occupying all 4 subregions (never diagonal)
-            int[][] megaShifts = new int[][] {
-                    { -6, 0 }, { 6, 0 }, { 0, -6 }, { 0, 6 },
-                    { -12, 0 }, { 12, 0 }, { 0, -12 }, { 0, 12 },
-                    { -16, 0 }, { 16, 0 }, { 0, -16 }, { 0, 16 }
-            };
-            for (int[] shift : megaShifts) {
-                int shiftedMinX = candMinX + shift[0];
-                int shiftedMinZ = candMinZ + shift[1];
-                // Still straddles both X=startBlockX+64 and Z=startBlockZ+64 (occupies all 4 subregions)
-                if (shiftedMinX < startBlockX + 64 && shiftedMinX + MEGA_FOOTPRINT > startBlockX + 64 &&
-                        shiftedMinZ < startBlockZ + 64 && shiftedMinZ + MEGA_FOOTPRINT > startBlockZ + 64) {
-                    if (isFootprintSuitable(level, shiftedMinX, shiftedMinZ, MEGA_FOOTPRINT)) {
-                        int anchorX = shiftedMinX + 32;
-                        int anchorZ = shiftedMinZ + 32;
-                        int anchorY = getSurfaceHeightAt(level, anchorX, anchorZ);
-                        Optional<BlockPos> res = Optional.of(new BlockPos(anchorX, anchorY, anchorZ));
-                        physicalBaseAnchorCache.put(key, res);
-                        return res;
-                    }
-                }
-            }
+            physicalBaseAnchorCache.put(key, Optional.empty());
+            return Optional.empty();
         } else if (baseType == BaseType.HEADQUARTERS) {
-            // Headquarters (Medium Base): 50x90 footprint, centered in 2 adjacent subregions with zero overflow (7-block lateral margin).
-            // 4 cardinal orientations:
-            // 0: EAST  - Subregions (1,0) & (1,1). Centered at X=96, Z=64. Shift along Z (shiftAxis=0).
-            // 1: WEST  - Subregions (0,0) & (0,1). Centered at X=32, Z=64. Shift along Z (shiftAxis=0).
-            // 2: NORTH - Subregions (0,0) & (1,0). Centered at X=64, Z=32. Shift along X (shiftAxis=1).
-            // 3: SOUTH - Subregions (0,1) & (1,1). Centered at X=64, Z=96. Shift along X (shiftAxis=1).
+            // Headquarters (Medium Base): 50x90 or 90x50 footprint centered across 2 adjacent subregions
             int[][] hqConfigs = new int[][] {
                     { 96, 64, 0 }, // 0: EAST  - Subregions (1,0) & (1,1)
                     { 32, 64, 0 }, // 1: WEST  - Subregions (0,0) & (0,1)
@@ -578,46 +557,19 @@ public class ProceduralRegionGenerator {
                     { 64, 96, 1 }  // 3: SOUTH - Subregions (0,1) & (1,1)
             };
 
+            int[] axisDeltas = new int[] { 0, -5, 5, -10, 10, -15, 15 };
+
             long hash = hashPos(worldSeed, regionX, regionZ, 8888L);
             int startCard = (int) Math.floorMod(hash, 4);
-            int[] cardOrder = new int[] { startCard, (startCard + 1) % 4, (startCard + 2) % 4, (startCard + 3) % 4 };
 
-            BlockPos bestFallbackAnchor = null;
-            int lowestDrop = Integer.MAX_VALUE;
+            double bestFitness = Double.NEGATIVE_INFINITY;
+            BlockPos bestAnchor = null;
 
-            // Phase 1: Test ideal positions of the 4 cardinal orientations
-            for (int cardIdx : cardOrder) {
-                int candAnchorX = startBlockX + hqConfigs[cardIdx][0];
-                int candAnchorZ = startBlockZ + hqConfigs[cardIdx][1];
-                int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z (East/West: 50x90), 1 = shift in X (North/South: 90x50)
-
-                int sizeX = (shiftAxis == 0) ? 50 : 90;
-                int sizeZ = (shiftAxis == 0) ? 90 : 50;
-                int candMinX = candAnchorX - sizeX / 2;
-                int candMinZ = candAnchorZ - sizeZ / 2;
-
-                int drop = evaluateHQFootprintDrop(level, candMinX, candMinZ, sizeX, sizeZ);
-                if (drop >= 0) {
-                    int anchorY = getSurfaceHeightAt(level, candAnchorX, candAnchorZ);
-                    if (drop <= 28) {
-                        Optional<BlockPos> res = Optional.of(new BlockPos(candAnchorX, anchorY, candAnchorZ));
-                        physicalBaseAnchorCache.put(key, res);
-                        return res;
-                    }
-                    if (drop < lowestDrop) {
-                        lowestDrop = drop;
-                        bestFallbackAnchor = new BlockPos(candAnchorX, anchorY, candAnchorZ);
-                    }
-                }
-            }
-
-            // Phase 2: Apply 1D shifting strictly along the middle line axis (never diagonal)
-            int[] axisDeltas = new int[] { -5, 5, -10, 10, -15, 15 };
-
-            for (int cardIdx : cardOrder) {
+            for (int i = 0; i < 4; i++) {
+                int cardIdx = (startCard + i) % 4;
                 int baseAnchorX = startBlockX + hqConfigs[cardIdx][0];
                 int baseAnchorZ = startBlockZ + hqConfigs[cardIdx][1];
-                int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z, 1 = shift in X
+                int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z (50x90), 1 = shift in X (90x50)
 
                 int sizeX = (shiftAxis == 0) ? 50 : 90;
                 int sizeZ = (shiftAxis == 0) ? 90 : 50;
@@ -630,94 +582,67 @@ public class ProceduralRegionGenerator {
 
                     if (candMinX >= startBlockX + 4 && candMinX + sizeX <= startBlockX + 124 &&
                             candMinZ >= startBlockZ + 4 && candMinZ + sizeZ <= startBlockZ + 124) {
-                        int drop = evaluateHQFootprintDrop(level, candMinX, candMinZ, sizeX, sizeZ);
-                        if (drop >= 0) {
-                            int anchorY = getSurfaceHeightAt(level, candAnchorX, candAnchorZ);
-                            if (drop <= 28) {
-                                Optional<BlockPos> res = Optional.of(new BlockPos(candAnchorX, anchorY, candAnchorZ));
-                                physicalBaseAnchorCache.put(key, res);
-                                return res;
-                            }
-                            if (drop < lowestDrop) {
-                                lowestDrop = drop;
-                                bestFallbackAnchor = new BlockPos(candAnchorX, anchorY, candAnchorZ);
-                            }
+                        FootprintFitnessResult fit = evaluateFootprintFitness(level, candMinX, candMinZ, sizeX, sizeZ);
+                        double tieBreaker = (delta == 0) ? 0.5 : 0.0;
+                        if (fit.valid() && (fit.fitness() + tieBreaker) > bestFitness) {
+                            bestFitness = fit.fitness() + tieBreaker;
+                            bestAnchor = new BlockPos(candAnchorX, fit.anchorY(), candAnchorZ);
                         }
                     }
                 }
             }
 
-            // Fallback for extreme mountain terrain: accept candidate with lowest drop
-            if (bestFallbackAnchor != null) {
-                Optional<BlockPos> res = Optional.of(bestFallbackAnchor);
+            if (bestAnchor != null) {
+                Optional<BlockPos> res = Optional.of(bestAnchor);
                 physicalBaseAnchorCache.put(key, res);
                 return res;
             }
         } else if (baseType == BaseType.OUTPOST) {
-            // Outpost: single size variant (32x32 footprint).
-            // Allocate into a random subregion, first fit into a valid subregion, then apply shifting if all 4 fail.
-            long hash = hashPos(worldSeed, regionX, regionZ, 7777L);
-            int startSub = (int) Math.floorMod(hash, 4);
-            int[] subOrder = new int[] { startSub, (startSub + 1) % 4, (startSub + 2) % 4, (startSub + 3) % 4 };
-
-            // 4 subregions (64x64 blocks each) using standard (subX, subZ) inner coordinates:
-            // 0: (subX=0, subZ=0) -> [0, 0]
-            // 1: (subX=1, subZ=0) -> [64, 0]
-            // 2: (subX=0, subZ=1) -> [0, 64]
-            // 3: (subX=1, subZ=1) -> [64, 64]
+            // Outpost: 32x32 footprint. Option 3A evaluates all 4 subregions with center and 4 quadrant shifts (20 candidates)
             int[][] subOffsets = new int[][] {
-                    { 0, 0 },   // subX = 0, subZ = 0
-                    { 64, 0 },  // subX = 1, subZ = 0
-                    { 0, 64 },  // subX = 0, subZ = 1
-                    { 64, 64 }  // subX = 1, subZ = 1
+                    { 0, 0 },   // Subregion 0 (NW)
+                    { 64, 0 },  // Subregion 1 (NE)
+                    { 0, 64 },  // Subregion 2 (SW)
+                    { 64, 64 }  // Subregion 3 (SE)
             };
 
-            // Phase 1: First fit into a valid subregion (ideal center of each subregion)
-            for (int subIdx : subOrder) {
+            // Shifts within the 64x64 subregion: ideal center (16, 16) + 4 quadrant shifts
+            int[][] shifts = new int[][] {
+                    { 16, 16 }, // Center
+                    { 8, 8 },   // NW quad
+                    { 24, 8 },  // NE quad
+                    { 8, 24 },  // SW quad
+                    { 24, 24 }  // SE quad
+            };
+
+            long hash = hashPos(worldSeed, regionX, regionZ, 7777L);
+            int startSub = (int) Math.floorMod(hash, 4);
+
+            double bestFitness = Double.NEGATIVE_INFINITY;
+            BlockPos bestAnchor = null;
+
+            for (int i = 0; i < 4; i++) {
+                int subIdx = (startSub + i) % 4;
                 int subMinX = startBlockX + subOffsets[subIdx][0];
                 int subMinZ = startBlockZ + subOffsets[subIdx][1];
-                int candMinX = subMinX + 16;
-                int candMinZ = subMinZ + 16;
 
-                if (isFootprintSuitable(level, candMinX, candMinZ, OUTPOST_FOOTPRINT)) {
-                    int anchorX = candMinX + 16;
-                    int anchorZ = candMinZ + 16;
-                    int anchorY = getSurfaceHeightAt(level, anchorX, anchorZ);
-                    Optional<BlockPos> res = Optional.of(new BlockPos(anchorX, anchorY, anchorZ));
-                    physicalBaseAnchorCache.put(key, res);
-                    return res;
+                for (int[] s : shifts) {
+                    int candMinX = subMinX + s[0];
+                    int candMinZ = subMinZ + s[1];
+
+                    FootprintFitnessResult fit = evaluateFootprintFitness(level, candMinX, candMinZ, OUTPOST_FOOTPRINT, OUTPOST_FOOTPRINT);
+                    double tieBreaker = (s[0] == 16 && s[1] == 16) ? 0.5 : 0.0;
+                    if (fit.valid() && (fit.fitness() + tieBreaker) > bestFitness) {
+                        bestFitness = fit.fitness() + tieBreaker;
+                        bestAnchor = new BlockPos(candMinX + OUTPOST_FOOTPRINT / 2, fit.anchorY(), candMinZ + OUTPOST_FOOTPRINT / 2);
+                    }
                 }
             }
 
-            // Phase 2: If all 4 subregions fail their ideal positions, apply shifting logic inside subregions
-            int[][] outpostShifts = new int[][] {
-                    { -8, 0 }, { 8, 0 }, { 0, -8 }, { 0, 8 },
-                    { -12, 0 }, { 12, 0 }, { 0, -12 }, { 0, 12 },
-                    { -8, -8 }, { 8, -8 }, { -8, 8 }, { 8, 8 },
-                    { -16, 0 }, { 16, 0 }, { 0, -16 }, { 0, 16 }
-            };
-
-            for (int subIdx : subOrder) {
-                int subMinX = startBlockX + subOffsets[subIdx][0];
-                int subMinZ = startBlockZ + subOffsets[subIdx][1];
-
-                for (int[] shift : outpostShifts) {
-                    int candMinX = subMinX + 16 + shift[0];
-                    int candMinZ = subMinZ + 16 + shift[1];
-
-                    // Keep footprint within subregion boundaries [subMin, subMin + 64]
-                    if (candMinX >= subMinX && candMinX + OUTPOST_FOOTPRINT <= subMinX + 64 &&
-                            candMinZ >= subMinZ && candMinZ + OUTPOST_FOOTPRINT <= subMinZ + 64) {
-                        if (isFootprintSuitable(level, candMinX, candMinZ, OUTPOST_FOOTPRINT)) {
-                            int anchorX = candMinX + 16;
-                            int anchorZ = candMinZ + 16;
-                            int anchorY = getSurfaceHeightAt(level, anchorX, anchorZ);
-                            Optional<BlockPos> res = Optional.of(new BlockPos(anchorX, anchorY, anchorZ));
-                            physicalBaseAnchorCache.put(key, res);
-                            return res;
-                        }
-                    }
-                }
+            if (bestAnchor != null) {
+                Optional<BlockPos> res = Optional.of(bestAnchor);
+                physicalBaseAnchorCache.put(key, res);
+                return res;
             }
         }
 
@@ -728,8 +653,8 @@ public class ProceduralRegionGenerator {
 
     /**
      * Resolves the physical base placement for a region given a desired base tier.
-     * If the desired tier cannot fit safely within the region, gracefully downgrades:
-     * MEGA_BASE -> HEADQUARTERS -> OUTPOST -> NONE.
+     * Strictly preserves the requested base tier: if terrain cannot fit the structure,
+     * cleanly assigns BaseType.NONE without cascading down to lower base tiers.
      */
     public BasePlacementResult resolveBasePlacement(ServerLevel level, long worldSeed, int regionX, int regionZ, BaseType desiredTier) {
         level = ensureOverworld(level);
@@ -737,20 +662,11 @@ public class ProceduralRegionGenerator {
             return new BasePlacementResult(BaseType.NONE, null);
         }
 
-        BaseType currentTier = desiredTier;
-        while (currentTier != BaseType.NONE) {
-            Optional<BlockPos> anchor = findPhysicalBaseAnchor(level, worldSeed, regionX, regionZ, currentTier);
-            if (anchor.isPresent()) {
-                return new BasePlacementResult(currentTier, anchor.get());
-            }
-            // Graceful downgrade
-            currentTier = switch (currentTier) {
-                case MEGA_BASE -> BaseType.HEADQUARTERS;
-                case HEADQUARTERS -> BaseType.OUTPOST;
-                case OUTPOST -> BaseType.NONE;
-                default -> BaseType.NONE;
-            };
+        Optional<BlockPos> anchor = findPhysicalBaseAnchor(level, worldSeed, regionX, regionZ, desiredTier);
+        if (anchor.isPresent()) {
+            return new BasePlacementResult(desiredTier, anchor.get());
         }
+
         return new BasePlacementResult(BaseType.NONE, null);
     }
 

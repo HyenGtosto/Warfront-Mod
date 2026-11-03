@@ -38,6 +38,9 @@ public final class RoamingEntityTracker {
      */
     private static final Map<UUID, Boolean> TRACKED = new HashMap<>();
 
+    /** Tracks consecutive evaluations where an entity was null due to chunk unloading. */
+    private static final Map<UUID, Integer> UNLOADED_MISS_TICKS = new HashMap<>();
+
     private RoamingEntityTracker() {
     }
 
@@ -83,6 +86,9 @@ public final class RoamingEntityTracker {
             deactivationRadius = activationRadius + 1;
         }
 
+        int despawnRadius = WarfrontConfig.ROAMING_DESPAWN_RADIUS.get();
+        double despawnRadiusSq = (double) despawnRadius * despawnRadius;
+
         List<UUID> toRemove = new ArrayList<>();
 
         for (Map.Entry<UUID, Boolean> entry : TRACKED.entrySet()) {
@@ -90,6 +96,17 @@ public final class RoamingEntityTracker {
             boolean currentlyActive = entry.getValue();
 
             Entity entity = level.getEntity(uuid);
+            if (entity == null) {
+                // If chunk is unloaded, entity is temporarily null in memory; don't remove immediately.
+                int missed = UNLOADED_MISS_TICKS.merge(uuid, 1, Integer::sum);
+                if (missed > 15) { // 15 evaluations * 2s = 30 seconds buffer for unloaded chunks
+                    toRemove.add(uuid);
+                    UNLOADED_MISS_TICKS.remove(uuid);
+                }
+                continue;
+            }
+            UNLOADED_MISS_TICKS.remove(uuid);
+
             if (!(entity instanceof Mob mob) || !mob.isAlive()) {
                 toRemove.add(uuid);
                 continue;
@@ -102,40 +119,46 @@ public final class RoamingEntityTracker {
                 continue;
             }
 
+            // Sanitizer: restore physics & AI on any Warfront mob previously flagged with NoAI: true
+            if (mob.isNoAi()) {
+                mob.setNoAi(false);
+            }
+
             double minDistSq = Double.MAX_VALUE;
             for (ServerPlayer player : players) {
                 if (player.level() != level) continue;
-                double dSq = mob.distanceToSqr(player);
+                double dx = mob.getX() - player.getX();
+                double dz = mob.getZ() - player.getZ();
+                double dSq = dx * dx + dz * dz; // 2D horizontal distance
                 if (dSq < minDistSq) {
                     minDistSq = dSq;
                 }
             }
 
-            // Despawn non-persistent wandering mobs that wandered too far (> 128 blocks)
-            if (minDistSq > 128.0D * 128.0D && !mob.isPersistenceRequired() && !mob.hasCustomName()) {
+            // Despawn wandering mobs that wandered too far beyond the relaxed despawn radius
+            if (minDistSq > despawnRadiusSq && !mob.hasCustomName()) {
+                if (data.getBoolean("isPatrolMob") && data.hasUUID("squadId")) {
+                    UUID squadId = data.getUUID("squadId");
+                    int rx = data.getInt("originRegionX");
+                    int rz = data.getInt("originRegionZ");
+                    int sx = data.getInt("originSubX");
+                    int sz = data.getInt("originSubZ");
+                    SubregionPatrolManager.notifySquadDistanceDespawned(squadId, rx, rz, sx, sz);
+                }
                 mob.discard();
                 toRemove.add(uuid);
                 continue;
             }
 
-            // Apply hysteresis
+            // Vanilla and Lithium safely throttle distant entity ticking; never use destructive setNoAi(true)
             if (!currentlyActive) {
-                double activationSq = (double) activationRadius * activationRadius;
-                if (minDistSq <= activationSq) {
-                    mob.setNoAi(false);
-                    entry.setValue(Boolean.TRUE);
-                }
-            } else {
-                double deactivationSq = (double) deactivationRadius * deactivationRadius;
-                if (minDistSq > deactivationSq) {
-                    mob.setNoAi(true);
-                    entry.setValue(Boolean.FALSE);
-                }
+                entry.setValue(Boolean.TRUE);
             }
         }
 
         for (UUID uuid : toRemove) {
             TRACKED.remove(uuid);
+            UNLOADED_MISS_TICKS.remove(uuid);
         }
     }
 }

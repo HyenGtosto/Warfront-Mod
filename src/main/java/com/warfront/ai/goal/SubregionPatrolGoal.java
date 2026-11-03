@@ -42,6 +42,14 @@ public class SubregionPatrolGoal extends Goal {
     @Override
     public boolean canUse() {
         if (!mob.isAlive()) return false;
+        // Retaliate if damaged by player
+        if (mob.getLastHurtByMob() instanceof net.minecraft.world.entity.player.Player player && player.isAlive()) {
+            squad.alertSquadToTarget(mob.level(), player);
+            if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
+                mob.setTarget(player);
+            }
+            return false;
+        }
         // If another squad member spotted a target, sync to it and yield to combat AI
         net.minecraft.world.entity.LivingEntity squadTarget = squad.getSquadTarget(mob.level());
         if (squadTarget != null && squadTarget.isAlive()) {

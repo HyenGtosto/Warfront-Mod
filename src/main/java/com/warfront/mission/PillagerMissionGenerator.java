@@ -130,6 +130,49 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
         );
         EASY_DEFINITIONS.add(scoutNetwork);
 
+        // Biome-Specific Easy Missions
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_mountain_lookout_post", MissionType.MOUNTAIN_LOOKOUT_POST, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("MARKSMAN", "WARRIOR"),
+                "Summit Observation Post", "Destroy hostile observation stands on the ridge."));
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_mountain_pass_barricade", MissionType.MOUNTAIN_PASS_BARRICADE, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("WARRIOR", "MARKSMAN"),
+                "High Pass Barricade", "Breach the fortified roadblock blocking the mountain pass."));
+
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_forest_logging_depot", MissionType.FOREST_LOGGING_DEPOT, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 3, 3, 0.03f, List.of("WARRIOR"),
+                "Logging Sawmill", "Destroy timber sawbenches supplying the enemy siege effort."));
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_forest_hunting_stash", MissionType.FOREST_HUNTING_STASH, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("MARKSMAN", "WARRIOR"),
+                "Woodland Stash", "Sabotage hidden hunting supply racks in the forest."));
+
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_swamp_stranded_barge", MissionType.SWAMP_STRANDED_BARGE, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 3, 3, 0.03f, List.of("WARRIOR", "MARKSMAN"),
+                "Stranded Supply Barge", "Destroy cargo caches on a grounded swamp barge."));
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_swamp_fuel_still", MissionType.SWAMP_FUEL_STILL, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("WARRIOR"),
+                "Marshland Fuel Still", "Shatter boiling cauldrons fueling enemy munitions."));
+
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_desert_road_checkpoint", MissionType.DESERT_ROAD_CHECKPOINT, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("WARRIOR", "MARKSMAN"),
+                "Sand Road Checkpoint", "Breach the fortified desert road gatehouse."));
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_desert_cistern_depot", MissionType.DESERT_CISTERN_DEPOT, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 3, 3, 0.03f, List.of("WARRIOR", "MARKSMAN"),
+                "Desert Cistern Depot", "Sabotage essential water and supply cisterns in the desert."));
+
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_plains_scout_paddock", MissionType.PLAINS_SCOUT_PADDOCK, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("WARRIOR", "SCOUT"),
+                "Forward Scout Paddock", "Destroy logistics carts at the grassland staging paddock."));
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_plains_signal_mast", MissionType.PLAINS_SIGNAL_MAST, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("WARRIOR", "MARKSMAN"),
+                "Frontier Signal Mast", "Demolish the boundary signal mast alerting enemy patrols."));
+
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_tundra_supply_cache", MissionType.TUNDRA_SUPPLY_CACHE, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("WARRIOR", "MARKSMAN"),
+                "Icefield Supply Cache", "Destroy snow-covered supply crates before they are moved."));
+        EASY_DEFINITIONS.add(new MissionDefinition("pillager_tundra_frozen_watchpost", MissionType.TUNDRA_FROZEN_WATCHPOST, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("MARKSMAN", "WARRIOR"),
+                "Frozen Watchpost", "Demolish the cold-weather watchtower overlooking the tundra."));
+
         // ==========================================
         // 4 Hard Named Missions (Progressive S-Curve)
         // ==========================================
@@ -201,6 +244,49 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 "Scale the broadcast tower and sabotage the summit signal fuse before reinforcements arrive."
         );
         HARD_DEFINITIONS.add(warHornRelay);
+
+        // Biome-Specific Hard Missions
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_mountain_beacon_bastion", MissionType.MOUNTAIN_BEACON_BASTION, ObjectiveType.MULTI_PHASE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("COMMANDER", "IRONCLAD"),
+                "Summit Signal Brazier", "Extinguish the summit beacon before alarm and defeat the warden."));
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_mountain_ridge_battery", MissionType.MOUNTAIN_RIDGE_BATTERY, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 3, 3, 0.02f, List.of("CANNONEER", "RAPIDBOW"),
+                "Mountain Ridge Battery", "Sabotage the high-altitude mortar pit shelling the valleys."));
+
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_forest_canopy_blinds", MissionType.FOREST_CANOPY_BLINDS, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("ARMORED_ELITE", "MARKSMAN"),
+                "Canopy Sniping Blinds", "Assault the forest camp and clear the elevated sniper blinds."));
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_forest_command_camp", MissionType.FOREST_COMMAND_CAMP, ObjectiveType.ELIMINATE_LEADER,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("COMMANDER", "ARMORED_ELITE"),
+                "Forest Command Camp", "Infiltrate the woodland redoubt and eliminate the Forest Commander."));
+
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_swamp_stilt_redoubt", MissionType.SWAMP_STILT_REDOUBT, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("IRONCLAD", "ARMORED_ELITE"),
+                "Mangrove Stilt Redoubt", "Scale the wooden stilt platforms and demolish the command core."));
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_swamp_ironclad_hold", MissionType.SWAMP_IRONCLAD_HOLD, ObjectiveType.ELIMINATE_TARGETS,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("IRONCLAD", "CANNONEER"),
+                "Swamp Ironclad Mud Pit", "Defeat the entrenched Ironclads and destroy the mud revetment ammo."));
+
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_badlands_mesa_battery", MissionType.BADLANDS_MESA_BATTERY, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 2, 2, 0.02f, List.of("RAPIDBOW", "IRONCLAD"),
+                "Mesa Ballista Battery", "Scale the mesa rim and sabotage the heavy defense ballistas."));
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_desert_canyon_strongpoint", MissionType.DESERT_CANYON_STRONGPOINT, ObjectiveType.ELIMINATE_LEADER,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("COMMANDER", "IRONCLAD"),
+                "Canyon Dugout Strongpoint", "Infiltrate the sandstone bunker and eliminate the Desert Commander."));
+
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_plains_trench_redoubt", MissionType.PLAINS_TRENCH_REDOUBT, ObjectiveType.DESTROY_STRUCTURE,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("CANNONEER", "IRONCLAD"),
+                "Trenched Field Redoubt", "Breach the open plains trench network and destroy the dugout bunker."));
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_plains_field_command", MissionType.PLAINS_FIELD_COMMAND, ObjectiveType.ELIMINATE_LEADER,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("COMMANDER", "IRONCLAD"),
+                "Forward Field Command", "Infiltrate the palisade encampment and eliminate the Field Commander."));
+
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_tundra_mortar_pit", MissionType.TUNDRA_MORTAR_PIT, ObjectiveType.DESTROY_OBJECTIVES,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 3, 3, 0.02f, List.of("CANNONEER", "IRONCLAD"),
+                "Frostbite Mortar Pit", "Assault the snow revetment and sabotage the cold-weather mortars."));
+        HARD_DEFINITIONS.add(new MissionDefinition("pillager_tundra_garrison_redoubt", MissionType.TUNDRA_GARRISON_REDOUBT, ObjectiveType.ELIMINATE_LEADER,
+                Faction.PILLAGER_CONQUERORS, EnumSet.allOf(BaseType.class), 0.0f, 100.0f, 100, Map.of(), 1, 1, 0.02f, List.of("COMMANDER", "ARMORED_ELITE"),
+                "Arctic Garrison Redoubt", "Infiltrate the glacial blockhouse and eliminate the Arctic Commander."));
 
         // ==========================================
         // Mandatory Base Missions
@@ -457,6 +543,24 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
             BlockPos baseAnchor,
             boolean isDefense
     ) {
+        return generateMissionsWithTerrainAndElevation(
+                regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, null, null, seed, baseAnchor, isDefense);
+    }
+
+    @Override
+    public SubRegionMission[] generateMissionsWithTerrainAndElevation(
+            int regionX, int regionZ,
+            Faction faction,
+            BaseType baseType,
+            float resistance,
+            float stability,
+            BiomeCategory biomeCategory,
+            com.warfront.region.terrain.TerrainType[] subTerrains,
+            int[] subElevations,
+            long seed,
+            BlockPos baseAnchor,
+            boolean isDefense
+    ) {
         SubRegionMission[] missions = new SubRegionMission[4];
         float clampedRes = Math.clamp(resistance, 0.0f, 100.0f);
 
@@ -475,6 +579,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                         ^ faction.id() ^ 0xDEFE1234ABCDL;
 
                 MissionDefinition def = ((subSeed & 1) == 0) ? DEFEAT_INVADING_FORCES_DEF : HOLD_THE_CHOKEPOINT_DEF;
+                com.warfront.region.terrain.TerrainType subTerrain = (subTerrains != null && i < subTerrains.length) ? subTerrains[i] : null;
+                int subElevation = (subElevations != null && i < subElevations.length) ? subElevations[i] : 68;
 
                 missions[i] = WeightedMissionSelector.selectAndGenerate(
                         List.of(def),
@@ -485,6 +591,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                         BaseType.NONE,
                         clampedRes,
                         biomeCategory,
+                        subTerrain,
+                        subElevation,
                         subSeed,
                         regionTypeCounts
                 );
@@ -553,6 +661,9 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                 baseDef = OUTPOST_BASE_DEF;
             }
 
+            com.warfront.region.terrain.TerrainType subTerrain = (subTerrains != null && i < subTerrains.length) ? subTerrains[i] : null;
+            int subElevation = (subElevations != null && i < subElevations.length) ? subElevations[i] : 68;
+
             missions[i] = WeightedMissionSelector.selectAndGenerate(
                     List.of(baseDef),
                     baseDef,
@@ -562,6 +673,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                     baseType,
                     clampedRes,
                     biomeCategory,
+                    subTerrain,
+                    subElevation,
                     subSeed,
                     regionTypeCounts
             );
@@ -583,6 +696,9 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
             List<MissionDefinition> candidatePool = isHardTier ? HARD_DEFINITIONS : EASY_DEFINITIONS;
             MissionDefinition fallbackDef = isHardTier ? FALLBACK_HARD_DEF : FALLBACK_EASY_DEF;
 
+            com.warfront.region.terrain.TerrainType subTerrain = (subTerrains != null && i < subTerrains.length) ? subTerrains[i] : null;
+            int subElevation = (subElevations != null && i < subElevations.length) ? subElevations[i] : 68;
+
             missions[i] = WeightedMissionSelector.selectAndGenerate(
                     candidatePool,
                     fallbackDef,
@@ -592,6 +708,8 @@ public final class PillagerMissionGenerator implements FactionMissionGenerator {
                     baseType,
                     clampedRes,
                     biomeCategory,
+                    subTerrain,
+                    subElevation,
                     subSeed,
                     regionTypeCounts
             );

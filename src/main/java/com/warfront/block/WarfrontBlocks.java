@@ -2,9 +2,17 @@ package com.warfront.block;
 
 import com.warfront.Warfront;
 import com.warfront.item.MapTerminalItem;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SoundType;
@@ -93,6 +101,40 @@ public final class WarfrontBlocks {
             () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> SCRAP_METAL_DEBRIS = ITEMS.register("scrap_metal_debris",
             () -> new Item(new Item.Properties()));
+
+    // --- Biome Tactical Salvage & Specialized Components ---
+    public static final DeferredItem<Item> OPTICAL_RANGEFINDER_LENS = ITEMS.register("optical_rangefinder_lens",
+            () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> CURED_SIEGE_TIMBER = ITEMS.register("cured_siege_timber",
+            () -> new Item(new Item.Properties().stacksTo(64)));
+    public static final DeferredItem<Item> GIANT_BOLT_BUNDLE = ITEMS.register("giant_bolt_bundle",
+            () -> new Item(new Item.Properties().stacksTo(16)) {
+                @Override
+                public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+                    ItemStack held = player.getItemInHand(hand);
+                    if (!level.isClientSide()) {
+                        held.shrink(1);
+                        ItemStack bolts = new ItemStack(BALLISTA_BOLT_ITEM.get(), 16);
+                        if (!player.getInventory().add(bolts)) {
+                            player.drop(bolts, false);
+                        }
+                        level.playSound(null, player.getX(), player.getY(), player.getZ(),
+                                SoundEvents.BUNDLE_DROP_CONTENTS, SoundSource.PLAYERS, 1.0F, 1.0F);
+                    }
+                    return InteractionResultHolder.sidedSuccess(held, level.isClientSide());
+                }
+            });
+    public static final DeferredItem<Item> ALCHEMICAL_SULFUR_SLAG = ITEMS.register("alchemical_sulfur_slag",
+            () -> new Item(new Item.Properties().stacksTo(64)) {
+                @Override
+                public int getBurnTime(ItemStack itemStack, @org.jetbrains.annotations.Nullable RecipeType<?> recipeType) {
+                    return 6400; // 4x Coal burn duration (320 seconds)
+                }
+            });
+    public static final DeferredItem<Item> FROST_TEMPERED_HEATSINK = ITEMS.register("frost_tempered_heatsink",
+            () -> new Item(new Item.Properties()));
+    public static final DeferredItem<Item> CRYO_ARTILLERY_SHELL = ITEMS.register("cryo_artillery_shell",
+            () -> new Item(new Item.Properties().stacksTo(16)));
 
     // --- Sabotage Combat Targets (Volatile, Destroyed mid-combat) ---
     public static final DeferredBlock<Block> AMMUNITION_CRATE_TARGET = BLOCKS.register("ammunition_crate_target",
@@ -184,10 +226,12 @@ public final class WarfrontBlocks {
             event.accept(FRIENDLY_MORTAR_ITEM);
             event.accept(FRIENDLY_BALLISTA_ITEM);
             event.accept(BALLISTA_BOLT_ITEM);
+            event.accept(GIANT_BOLT_BUNDLE);
             event.accept(HE_ARTILLERY_SHELL);
             event.accept(INCENDIARY_ARTILLERY_SHELL);
             event.accept(AIRBURST_ARTILLERY_SHELL);
             event.accept(SMOKE_ARTILLERY_SHELL);
+            event.accept(CRYO_ARTILLERY_SHELL);
         } else if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(MAP_TERMINAL);
             event.accept(TESTING_MAP_TERMINAL);
@@ -198,6 +242,11 @@ public final class WarfrontBlocks {
             event.accept(ACOUSTIC_WAR_HORN_RELAY);
             event.accept(COMMANDER_BATTLE_STANDARD);
             event.accept(SCRAP_METAL_DEBRIS);
+            event.accept(OPTICAL_RANGEFINDER_LENS);
+            event.accept(CURED_SIEGE_TIMBER);
+            event.accept(GIANT_BOLT_BUNDLE);
+            event.accept(ALCHEMICAL_SULFUR_SLAG);
+            event.accept(FROST_TEMPERED_HEATSINK);
         } else if (event.getTabKey() == CreativeModeTabs.SPAWN_EGGS) {
             event.accept(PILLAGER_ELITE_SPAWN_EGG);
             event.accept(PILLAGER_WARRIOR_SPAWN_EGG);

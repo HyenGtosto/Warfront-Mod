@@ -30,11 +30,13 @@ public record RegionDetailsPayload(
         float attackerProgress,
         float defenderProgress,
         boolean playerInFactionRegion,
-        String terrainName
+        String terrainName,
+        int subTerrainsPacked,
+        int subElevationsPacked
 ) implements CustomPacketPayload {
 
     public RegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, int factionId, float stability, float resistance, int baseTypeId, boolean underSiege, boolean isVisited) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L, "", "", false, 0.0F, 0.0F, false, "Unknown");
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L, "", "", false, 0.0F, 0.0F, false, "Unknown", 0, 0);
     }
 
     public RegionDetailsPayload(
@@ -51,7 +53,7 @@ public record RegionDetailsPayload(
             BlockPos baseAnchor,
             long missionSeed
     ) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false, "Plains");
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, "", "", false, 0.0F, 0.0F, false, "Plains", 0, 0);
     }
 
     public RegionDetailsPayload(
@@ -74,7 +76,31 @@ public record RegionDetailsPayload(
             float defenderProgress,
             boolean playerInFactionRegion
     ) {
-        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, "Plains");
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, "Plains", 0, 0);
+    }
+
+    public RegionDetailsPayload(
+            int regionX, int regionZ, int subX, int subZ,
+            int factionId, float stability, float resistance,
+            int baseTypeId, boolean underSiege, boolean isVisited,
+            long remainingSiegeTicks, int dominoThreshold,
+            int reachableMask, boolean regionReachable,
+            int existingSiegeMask, int conqueredMask,
+            int attackerFactionId,
+            boolean isAwaitingReinforcements,
+            long reinforcementRemainingTicks,
+            boolean isEncircled,
+            BlockPos baseAnchor,
+            long missionSeed,
+            String playerFactionName,
+            String attackerFactionName,
+            boolean isFieldBattle,
+            float attackerProgress,
+            float defenderProgress,
+            boolean playerInFactionRegion,
+            String terrainName
+    ) {
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, 0, 0);
     }
 
     public static final Type<RegionDetailsPayload> TYPE = new Type<>(
@@ -115,6 +141,8 @@ public record RegionDetailsPayload(
             float defenderProgress = ByteBufCodecs.FLOAT.decode(buf);
             boolean playerInFactionRegion = ByteBufCodecs.BOOL.decode(buf);
             String terrainName = ByteBufCodecs.STRING_UTF8.decode(buf);
+            int subTerrainsPacked = ByteBufCodecs.VAR_INT.decode(buf);
+            int subElevationsPacked = ByteBufCodecs.VAR_INT.decode(buf);
 
             return new RegionDetailsPayload(
                     rx, rz, sx, sz,
@@ -135,7 +163,9 @@ public record RegionDetailsPayload(
                     attackerProgress,
                     defenderProgress,
                     playerInFactionRegion,
-                    terrainName
+                    terrainName,
+                    subTerrainsPacked,
+                    subElevationsPacked
             );
         }
 
@@ -175,6 +205,8 @@ public record RegionDetailsPayload(
             ByteBufCodecs.FLOAT.encode(buf, payload.defenderProgress());
             ByteBufCodecs.BOOL.encode(buf, payload.playerInFactionRegion());
             ByteBufCodecs.STRING_UTF8.encode(buf, payload.terrainName() != null ? payload.terrainName() : "Plains");
+            ByteBufCodecs.VAR_INT.encode(buf, payload.subTerrainsPacked());
+            ByteBufCodecs.VAR_INT.encode(buf, payload.subElevationsPacked());
         }
     };
 

@@ -205,7 +205,9 @@ public final class RegionMapState {
                 payload.attackerProgress(),
                 payload.defenderProgress(),
                 payload.playerInFactionRegion(),
-                payload.terrainName());
+                payload.terrainName(),
+                payload.subTerrainsPacked(),
+                payload.subElevationsPacked());
 
         if (payload.underSiege()) {
             activatedRegions.add(regKey);
@@ -423,8 +425,15 @@ public final class RegionMapState {
         if (cached != null) {
             return cached;
         }
+        com.warfront.region.terrain.TerrainType[] subTerrains = (selectedRegion != null && selectedRegion.regionX() == regionX && selectedRegion.regionZ() == regionZ)
+                ? selectedRegion.getSubRegionTerrains()
+                : null;
+        int[] subElevations = (selectedRegion != null && selectedRegion.regionX() == regionX && selectedRegion.regionZ() == regionZ)
+                ? selectedRegion.getSubRegionElevations()
+                : null;
         SubRegionMission[] missions = MissionProfile.generateForRegion(
-                regionX, regionZ, faction, baseType, resistance, stability, seed, baseAnchor, isDefense);
+                regionX, regionZ, faction, baseType, resistance, stability,
+                com.warfront.region.BiomeCategory.STANDARD, subTerrains, subElevations, seed, baseAnchor, isDefense);
         missionCache.put(key, missions);
         return missions;
     }

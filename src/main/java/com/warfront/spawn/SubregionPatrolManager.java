@@ -59,7 +59,7 @@ public final class SubregionPatrolManager {
     public static final long REINFORCEMENT_COOLDOWN_TICKS = 3L * 60L * 20L; // 3 minutes = 3600 ticks (Option 1b)
 
     private static final int EVAL_INTERVAL_TICKS = 20; // 1 second evaluation cadence
-    private static final int PLAYER_SCAN_RADIUS_BLOCKS = 128;
+    private static final int PLAYER_SCAN_RADIUS_BLOCKS = 64; // 64 blocks in each direction (128x128 footprint)
 
     private static final int[][] SQUAD_SPREAD_OFFSETS = new int[][] {
             {  0,  0 }, // Center (Leader)
@@ -94,6 +94,7 @@ public final class SubregionPatrolManager {
         private BlockPos currentWaypoint;
         private boolean holdingGround = false;
         private int holdTicksRemaining = 0;
+        private volatile boolean engagedInCombat = false;
 
         public PatrolSquad(UUID squadId, int regionX, int regionZ, int subX, int subZ, BlockPos initialWaypoint) {
             this.squadId = squadId;
@@ -107,6 +108,8 @@ public final class SubregionPatrolManager {
         public UUID getSquadId() { return squadId; }
         public BlockPos getCurrentWaypoint() { return currentWaypoint; }
         public boolean isHoldingGround() { return holdingGround; }
+        public boolean wasEngagedInCombat() { return engagedInCombat; }
+        public void markEngaged() { this.engagedInCombat = true; }
 
         public void addMember(UUID uuid) {
             memberUuids.add(uuid);
@@ -133,6 +136,12 @@ public final class SubregionPatrolManager {
                 if (e instanceof Mob mob) {
                     if (mob.isAlive()) {
                         living++;
+                        if (mob.getTarget() != null || mob.getLastHurtByMob() != null) {
+                            this.engagedInCombat = true;
+                        }
+                    } else {
+                        // Combat casualty occurred
+                        this.engagedInCombat = true;
                     }
                 } else if (e == null && !anyLoaded) {
                     unloaded++;
@@ -201,6 +210,19 @@ public final class SubregionPatrolManager {
                     if (nextWaypoint != null && !nextWaypoint.equals(currentWaypoint)) {
                         currentWaypoint = nextWaypoint;
                         Warfront.LOGGER.info("[PATROL] Squad {} hold complete. Reselected next waypoint: {}", squadId, currentWaypoint);
+                    } else {
+                        // Waypoint didn't change: perturb destination across subregion to break infinite hold loop
+                        int subMinX = regionX * RegionData.REGION_SIZE_BLOCKS + subX * SUBREGION_SIZE_BLOCKS;
+                        int subMinZ = regionZ * RegionData.REGION_SIZE_BLOCKS + subZ * SUBREGION_SIZE_BLOCKS;
+                        int currX = currentWaypoint != null ? currentWaypoint.getX() : subMinX + 32;
+                        int currZ = currentWaypoint != null ? currentWaypoint.getZ() : subMinZ + 32;
+                        int px = subMinX + Math.floorMod(currX - subMinX + 32, SUBREGION_SIZE_BLOCKS);
+                        int pz = subMinZ + Math.floorMod(currZ - subMinZ + 32, SUBREGION_SIZE_BLOCKS);
+                        int py = EnemyEncounterSpawner.findDryLandSurfaceY(level, px, pz);
+                        if (py != Integer.MIN_VALUE) {
+                            currentWaypoint = new BlockPos(px, py, pz);
+                            Warfront.LOGGER.info("[PATROL] Squad {} hold complete. Perturbed waypoint across subregion to: {}", squadId, currentWaypoint);
+                        }
                     }
                 }
             }
@@ -224,6 +246,7 @@ public final class SubregionPatrolManager {
          */
         public void alertSquadToTarget(Level level, LivingEntity target) {
             if (target == null || !target.isAlive()) return;
+            this.engagedInCombat = true;
             for (Mob mob : getLivingMembers(level)) {
                 if (com.warfront.entity.AlliedFactionHelper.isAllied(mob, target)) continue;
                 if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
@@ -321,6 +344,27 @@ public final class SubregionPatrolManager {
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 onSubregionCaptured(level, rx, rz, sx, sz);
+            }
+        }
+    }
+
+    /**
+     * Called when a roaming patrol mob is discarded due to distance despawn (e.g. player flew away).
+     * If the squad was never engaged in combat, this refunds the subregion's spawn cooldown.
+     */
+    public static void notifySquadDistanceDespawned(UUID squadId, int rx, int rz, int sx, int sz) {
+        long subKey = makeSubKey(rx, rz, sx, sz);
+        List<PatrolSquad> squads = ACTIVE_PATROLS.get(subKey);
+        if (squads != null) {
+            for (PatrolSquad squad : squads) {
+                if (squad.getSquadId().equals(squadId)) {
+                    if (!squad.wasEngagedInCombat()) {
+                        LAST_SPAWN_TIME.remove(subKey);
+                        Warfront.LOGGER.debug("[PATROL] Squad {} distance-despawned without combat in Subregion ({}, {} - {}, {}). Cooldown refunded.",
+                                squadId, rx, rz, sx, sz);
+                    }
+                    break;
+                }
             }
         }
     }
@@ -426,7 +470,14 @@ public final class SubregionPatrolManager {
 
         // 1. Tick hold timers, sync targets, and clean up empty squads
         for (Map.Entry<Long, List<PatrolSquad>> entry : ACTIVE_PATROLS.entrySet()) {
+            long subKey = entry.getKey();
             List<PatrolSquad> squads = entry.getValue();
+            for (PatrolSquad squad : squads) {
+                if (squad.countLiving(level) == 0 && !squad.wasEngagedInCombat()) {
+                    LAST_SPAWN_TIME.remove(subKey);
+                    Warfront.LOGGER.debug("[PATROL] Squad {} emptied without combat. Subregion cooldown refunded.", squad.getSquadId());
+                }
+            }
             squads.removeIf(squad -> squad.countLiving(level) == 0);
             for (PatrolSquad squad : squads) {
                 squad.tickHoldTimer(level);
@@ -563,7 +614,18 @@ public final class SubregionPatrolManager {
 
             if (!scoutAlive) {
                 Long lastSpawn = LAST_SCOUT_SPAWN_TIME.get(subKey);
-                if (lastSpawn == null || (gameTime - lastSpawn) >= SCOUT_SPAWN_COOLDOWN_TICKS) {
+                long scoutCooldown = SCOUT_SPAWN_COOLDOWN_TICKS;
+                com.warfront.region.terrain.TerrainClassifier.SubRegionTerrainData subTerrain =
+                        com.warfront.region.terrain.TerrainClassifier.getSubRegionTerrain(level, rx, rz, sx, sz);
+                int subCenterCX = (rx * 8) + (sx * 4) + 2;
+                int subCenterCZ = (rz * 8) + (sz * 4) + 2;
+                int elevation = com.warfront.region.terrain.BiomeElevation.getChunkElevation(
+                        level, subCenterCX, subCenterCZ, level.getBiome(new BlockPos(subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8)));
+                if (TerrainSpawnDoctrine.isScoutAcceleratedTerrain(subTerrain.primary(), elevation)) {
+                    scoutCooldown = 3L * 60L * 20L; // 3 minutes = 3600 ticks in rugged / high elevation
+                }
+
+                if (lastSpawn == null || (gameTime - lastSpawn) >= scoutCooldown) {
                     PillagerScoutEntity spawnedScout = spawnSubregionScout(level, rx, rz, sx, sz);
                     if (spawnedScout != null) {
                         ACTIVE_SCOUTS.put(subKey, spawnedScout.getUUID());
@@ -597,7 +659,18 @@ public final class SubregionPatrolManager {
         // Size matches resistance tier (3 to 16 max)
         int squadSize = Math.clamp(tier.minSpawn() + level.getRandom().nextInt(Math.max(1, tier.maxSpawn() - tier.minSpawn() + 1)), 3, 16);
 
-        List<Object> rolePool = buildPatrolRolePool(faction, tier);
+        com.warfront.region.terrain.TerrainClassifier.SubRegionTerrainData subTerrain =
+                com.warfront.region.terrain.TerrainClassifier.getSubRegionTerrain(level, rx, rz, sx, sz);
+        int subCenterCX = (rx * 8) + (sx * 4) + 2;
+        int subCenterCZ = (rz * 8) + (sz * 4) + 2;
+        int elevation = com.warfront.region.terrain.BiomeElevation.getChunkElevation(
+                level, subCenterCX, subCenterCZ, level.getBiome(new BlockPos(subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8)));
+
+        List<Object> rolePool = TerrainSpawnDoctrine.buildPatrolRolePool(
+                faction, tier, subTerrain.primary(), subTerrain.secondary(), elevation);
+        if (rolePool.isEmpty()) {
+            rolePool = buildPatrolRolePool(faction, tier);
+        }
         if (rolePool.isEmpty()) return null;
 
         UUID squadId = UUID.randomUUID();
@@ -649,6 +722,7 @@ public final class SubregionPatrolManager {
             mob.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
             net.neoforged.neoforge.event.EventHooks.finalizeMobSpawn(
                     mob, level, level.getCurrentDifficultyAt(new BlockPos(spawnX, spawnY, spawnZ)), MobSpawnType.EVENT, null);
+            mob.setPersistenceRequired();
 
             // Remove random wander goals so they adhere to squad patrolling
             mob.goalSelector.getAvailableGoals().removeIf(g ->
@@ -727,41 +801,46 @@ public final class SubregionPatrolManager {
     }
 
     /**
-     * Checks if a border coordinate has stable, flat, open-air dry land suitable for large convoy wagons.
-     * Rejects caves, crater edges, cliffs, overhangs, and water.
+     * Checks if a border coordinate has stable dry land suitable for biped infantry patrol squads.
+     * Supports tree canopies (forests) and normal elevation stepping (<= 3 blocks drop).
+     * Rejects liquid water/lava, suffocating blocks, and sheer vertical falls.
      */
-    public static boolean isValidHarshBorderPoint(ServerLevel level, int x, int z) {
+    public static boolean isValidInfantryBorderPoint(ServerLevel level, int x, int z) {
+        int chunkX = x >> 4;
+        int chunkZ = z >> 4;
+        if (!level.getChunkSource().hasChunk(chunkX, chunkZ)) {
+            return false;
+        }
+
         int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
         if (y == Integer.MIN_VALUE) return false;
 
-        BlockPos pos = new BlockPos(x, y, z);
-        // Must have direct view of the sky (not underground in a mine or cave)
-        if (!level.canSeeSky(pos)) return false;
-
-        // Check clear 3-block headroom for wagons and horses
-        for (int dy = 0; dy <= 2; dy++) {
-            BlockPos head = pos.above(dy);
-            if (!level.getFluidState(head).isEmpty() || level.getBlockState(head).blocksMotion()) {
-                return false;
-            }
+        BlockPos feet = new BlockPos(x, y, z);
+        BlockPos head = feet.above();
+        if (level.getBlockState(feet).blocksMotion() || level.getBlockState(head).blocksMotion()) {
+            return false;
+        }
+        if (!level.getFluidState(feet).isEmpty() || !level.getFluidState(head).isEmpty()) {
+            return false;
         }
 
-        // Harsh slope / crater drop check: adjacent cardinal blocks must not be a sheer drop (>2 blocks) or water
+        // Stepping check: at least 1 adjacent cardinal neighbor must be within 3 blocks elevation
         int[][] neighbors = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
         for (int[] offset : neighbors) {
             int nx = x + offset[0];
             int nz = z + offset[1];
+            if (!level.getChunkSource().hasChunk(nx >> 4, nz >> 4)) continue;
             int ny = EnemyEncounterSpawner.findDryLandSurfaceY(level, nx, nz);
-            if (ny == Integer.MIN_VALUE || Math.abs(ny - y) > 2) {
-                return false; // Drop into crater, cliff ledge, or water boundary
+            if (ny != Integer.MIN_VALUE && Math.abs(ny - y) <= 3) {
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     /**
-     * Picks a random surface point on one of the 4 borders of a subregion using harsh border validation.
+     * Picks a random surface point on one of the 4 borders of a subregion using infantry border validation.
      */
     public static BlockPos pickRandomBorderPoint(ServerLevel level, int rx, int rz, int sx, int sz) {
         int subMinX = rx * RegionData.REGION_SIZE_BLOCKS + sx * SUBREGION_SIZE_BLOCKS;
@@ -769,7 +848,7 @@ public final class SubregionPatrolManager {
         int subMinZ = rz * RegionData.REGION_SIZE_BLOCKS + sz * SUBREGION_SIZE_BLOCKS;
         int subMaxZ = subMinZ + SUBREGION_SIZE_BLOCKS - 1;
 
-        // 1. Randomized harsh search across 4 perimeter edges
+        // 1. Randomized search across 4 perimeter edges
         for (int attempt = 0; attempt < 80; attempt++) {
             int edge = level.getRandom().nextInt(4);
             int inset = level.getRandom().nextInt(2); // 0 or 1 block inset
@@ -781,7 +860,7 @@ public final class SubregionPatrolManager {
                 default -> { x = subMaxX - inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
             }
 
-            if (isValidHarshBorderPoint(level, x, z)) {
+            if (isValidInfantryBorderPoint(level, x, z)) {
                 int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
                 return new BlockPos(x, y, z);
             }
@@ -797,14 +876,14 @@ public final class SubregionPatrolManager {
                     case 2 -> { x = subMinX; z = subMinZ + offset; }
                     default -> { x = subMaxX; z = subMinZ + offset; }
                 }
-                if (isValidHarshBorderPoint(level, x, z)) {
+                if (isValidInfantryBorderPoint(level, x, z)) {
                     int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
                     return new BlockPos(x, y, z);
                 }
             }
         }
 
-        Warfront.LOGGER.error("[Warfront Convoy] Can't find next waypoint (failed to find valid border starting point) in Region ({}, {}) Sub ({}, {})!", rx, rz, sx, sz);
+        Warfront.LOGGER.debug("[PATROL] Unable to find valid border spawn point in Region ({}, {}) Sub ({}, {})", rx, rz, sx, sz);
         return null;
     }
 
@@ -831,7 +910,7 @@ public final class SubregionPatrolManager {
                 default -> { x = subMaxX - inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
             }
 
-            if (!isValidHarshBorderPoint(level, x, z)) continue;
+            if (!isValidInfantryBorderPoint(level, x, z)) continue;
 
             int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
             BlockPos candidate = new BlockPos(x, y, z);
@@ -848,12 +927,27 @@ public final class SubregionPatrolManager {
             }
         }
 
-        if (bestFallback != null && bestDist >= 32.0D) {
+        if (bestFallback != null && bestDist >= 20.0D) {
             return bestFallback;
         }
 
-        // Console error logging when the check fails
-        Warfront.LOGGER.error("[Warfront Convoy] Can't find next waypoint for convoy in Region ({}, {}) Sub ({}, {}) from Pos {}!", rx, rz, sx, sz, fromPos);
+        if (bestFallback != null) {
+            return bestFallback;
+        }
+
+        // Interior cross-subregion fallback if all borders are walled off or obstructed
+        int subCenterX = subMinX + SUBREGION_SIZE_BLOCKS / 2;
+        int subCenterZ = subMinZ + SUBREGION_SIZE_BLOCKS / 2;
+        int oppX = fromPos != null ? subCenterX + (subCenterX - fromPos.getX()) : subCenterX;
+        int oppZ = fromPos != null ? subCenterZ + (subCenterZ - fromPos.getZ()) : subCenterZ;
+        oppX = Math.clamp(oppX, subMinX + 4, subMaxX - 4);
+        oppZ = Math.clamp(oppZ, subMinZ + 4, subMaxZ - 4);
+        int oppY = EnemyEncounterSpawner.findDryLandSurfaceY(level, oppX, oppZ);
+        if (oppY != Integer.MIN_VALUE) {
+            return new BlockPos(oppX, oppY, oppZ);
+        }
+
+        Warfront.LOGGER.debug("[PATROL] Unable to find valid border waypoint in Region ({}, {}) Sub ({}, {}) from Pos {}", rx, rz, sx, sz, fromPos);
         return null;
     }
 

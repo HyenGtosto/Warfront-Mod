@@ -82,6 +82,18 @@ public final class MissionProfile {
     }
 
     /**
+     * Comprehensive entry point with terrain and elevation: Generates 4 deterministic subregion missions
+     * incorporating physical terrain types, elevations, seed, base anchor, and defense state.
+     */
+    public static SubRegionMission[] generateForRegion(
+            int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability,
+            BiomeCategory biomeCategory, com.warfront.region.terrain.TerrainType[] subTerrains, int[] subElevations,
+            long seed, BlockPos baseAnchor, boolean isDefense) {
+        return getGenerator(faction).generateMissionsWithTerrainAndElevation(
+                regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, subTerrains, subElevations, seed, baseAnchor, isDefense);
+    }
+
+    /**
      * Generates 4 deterministic subregion missions with seed, base anchor, and defense flag.
      */
     public static SubRegionMission[] generateForRegion(

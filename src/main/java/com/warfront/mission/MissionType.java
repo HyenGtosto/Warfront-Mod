@@ -31,6 +31,45 @@ public enum MissionType {
     SCOUT_NETWORK(ObjectiveType.DESTROY_OBJECTIVES),
 
     // ==========================================
+    // Biome-Specific Easy Mission Types (< 50% Resistance)
+    // ==========================================
+    /** Summit Observation Post: Highlands observation platform with scout tables. */
+    MOUNTAIN_LOOKOUT_POST(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** High Pass Barricade: Mountain pass fortified roadblock. */
+    MOUNTAIN_PASS_BARRICADE(ObjectiveType.DESTROY_STRUCTURE),
+
+    /** Logging Sawmill: Forest timber clear-cutting sawbenches. */
+    FOREST_LOGGING_DEPOT(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Woodland Stash: Hidden canopy hunting supply stash. */
+    FOREST_HUNTING_STASH(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Stranded Supply Barge: Swamp channel grounded flatboat. */
+    SWAMP_STRANDED_BARGE(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Marshland Fuel Still: Swamp peat boiling still cauldrons. */
+    SWAMP_FUEL_STILL(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Sand Road Checkpoint: Desert road sandstone barrier gate. */
+    DESERT_ROAD_CHECKPOINT(ObjectiveType.DESTROY_STRUCTURE),
+
+    /** Desert Cistern Depot: Arid cistern and terracotta water caches. */
+    DESERT_CISTERN_DEPOT(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Forward Scout Paddock: Plains scout staging paddock and logistics carts. */
+    PLAINS_SCOUT_PADDOCK(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Frontier Signal Mast: Grassland boundary signal pole. */
+    PLAINS_SIGNAL_MAST(ObjectiveType.DESTROY_STRUCTURE),
+
+    /** Icefield Supply Cache: Snow-covered arctic supply depot. */
+    TUNDRA_SUPPLY_CACHE(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Frozen Watchpost: Cold-weather fortified lookout tower. */
+    TUNDRA_FROZEN_WATCHPOST(ObjectiveType.DESTROY_STRUCTURE),
+
+    // ==========================================
     // 4 Hard Mission Types (Resistance >= 50%)
     // ==========================================
     /** Strongpoint Assault: Breach and neutralize a heavily fortified pillager redoubt. */
@@ -47,6 +86,45 @@ public enum MissionType {
 
     /** War Horn Relay / Signal Tower: Scale a fortified mast and sabotage the signal fuse before response battalions arrive. */
     WAR_HORN_RELAY(ObjectiveType.MULTI_PHASE),
+
+    // ==========================================
+    // Biome-Specific Hard Mission Types (>= 50% Resistance)
+    // ==========================================
+    /** Summit Signal Brazier: Mountain pinnacle beacon with timed flameout alarm. */
+    MOUNTAIN_BEACON_BASTION(ObjectiveType.MULTI_PHASE),
+
+    /** Mountain Ridge Battery: High-altitude mortar pit shelling valleys. */
+    MOUNTAIN_RIDGE_BATTERY(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Canopy Sniping Blinds: Woodland camp with elevated tree blinds and snipers. */
+    FOREST_CANOPY_BLINDS(ObjectiveType.DESTROY_STRUCTURE),
+
+    /** Forest Command Camp: Entrenched forest camp and commander. */
+    FOREST_COMMAND_CAMP(ObjectiveType.ELIMINATE_LEADER),
+
+    /** Mangrove Stilt Redoubt: Elevated swamp stilt outpost over murky water. */
+    SWAMP_STILT_REDOUBT(ObjectiveType.DESTROY_STRUCTURE),
+
+    /** Swamp Ironclad Mud Pit: Sunken mud hollow held by ironclads and gunners. */
+    SWAMP_IRONCLAD_HOLD(ObjectiveType.ELIMINATE_TARGETS),
+
+    /** Mesa Ballista Battery: High mesa redoubt with heavy rapidbow ballistas. */
+    BADLANDS_MESA_BATTERY(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Canyon Dugout Strongpoint: Desert canyon sandstone bunker and commander. */
+    DESERT_CANYON_STRONGPOINT(ObjectiveType.ELIMINATE_LEADER),
+
+    /** Trenched Field Redoubt: Plains zig-zag trench system with mortar dugout. */
+    PLAINS_TRENCH_REDOUBT(ObjectiveType.DESTROY_STRUCTURE),
+
+    /** Forward Field Command: Fortified plains command encampment and officer. */
+    PLAINS_FIELD_COMMAND(ObjectiveType.ELIMINATE_LEADER),
+
+    /** Frostbite Mortar Pit: Arctic snow revetment mortar pit. */
+    TUNDRA_MORTAR_PIT(ObjectiveType.DESTROY_OBJECTIVES),
+
+    /** Arctic Garrison Redoubt: Glacial log blockhouse and arctic commander. */
+    TUNDRA_GARRISON_REDOUBT(ObjectiveType.ELIMINATE_LEADER),
 
     // ==========================================
     // Outpost Base Mission (1 variant: 1 subregion)
@@ -133,7 +211,13 @@ public enum MissionType {
      */
     public boolean isEasy() {
         return switch (this) {
-            case FORWARD_PATROL, SUPPLY_CONVOY, FORWARD_OUTPOST, SCOUT_NETWORK -> true;
+            case FORWARD_PATROL, SUPPLY_CONVOY, FORWARD_OUTPOST, SCOUT_NETWORK,
+                 MOUNTAIN_LOOKOUT_POST, MOUNTAIN_PASS_BARRICADE,
+                 FOREST_LOGGING_DEPOT, FOREST_HUNTING_STASH,
+                 SWAMP_STRANDED_BARGE, SWAMP_FUEL_STILL,
+                 DESERT_ROAD_CHECKPOINT, DESERT_CISTERN_DEPOT,
+                 PLAINS_SCOUT_PADDOCK, PLAINS_SIGNAL_MAST,
+                 TUNDRA_SUPPLY_CACHE, TUNDRA_FROZEN_WATCHPOST -> true;
             default -> false;
         };
     }
@@ -143,7 +227,13 @@ public enum MissionType {
      */
     public boolean isHard() {
         return switch (this) {
-            case STRONGPOINT_ASSAULT, OFFICER_HUNT, ARTILLERY_BATTERY, CUT_THE_SUPPLY_LINE, WAR_HORN_RELAY -> true;
+            case STRONGPOINT_ASSAULT, OFFICER_HUNT, ARTILLERY_BATTERY, CUT_THE_SUPPLY_LINE, WAR_HORN_RELAY,
+                 MOUNTAIN_BEACON_BASTION, MOUNTAIN_RIDGE_BATTERY,
+                 FOREST_CANOPY_BLINDS, FOREST_COMMAND_CAMP,
+                 SWAMP_STILT_REDOUBT, SWAMP_IRONCLAD_HOLD,
+                 BADLANDS_MESA_BATTERY, DESERT_CANYON_STRONGPOINT,
+                 PLAINS_TRENCH_REDOUBT, PLAINS_FIELD_COMMAND,
+                 TUNDRA_MORTAR_PIT, TUNDRA_GARRISON_REDOUBT -> true;
             default -> false;
         };
     }
