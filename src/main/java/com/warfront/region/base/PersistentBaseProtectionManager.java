@@ -46,6 +46,13 @@ public final class PersistentBaseProtectionManager {
     /** Cache of blueprint blocks: RegionKey -> (BlockPos -> Expected BlockState). */
     private static final Map<Long, Map<BlockPos, BlockState>> BLUEPRINT_CACHE = new ConcurrentHashMap<>();
 
+    /** Tracks placed bases verified to have 100% intact blocks so they skip polling until a block break/explosion occurs in the region. */
+    private static final java.util.Set<Long> PRISTINE_PLACED_BASES = ConcurrentHashMap.newKeySet();
+
+    public static void markBasePotentiallyDamaged(int rx, int rz) {
+        PRISTINE_PLACED_BASES.remove(ChunkPos.asLong(rx, rz));
+    }
+
     private PersistentBaseProtectionManager() {
     }
 
@@ -109,35 +116,12 @@ public final class PersistentBaseProtectionManager {
         RegionData regions = RegionData.get(level);
         if (regions == null) return;
 
-        // Collect candidate regions around online players (radius 2) and all placed bases
-        java.util.Set<Long> candidateRegionKeys = new java.util.HashSet<>();
-        for (ServerPlayer player : players) {
-            if (player.level() != level) continue;
-            int prx = Math.floorDiv(player.getBlockX(), RegionData.REGION_SIZE_BLOCKS);
-            int prz = Math.floorDiv(player.getBlockZ(), RegionData.REGION_SIZE_BLOCKS);
-            for (int dx = -2; dx <= 2; dx++) {
-                for (int dz = -2; dz <= 2; dz++) {
-                    candidateRegionKeys.add(ChunkPos.asLong(prx + dx, prz + dz));
-                }
-            }
-        }
+        // Iterate directly over placed bases only (never trigger procedural generation on unplaced regions)
+        for (RegionData.Region reg : regions.getAllPlacedBaseRegions()) {
+            int rx = reg.x();
+            int rz = reg.z();
 
-        for (RegionData.Region placed : regions.getAllPlacedBaseRegions()) {
-            candidateRegionKeys.add(ChunkPos.asLong(placed.x(), placed.z()));
-        }
-
-        for (long key : candidateRegionKeys) {
-            int rx = ChunkPos.getX(key);
-            int rz = ChunkPos.getZ(key);
-
-            RegionData.Region reg = regions.regionAt(rx, rz);
-            if (reg.baseType() == com.warfront.region.BaseType.NONE) {
-                continue;
-            }
-
-            // CRITICAL INVARIANT: Persistent base repair & garrison ONLY operates on bases that have completed physical placement!
-            // An unplaced base must be placed atomically by BasePlacementManager with full NBT template, air clearing, and foundation.
-            if (!reg.basePlaced() || !regions.isBasePlaced(rx, rz)) {
+            if (reg.baseType() == com.warfront.region.BaseType.NONE || !reg.basePlaced()) {
                 continue;
             }
 
@@ -283,6 +267,11 @@ public final class PersistentBaseProtectionManager {
     }
 
     private static void evaluateAndRepairBase(ServerLevel level, int rx, int rz, RegionData.Region reg, BlockPos anchor, RegionData regions) {
+        long regKey = ChunkPos.asLong(rx, rz);
+        if (PRISTINE_PLACED_BASES.contains(regKey)) {
+            return;
+        }
+
         RegionData.RegionState state = new RegionData.RegionState(
                 reg.owner(), reg.stability(), reg.resistance(), reg.baseType(), reg.clusterId(), anchor, reg.basePlaced());
 
@@ -295,6 +284,8 @@ public final class PersistentBaseProtectionManager {
 
         int totalExpected = 0;
         int intactCount = 0;
+        boolean allChunksLoaded = true;
+        boolean anySubregionAtWar = false;
         List<Map.Entry<BlockPos, BlockState>> damagedEntries = new ArrayList<>();
         RegionData.SiegeCampaign siege = (regions != null) ? regions.getSiege(rx, rz) : null;
 
@@ -308,6 +299,7 @@ public final class PersistentBaseProtectionManager {
             }
 
             if (!level.hasChunkAt(pos)) {
+                allChunksLoaded = false;
                 continue;
             }
 
@@ -326,6 +318,7 @@ public final class PersistentBaseProtectionManager {
 
             if (subregionAtWar) {
                 // Active combat mission on this side of the base: skip repair so destruction persists!
+                anySubregionAtWar = true;
                 continue;
             }
 
@@ -365,6 +358,11 @@ public final class PersistentBaseProtectionManager {
                 Warfront.LOGGER.info("[Warfront] Base at {} in Region ({}, {}) integrity: {}%. Repaired {} damaged blocks.",
                         anchor, rx, rz, (int)(integrity * 100), repaired);
             }
+            if (repaired >= damagedEntries.size() && allChunksLoaded && !anySubregionAtWar) {
+                PRISTINE_PLACED_BASES.add(regKey);
+            }
+        } else if (allChunksLoaded && !anySubregionAtWar) {
+            PRISTINE_PLACED_BASES.add(regKey);
         }
     }
 
@@ -454,5 +452,6 @@ public final class PersistentBaseProtectionManager {
      */
     public static void clearCache() {
         BLUEPRINT_CACHE.clear();
+        PRISTINE_PLACED_BASES.clear();
     }
 }

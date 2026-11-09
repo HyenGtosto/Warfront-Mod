@@ -180,11 +180,14 @@ public class ScoutReconGoal extends Goal {
         this.scout.getNavigation().stop();
         this.stateTicks--;
 
-        // Accumulate player exposure without decay if player is in the 150-degree arc with line-of-sight
-        Player candidate = scanForHostilePlayer();
-        if (candidate != null) {
-            this.spottedPlayer = candidate;
-            this.playerExposureTicks++;
+        // Accumulate player exposure without decay if player is in the 150-degree arc with line-of-sight (throttled to every 4 ticks)
+        Player candidate = null;
+        if (this.stateTicks % 4 == 0 || this.stateTicks <= 0) {
+            candidate = scanForHostilePlayer();
+            if (candidate != null) {
+                this.spottedPlayer = candidate;
+                this.playerExposureTicks += 4;
+            }
         }
 
         // Trigger alarm AFTER the look animation completes (conclusion scan)
@@ -306,6 +309,9 @@ public class ScoutReconGoal extends Goal {
             return null;
         }
 
+        double effectiveScanRange = getEffectiveScanRange();
+        double effectiveScanRangeSq = effectiveScanRange * effectiveScanRange;
+
         for (Player player : this.scout.level().players()) {
             if (!player.isAlive() || player.isSpectator() || player.isCreative()) {
                 continue;
@@ -314,9 +320,8 @@ public class ScoutReconGoal extends Goal {
                 continue;
             }
 
-            double effectiveScanRange = getEffectiveScanRange();
             double distSq = this.scout.distanceToSqr(player);
-            if (distSq > (effectiveScanRange * effectiveScanRange)) {
+            if (distSq > effectiveScanRangeSq) {
                 continue;
             }
 
@@ -373,7 +378,8 @@ public class ScoutReconGoal extends Goal {
             return 40.0D;
         }
         if (this.scout.level() instanceof ServerLevel sl) {
-            net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biome = sl.getBiome(this.scout.blockPosition());
+            net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biome =
+                    com.warfront.region.generator.ProceduralRegionGenerator.sampleBiomeFast(sl, this.scout.getBlockX(), y, this.scout.getBlockZ());
             com.warfront.region.terrain.TerrainType terrain = com.warfront.region.terrain.TerrainType.fromBiome(biome);
             return com.warfront.spawn.TerrainSpawnDoctrine.getScoutScanRange(terrain, y);
         }

@@ -21,6 +21,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class BiomeElevation {
 
     private static final Map<String, Integer> CALIBRATED_BIOME_ELEVATIONS = new ConcurrentHashMap<>();
+    private static final Map<Long, Integer> CLIMATE_OFFSET_CACHE = new ConcurrentHashMap<>();
+    private static volatile long cachedSeed = Long.MIN_VALUE;
+
+    public static void clearCache() {
+        CLIMATE_OFFSET_CACHE.clear();
+        cachedSeed = Long.MIN_VALUE;
+    }
 
     static {
         // Aquatic & Depressions (Y < 64)
@@ -184,6 +191,16 @@ public final class BiomeElevation {
      */
     public static int getClimateElevationOffset(ServerLevel level, int chunkX, int chunkZ) {
         if (level == null) return 0;
+        long seed = level.getSeed();
+        if (cachedSeed != seed) {
+            cachedSeed = seed;
+            CLIMATE_OFFSET_CACHE.clear();
+        }
+        long key = net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
+        Integer cached = CLIMATE_OFFSET_CACHE.get(key);
+        if (cached != null) {
+            return cached;
+        }
         try {
             RandomState randomState = level.getChunkSource().randomState();
             if (randomState == null) return 0;
@@ -217,7 +234,9 @@ public final class BiomeElevation {
                 offset -= (0.2f - weirdMagnitude) * 10.0f;
             }
 
-            return Math.round(offset);
+            int result = Math.round(offset);
+            CLIMATE_OFFSET_CACHE.put(key, result);
+            return result;
         } catch (Exception ignored) {
             return 0;
         }

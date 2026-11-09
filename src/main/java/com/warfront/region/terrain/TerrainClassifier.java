@@ -25,8 +25,34 @@ public final class TerrainClassifier {
 
     private static final Map<Long, String> REGION_NAME_CACHE = new ConcurrentHashMap<>();
     private static final Map<Long, SubRegionTerrainData> SUBREGION_DATA_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Long, TerrainType> CHUNK_TERRAIN_CACHE = new ConcurrentHashMap<>();
+    private static volatile long cachedSeed = Long.MIN_VALUE;
 
     private TerrainClassifier() {
+    }
+
+    private static void ensureSeed(ServerLevel level) {
+        if (level != null) {
+            long seed = level.getSeed();
+            if (cachedSeed != seed) {
+                cachedSeed = seed;
+                REGION_NAME_CACHE.clear();
+                SUBREGION_DATA_CACHE.clear();
+                CHUNK_TERRAIN_CACHE.clear();
+            }
+        }
+    }
+
+    public static TerrainType getChunkTerrain(ServerLevel level, int cx, int cz, int seaLevel) {
+        long cKey = ChunkPos.asLong(cx, cz);
+        TerrainType cached = CHUNK_TERRAIN_CACHE.get(cKey);
+        if (cached != null) {
+            return cached;
+        }
+        Holder<Biome> biome = level.getNoiseBiome((cx << 2) + 2, seaLevel >> 2, (cz << 2) + 2);
+        TerrainType type = TerrainType.fromBiome(biome);
+        CHUNK_TERRAIN_CACHE.put(cKey, type);
+        return type;
     }
 
     /**
@@ -36,6 +62,7 @@ public final class TerrainClassifier {
         if (level == null) {
             return "Plains";
         }
+        ensureSeed(level);
         long key = ChunkPos.asLong(rx, rz);
         String cached = REGION_NAME_CACHE.get(key);
         if (cached != null) {
@@ -44,25 +71,21 @@ public final class TerrainClassifier {
 
         Map<TerrainType, Integer> regionHistogram = new EnumMap<>(TerrainType.class);
 
-        // Sample all 4 subregions (64 chunks total)
+        // Populate all 4 subregions first (which also warms CHUNK_TERRAIN_CACHE for all 64 chunks)
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
-                SubRegionTerrainData subData = getSubRegionTerrain(level, rx, rz, sx, sz);
-                // Subregion evaluation already populates the subregion cache
+                getSubRegionTerrain(level, rx, rz, sx, sz);
             }
         }
 
-        // Re-tally full 64 chunk counts across the region
+        // Tally full 64 chunk counts across the region from CHUNK_TERRAIN_CACHE in O(1)
         int minCX = rx * 8;
         int minCZ = rz * 8;
-        BlockPos.MutableBlockPos samplePos = new BlockPos.MutableBlockPos();
         int seaLevel = level.getSeaLevel();
 
         for (int cx = minCX; cx < minCX + 8; cx++) {
             for (int cz = minCZ; cz < minCZ + 8; cz++) {
-                samplePos.set(cx * 16 + 8, seaLevel, cz * 16 + 8);
-                Holder<Biome> biome = level.getBiome(samplePos);
-                TerrainType type = TerrainType.fromBiome(biome);
+                TerrainType type = getChunkTerrain(level, cx, cz, seaLevel);
                 regionHistogram.merge(type, 1, Integer::sum);
             }
         }
@@ -76,6 +99,7 @@ public final class TerrainClassifier {
      * Resolves the tactical terrain classification for a $64 \times 64$ block subregion.
      */
     public static SubRegionTerrainData getSubRegionTerrain(ServerLevel level, int rx, int rz, int sx, int sz) {
+        ensureSeed(level);
         long subKey = subRegionKey(rx, rz, sx, sz);
         SubRegionTerrainData cached = SUBREGION_DATA_CACHE.get(subKey);
         if (cached != null) {
@@ -91,14 +115,11 @@ public final class TerrainClassifier {
         Map<TerrainType, Integer> subHistogram = new EnumMap<>(TerrainType.class);
         int subMinCX = (rx * 8) + (sx * 4);
         int subMinCZ = (rz * 8) + (sz * 4);
-        BlockPos.MutableBlockPos samplePos = new BlockPos.MutableBlockPos();
         int seaLevel = level.getSeaLevel();
 
         for (int cx = subMinCX; cx < subMinCX + 4; cx++) {
             for (int cz = subMinCZ; cz < subMinCZ + 4; cz++) {
-                samplePos.set(cx * 16 + 8, seaLevel, cz * 16 + 8);
-                Holder<Biome> biome = level.getBiome(samplePos);
-                TerrainType type = TerrainType.fromBiome(biome);
+                TerrainType type = getChunkTerrain(level, cx, cz, seaLevel);
                 subHistogram.merge(type, 1, Integer::sum);
             }
         }
@@ -222,5 +243,7 @@ public final class TerrainClassifier {
     public static void clearCaches() {
         REGION_NAME_CACHE.clear();
         SUBREGION_DATA_CACHE.clear();
+        CHUNK_TERRAIN_CACHE.clear();
+        cachedSeed = Long.MIN_VALUE;
     }
 }

@@ -42,6 +42,7 @@ public final class RegionMapState {
     private boolean hasIntel = true;
 
     private final Map<Long, RegionMapPayload.ChunkData> chunks = new HashMap<>();
+    private RegionMapPayload.ChunkData[] chunkGrid;
     private final Set<Long> visitedRegions = new HashSet<>();
     private final Map<Long, BaseType> regionBases = new HashMap<>();
     private final List<RegionMapPayload.RegionMarkerData> markers = new ArrayList<>();
@@ -106,6 +107,13 @@ public final class RegionMapState {
         this.visitedRegions.clear();
         this.regionBases.clear();
 
+        int diameter = viewType.chunkDiameter();
+        if (this.chunkGrid == null || this.chunkGrid.length != diameter * diameter) {
+            this.chunkGrid = new RegionMapPayload.ChunkData[diameter * diameter];
+        } else {
+            java.util.Arrays.fill(this.chunkGrid, null);
+        }
+
         if (!this.hasIntel) {
             this.markers.clear();
             this.siegeArrows.clear();
@@ -119,6 +127,11 @@ public final class RegionMapState {
         }
 
         for (RegionMapPayload.ChunkData chunk : payload.chunks()) {
+            int dx = chunk.chunkX() - originChunkX;
+            int dz = chunk.chunkZ() - originChunkZ;
+            if (dx >= 0 && dx < diameter && dz >= 0 && dz < diameter) {
+                chunkGrid[dz * diameter + dx] = chunk;
+            }
             chunks.put(ChunkPos.asLong(chunk.chunkX(), chunk.chunkZ()), chunk);
             int rx = Math.floorDiv(chunk.chunkX(), 8);
             int rz = Math.floorDiv(chunk.chunkZ(), 8);
@@ -296,6 +309,19 @@ public final class RegionMapState {
 
     public Map<Long, RegionMapPayload.ChunkData> getChunks() {
         return chunks;
+    }
+
+    public RegionMapPayload.ChunkData getChunkAt(int chunkX, int chunkZ) {
+        if (chunkGrid == null) {
+            return null;
+        }
+        int diameter = viewType.chunkDiameter();
+        int dx = chunkX - originChunkX;
+        int dz = chunkZ - originChunkZ;
+        if (dx < 0 || dx >= diameter || dz < 0 || dz >= diameter) {
+            return null;
+        }
+        return chunkGrid[dz * diameter + dx];
     }
 
     public List<RegionMapPayload.RegionMarkerData> getMarkers() {

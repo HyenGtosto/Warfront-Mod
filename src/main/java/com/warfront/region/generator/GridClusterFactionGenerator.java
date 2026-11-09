@@ -184,7 +184,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
                 for (int chunkZ = 2; chunkZ <= 5; chunkZ++) {
                     int sampleX = startBlockX + (chunkX * 16) + 8;
                     int sampleZ = startBlockZ + (chunkZ * 16) + 8;
-                    net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biome = level.getBiome(new net.minecraft.core.BlockPos(sampleX, 64, sampleZ));
+                    net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biome = ProceduralRegionGenerator.sampleBiomeFast(level, sampleX, 64, sampleZ);
                     if (ProceduralRegionGenerator.isOceanBiome(biome) || ProceduralRegionGenerator.isRiverBiome(biome) || ProceduralRegionGenerator.isBeachBiome(biome)) {
                         aquaticChunks++;
                     }
@@ -193,7 +193,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
 
             int centerBlockX = startBlockX + 64;
             int centerBlockZ = startBlockZ + 64;
-            net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> centerBiome = level.getBiome(new net.minecraft.core.BlockPos(centerBlockX, 64, centerBlockZ));
+            net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> centerBiome = ProceduralRegionGenerator.sampleBiomeFast(level, centerBlockX, 64, centerBlockZ);
             com.warfront.region.terrain.TerrainType t = com.warfront.region.terrain.TerrainType.fromBiome(centerBiome);
             int terrainBonus = switch (t) {
                 case PLAINS, SAVANNA, DESERT -> 20;
@@ -540,7 +540,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
 
         // 1. Center check: must be dry land (veto ocean, river, beach)
         net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> centerBiome =
-                level.getBiome(new net.minecraft.core.BlockPos(startBlockX + 64, 64, startBlockZ + 64));
+                ProceduralRegionGenerator.sampleBiomeFast(level, startBlockX + 64, 64, startBlockZ + 64);
         if (ProceduralRegionGenerator.isOceanBiome(centerBiome) ||
                 ProceduralRegionGenerator.isRiverBiome(centerBiome) ||
                 ProceduralRegionGenerator.isBeachBiome(centerBiome)) {
@@ -559,7 +559,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         int cornerWater = 0;
         for (int[] c : corners) {
             net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> b =
-                    level.getBiome(new net.minecraft.core.BlockPos(c[0], 64, c[1]));
+                    ProceduralRegionGenerator.sampleBiomeFast(level, c[0], 64, c[1]);
             if (ProceduralRegionGenerator.isOceanBiome(b) || ProceduralRegionGenerator.isBeachBiome(b)) {
                 return false; // Zero ocean or beach at corners
             }
@@ -580,7 +580,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         };
         for (int[] m : edgeMidpoints) {
             net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> b =
-                    level.getBiome(new net.minecraft.core.BlockPos(m[0], 64, m[1]));
+                    ProceduralRegionGenerator.sampleBiomeFast(level, m[0], 64, m[1]);
             if (ProceduralRegionGenerator.isOceanBiome(b) || ProceduralRegionGenerator.isBeachBiome(b)) {
                 return false;
             }
@@ -593,7 +593,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
             for (int oz = 14; oz <= 114; oz += 25) {
                 totalSamples++;
                 net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> b =
-                        level.getBiome(new net.minecraft.core.BlockPos(startBlockX + ox, 64, startBlockZ + oz));
+                        ProceduralRegionGenerator.sampleBiomeFast(level, startBlockX + ox, 64, startBlockZ + oz);
                 if (ProceduralRegionGenerator.isOceanBiome(b)) {
                     return false; // Zero ocean inside footprint
                 }
@@ -671,7 +671,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         int startBlockX = centerX * RegionData.REGION_SIZE_BLOCKS;
         int startBlockZ = centerZ * RegionData.REGION_SIZE_BLOCKS;
         net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> centerBiome =
-                level.getBiome(new net.minecraft.core.BlockPos(startBlockX + 64, 64, startBlockZ + 64));
+                ProceduralRegionGenerator.sampleBiomeFast(level, startBlockX + 64, 64, startBlockZ + 64);
         if (ProceduralRegionGenerator.isOceanBiome(centerBiome) ||
                 ProceduralRegionGenerator.isRiverBiome(centerBiome) ||
                 ProceduralRegionGenerator.isBeachBiome(centerBiome)) {

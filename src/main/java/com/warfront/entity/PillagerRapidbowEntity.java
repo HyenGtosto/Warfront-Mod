@@ -484,9 +484,11 @@ public class PillagerRapidbowEntity extends AbstractIllager implements GeoEntity
                 }
             }
 
-            // Target switching: if current target is lost, dead, rushed, or flanked, search in arc
+            // Target switching: if current target is lost, dead, rushed, or flanked, search in arc (throttled to every 5 ticks if current target is alive)
             if (!targetValidInArc) {
-                LivingEntity alternate = findBestTargetInArc();
+                LivingEntity alternate = (target == null || !target.isAlive() || noTargetTicks % 5 == 0)
+                        ? findBestTargetInArc()
+                        : null;
                 if (alternate != null) {
                     this.rapidbow.setTarget(alternate);
                     target = alternate;

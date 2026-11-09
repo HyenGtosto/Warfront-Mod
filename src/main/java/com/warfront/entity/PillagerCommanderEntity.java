@@ -87,6 +87,8 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
     private int lastHitTargetTick = 0;
     private int sheatheCooldownTicks = 0;
     private int tacticalCycleTimer = 300;
+    private int lastThreatCheckTick = -100;
+    private boolean cachedDirectlyThreatened = false;
 
     public PillagerCommanderEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -214,8 +216,10 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
         LivingEntity target = getTarget();
         if (target == null || !target.isAlive()) return false;
 
+        double distSq = distanceToSqr(target);
+
         // Player is right in face (< 4 blocks)
-        if (distanceToSqr(target) < 16.0D) {
+        if (distSq < 16.0D) {
             return true;
         }
 
@@ -234,13 +238,22 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
             return true;
         }
 
-        // No allies nearby to hide behind, but only if target is within 10m
-        List<AbstractIllager> allies = this.level().getEntitiesOfClass(
-                AbstractIllager.class,
-                this.getBoundingBox().inflate(18.0D),
-                e -> e != this && e.isAlive()
-        );
-        return allies.isEmpty() && distanceToSqr(target) < 100.0D;
+        // Short-circuit BEFORE running 36x36x36 AABB scan if target is >= 10m away
+        if (distSq >= 100.0D) {
+            return false;
+        }
+
+        // Cache 18m AABB ally scan for 5 ticks
+        if (this.tickCount - this.lastThreatCheckTick >= 5) {
+            this.lastThreatCheckTick = this.tickCount;
+            List<AbstractIllager> allies = this.level().getEntitiesOfClass(
+                    AbstractIllager.class,
+                    this.getBoundingBox().inflate(18.0D),
+                    e -> e != this && e.isAlive()
+            );
+            this.cachedDirectlyThreatened = allies.isEmpty();
+        }
+        return this.cachedDirectlyThreatened;
     }
 
     @Override
@@ -468,32 +481,34 @@ public class PillagerCommanderEntity extends AbstractIllager implements GeoEntit
 
             this.commander.getLookControl().setLookAt(target, 30.0F, 30.0F);
 
-            // Find nearby allies to form frontline
-            List<AbstractIllager> allies = this.commander.level().getEntitiesOfClass(
-                    AbstractIllager.class,
-                    this.commander.getBoundingBox().inflate(20.0D),
-                    e -> e != this.commander && e.isAlive()
-            );
+            // Throttle frontline positioning AABB scan and navigation to every 10 ticks
+            if ((this.commander.tickCount + this.commander.getId()) % 10 == 0) {
+                List<AbstractIllager> allies = this.commander.level().getEntitiesOfClass(
+                        AbstractIllager.class,
+                        this.commander.getBoundingBox().inflate(20.0D),
+                        e -> e != this.commander && e.isAlive()
+                );
 
-            if (!allies.isEmpty()) {
-                double avgX = 0, avgZ = 0;
-                for (AbstractIllager ally : allies) {
-                    avgX += ally.getX();
-                    avgZ += ally.getZ();
-                }
-                avgX /= allies.size();
-                avgZ /= allies.size();
+                if (!allies.isEmpty()) {
+                    double avgX = 0, avgZ = 0;
+                    for (AbstractIllager ally : allies) {
+                        avgX += ally.getX();
+                        avgZ += ally.getZ();
+                    }
+                    avgX /= allies.size();
+                    avgZ /= allies.size();
 
-                // Position behind allies away from target
-                double dirX = avgX - target.getX();
-                double dirZ = avgZ - target.getZ();
-                double dist = Math.sqrt(dirX * dirX + dirZ * dirZ);
-                if (dist > 0.01) {
-                    dirX /= dist;
-                    dirZ /= dist;
-                    double destX = avgX + dirX * 6.0D;
-                    double destZ = avgZ + dirZ * 6.0D;
-                    this.commander.getNavigation().moveTo(destX, this.commander.getY(), destZ, 1.0D);
+                    // Position behind allies away from target
+                    double dirX = avgX - target.getX();
+                    double dirZ = avgZ - target.getZ();
+                    double dist = Math.sqrt(dirX * dirX + dirZ * dirZ);
+                    if (dist > 0.01) {
+                        dirX /= dist;
+                        dirZ /= dist;
+                        double destX = avgX + dirX * 6.0D;
+                        double destZ = avgZ + dirZ * 6.0D;
+                        this.commander.getNavigation().moveTo(destX, this.commander.getY(), destZ, 1.0D);
+                    }
                 }
             }
 

@@ -64,6 +64,10 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
         List<ScoredCandidate> tier1Frontline = new ArrayList<>();
         List<ScoredCandidate> tier2Fallback = new ArrayList<>();
 
+        java.util.Map<Long, Optional<HQPos>> hqToHumanityTargetCache = new java.util.HashMap<>();
+        java.util.Map<Long, Double> sourceAvgClusterDistCache = new java.util.HashMap<>();
+        java.util.Map<Long, Double> sourceSectorDensityCache = new java.util.HashMap<>();
+
         for (AttackCandidate candidate : connectedCandidates) {
             Optional<HQPos> connectedHQ = StrategicConnectivityHelper.findConnectedHQ(
                     regions, candidate.sourceRegionX(), candidate.sourceRegionZ(), Faction.PILLAGER_CONQUERORS, context.evaluationCache());
@@ -71,8 +75,11 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
             int originX = hq.x();
             int originZ = hq.z();
 
-            // Find closest claimed HUMANITY region (returns null if no claimed Humanity regions exist)
-            HQPos humanityTarget = StrategicConnectivityHelper.findClosestHumanityRegion(originX, originZ, regions);
+            // Find closest claimed HUMANITY region (cached per HQ)
+            long hqKey = net.minecraft.world.level.ChunkPos.asLong(originX, originZ);
+            HQPos humanityTarget = hqToHumanityTargetCache.computeIfAbsent(
+                    hqKey, k -> Optional.ofNullable(StrategicConnectivityHelper.findClosestHumanityRegion(originX, originZ, regions))
+            ).orElse(null);
 
             double px = humanityTarget != null ? humanityTarget.x() : originX;
             double pz = humanityTarget != null ? humanityTarget.z() : originZ + 1.0D;
@@ -105,10 +112,13 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
             }
 
             long clusterId = getRawOrSavedRegionState(context, candidate.sourceRegionX(), candidate.sourceRegionZ()).clusterId();
+            long sourceKey = net.minecraft.world.level.ChunkPos.asLong(candidate.sourceRegionX(), candidate.sourceRegionZ());
 
-            // 2. Explicit Radial-Depth Front Completion Metric & Per-Cluster Sector Density Transition
-            double avgClusterDist = calculateAverageClusterDistance(context, candidate.sourceRegionX(), candidate.sourceRegionZ(), originX, originZ, clusterId);
-            double sectorDensity = calculateSectorDensity(context, originX, originZ, mainAngle, halfArc, avgClusterDist, clusterId);
+            // 2. Explicit Radial-Depth Front Completion Metric & Per-Cluster Sector Density Transition (cached per source region)
+            double avgClusterDist = sourceAvgClusterDistCache.computeIfAbsent(
+                    sourceKey, k -> calculateAverageClusterDistance(context, candidate.sourceRegionX(), candidate.sourceRegionZ(), originX, originZ, clusterId));
+            double sectorDensity = sourceSectorDensityCache.computeIfAbsent(
+                    sourceKey, k -> calculateSectorDensity(context, originX, originZ, mainAngle, halfArc, avgClusterDist, clusterId));
             boolean isFrontEstablished = sectorDensity >= 0.65D;
 
             double depthDiff = targetDist - avgClusterDist;

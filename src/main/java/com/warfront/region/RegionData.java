@@ -51,9 +51,60 @@ public final class RegionData extends SavedData {
     private final Map<UUID, Set<Long>> playerVisitedRegions = new HashMap<>();
     private final Map<Long, com.warfront.region.bridge.SubregionBridge> subregionBridges = new HashMap<>();
     private final java.util.Set<Long> evaluatedBridgeSubregions = new java.util.HashSet<>();
+    private UUID worldOwnerUuid = null;
+    private int lastOwnerChunkX = Integer.MIN_VALUE;
+    private int lastOwnerChunkZ = Integer.MIN_VALUE;
     private long worldSeed;
     private transient ServerLevel level;
     private transient boolean logsMigrated = false;
+
+    public void updateOwnerLocation(ServerPlayer player) {
+        if (player == null || player.level().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return;
+        }
+        boolean isSingleplayerOwner = player.getServer() != null && player.getServer().isSingleplayerOwner(player.getGameProfile());
+        if (worldOwnerUuid == null || isSingleplayerOwner) {
+            worldOwnerUuid = player.getUUID();
+        }
+        if (player.getUUID().equals(worldOwnerUuid)) {
+            int cx = player.chunkPosition().x;
+            int cz = player.chunkPosition().z;
+            if (cx != lastOwnerChunkX || cz != lastOwnerChunkZ) {
+                lastOwnerChunkX = cx;
+                lastOwnerChunkZ = cz;
+                setDirty();
+            }
+        }
+    }
+
+    public ChunkPos resolveOwnerCenterChunk(ServerLevel overworld) {
+        if (lastOwnerChunkX != Integer.MIN_VALUE && lastOwnerChunkZ != Integer.MIN_VALUE) {
+            return new ChunkPos(lastOwnerChunkX, lastOwnerChunkZ);
+        }
+        if (overworld != null && overworld.getServer() != null) {
+            try {
+                CompoundTag playerTag = overworld.getServer().getWorldData().getLoadedPlayerTag();
+                if (playerTag != null && playerTag.contains("Pos", Tag.TAG_LIST)) {
+                    ListTag posList = playerTag.getList("Pos", Tag.TAG_DOUBLE);
+                    if (posList.size() >= 3) {
+                        int bx = net.minecraft.util.Mth.floor(posList.getDouble(0));
+                        int bz = net.minecraft.util.Mth.floor(posList.getDouble(2));
+                        return new ChunkPos(bx >> 4, bz >> 4);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        List<Region> humanity = getRegionsOwnedBy(Faction.HUMANITY);
+        if (!humanity.isEmpty()) {
+            Region first = humanity.get(0);
+            return new ChunkPos(first.x() * 8 + 4, first.z() * 8 + 4);
+        }
+        if (overworld != null) {
+            return new ChunkPos(overworld.getSharedSpawnPos());
+        }
+        return new ChunkPos(0, 0);
+    }
 
     public static RegionData get(ServerLevel level) {
         ServerLevel overworld = (level != null && level.getServer() != null) ? level.getServer().overworld() : level;
@@ -309,6 +360,14 @@ public final class RegionData extends SavedData {
             }
         }
 
+        if (tag.hasUUID("world_owner_uuid")) {
+            data.worldOwnerUuid = tag.getUUID("world_owner_uuid");
+        }
+        if (tag.contains("last_owner_chunk_x", Tag.TAG_INT) && tag.contains("last_owner_chunk_z", Tag.TAG_INT)) {
+            data.lastOwnerChunkX = tag.getInt("last_owner_chunk_x");
+            data.lastOwnerChunkZ = tag.getInt("last_owner_chunk_z");
+        }
+
         data.migrateLegacyClusterIds();
 
         return data;
@@ -475,6 +534,14 @@ public final class RegionData extends SavedData {
 
         long[] evalArray = evaluatedBridgeSubregions.stream().mapToLong(Long::longValue).toArray();
         tag.putLongArray("evaluated_bridge_subregions", evalArray);
+
+        if (worldOwnerUuid != null) {
+            tag.putUUID("world_owner_uuid", worldOwnerUuid);
+        }
+        if (lastOwnerChunkX != Integer.MIN_VALUE && lastOwnerChunkZ != Integer.MIN_VALUE) {
+            tag.putInt("last_owner_chunk_x", lastOwnerChunkX);
+            tag.putInt("last_owner_chunk_z", lastOwnerChunkZ);
+        }
 
         return tag;
     }
@@ -1052,6 +1119,10 @@ public final class RegionData extends SavedData {
         return (sz << 1) | sx;
     }
 
+    public RegionState getRawOrSavedRegionState(int rx, int rz) {
+        return getRawOrSavedRegionStateForBaseDet(this.level, rx, rz);
+    }
+
     private RegionState getRawOrSavedRegionStateForBaseDet(ServerLevel level, int rx, int rz) {
         RegionState saved = getSavedRegionState(rx, rz);
         if (saved != null) return saved;
@@ -1404,6 +1475,7 @@ public final class RegionData extends SavedData {
                 baseAnchor,
                 basePlaced,
                 playerFactionId));
+        ProceduralRegionGenerator.getInstance().invalidateFullStateCacheAround(regionX, regionZ);
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(faction, finalStability, false, finalClusterId, playerFactionId));
@@ -1458,6 +1530,7 @@ public final class RegionData extends SavedData {
         long regionId = ChunkPos.asLong(regionX, regionZ);
         activeSieges.remove(regionId);
         regions.put(regionId, new RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L, null, false, null));
+        ProceduralRegionGenerator.getInstance().invalidateFullStateCacheAround(regionX, regionZ);
         for (int sx = 0; sx <= 1; sx++) {
             for (int sz = 0; sz <= 1; sz++) {
                 subRegions.put(subRegionKey(regionX, regionZ, sx, sz), new SubRegionState(Faction.UNCLAIMED, 0.0F, false, 0L, null));
@@ -1598,7 +1671,7 @@ public final class RegionData extends SavedData {
         for (int[] offset : cardinalOffsets) {
             int nx = regionX + offset[0];
             int nz = regionZ + offset[1];
-            Region neighbor = regionAt(nx, nz);
+            RegionState neighbor = getRawOrSavedRegionState(nx, nz);
             if (neighbor.owner() == faction) {
                 allies++;
             }
@@ -1636,7 +1709,7 @@ public final class RegionData extends SavedData {
                 if (dx == 0 && dz == 0) continue; // Skip self
 
                 boolean isCardinal = (dx == 0 || dz == 0); // Manhattan distance == 1
-                Region neighbor = regionAt(centerRX + dx, centerRZ + dz);
+                RegionState neighbor = getRawOrSavedRegionState(centerRX + dx, centerRZ + dz);
 
                 if (neighbor.owner() == faction) {
                     switch (neighbor.baseType()) {
@@ -1699,7 +1772,7 @@ public final class RegionData extends SavedData {
             { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 }
         };
         for (int[] off : offsets) {
-            Region reg = regionAt(regionX + off[0], regionZ + off[1]);
+            RegionState reg = getRawOrSavedRegionState(regionX + off[0], regionZ + off[1]);
             if (reg.owner() == faction && reg.clusterId() != 0L) {
                 return reg.clusterId();
             }
@@ -1724,28 +1797,52 @@ public final class RegionData extends SavedData {
             }
         }
 
-        // 2. Scan procedural regions around active players & claimed Humanity regions
+        // 2. Scan procedural regions around active players & perimeter Humanity regions (deduplicated & using O(1) raw state)
         List<Region> humanityRegions = getRegionsOwnedBy(Faction.HUMANITY);
+        Set<Long> humanityKeys = new HashSet<>();
+        for (Region hr : humanityRegions) {
+            humanityKeys.add(ChunkPos.asLong(hr.x(), hr.z()));
+        }
+
         List<ChunkPos> scanOrigins = new ArrayList<>();
+        Set<Long> originKeys = new HashSet<>();
 
         if (level != null && level.getServer() != null) {
             for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
                 if (player.level() == level) {
-                    scanOrigins.add(new ChunkPos(Math.floorDiv(player.chunkPosition().x, 8), Math.floorDiv(player.chunkPosition().z, 8)));
+                    int prx = Math.floorDiv(player.chunkPosition().x, 8);
+                    int prz = Math.floorDiv(player.chunkPosition().z, 8);
+                    if (originKeys.add(ChunkPos.asLong(prx, prz))) {
+                        scanOrigins.add(new ChunkPos(prx, prz));
+                    }
                 }
             }
         }
+        int[][] cardinalOffsets = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
         for (Region hr : humanityRegions) {
-            scanOrigins.add(new ChunkPos(hr.x(), hr.z()));
+            boolean isPerimeter = false;
+            for (int[] off : cardinalOffsets) {
+                if (!humanityKeys.contains(ChunkPos.asLong(hr.x() + off[0], hr.z() + off[1]))) {
+                    isPerimeter = true;
+                    break;
+                }
+            }
+            if (isPerimeter && originKeys.add(ChunkPos.asLong(hr.x(), hr.z()))) {
+                scanOrigins.add(new ChunkPos(hr.x(), hr.z()));
+            }
         }
 
         int scanRadius = 15;
+        Set<Long> scannedCoords = new HashSet<>();
+        ServerLevel targetLevel = (level != null) ? level : this.level;
         for (ChunkPos origin : scanOrigins) {
             for (int rx = origin.x - scanRadius; rx <= origin.x + scanRadius; rx++) {
                 for (int rz = origin.z - scanRadius; rz <= origin.z + scanRadius; rz++) {
-                    Region reg = regionAt(rx, rz);
-                    if (reg.owner() == faction && reg.clusterId() != 0L) {
-                        set.add(reg.clusterId());
+                    if (scannedCoords.add(ChunkPos.asLong(rx, rz))) {
+                        RegionState reg = getRawOrSavedRegionStateForBaseDet(targetLevel, rx, rz);
+                        if (reg.owner() == faction && reg.clusterId() != 0L) {
+                            set.add(reg.clusterId());
+                        }
                     }
                 }
             }

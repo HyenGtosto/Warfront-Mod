@@ -42,6 +42,8 @@ public final class MissionBlockEventHandler {
         int sx = subPos.subX();
         int sz = subPos.subZ();
 
+        com.warfront.region.base.PersistentBaseProtectionManager.markBasePotentiallyDamaged(rx, rz);
+
         if (ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
             ActiveCampaignMissionManager.onBlockBroken(level, rx, rz, sx, sz, pos, state, player);
         }
@@ -71,6 +73,8 @@ public final class MissionBlockEventHandler {
             int rz = subPos.regionZ();
             int sx = subPos.subX();
             int sz = subPos.subZ();
+
+            com.warfront.region.base.PersistentBaseProtectionManager.markBasePotentiallyDamaged(rx, rz);
 
             if (ActiveCampaignMissionManager.hasActiveMission(rx, rz, sx, sz)) {
                 BlockState state = level.getBlockState(pos);

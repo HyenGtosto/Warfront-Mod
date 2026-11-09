@@ -82,6 +82,9 @@ public class FriendlyMortarBlockEntity extends BlockEntity implements GeoBlockEn
     private int recoilTicks = 0;
     private boolean hasTarget = false;
     private int scanInterval = 0;
+    private float lastSyncedYaw = Float.NaN;
+    private float lastSyncedPitch = Float.NaN;
+    private boolean lastSyncedHasTarget = false;
 
     // Fuel & Chamber State
     private int burnTimeRemaining = 0;
@@ -252,8 +255,17 @@ public class FriendlyMortarBlockEntity extends BlockEntity implements GeoBlockEn
         }
 
         if (stateChanged || (scanInterval % 10 == 0)) {
-            setChanged();
-            serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            boolean angleChanged = Float.isNaN(this.lastSyncedYaw)
+                    || Math.abs(Mth.degreesDifference(this.currentYaw, this.lastSyncedYaw)) > 0.05F
+                    || Math.abs(this.currentPitch - this.lastSyncedPitch) > 0.05F
+                    || this.hasTarget != this.lastSyncedHasTarget;
+            if (stateChanged || angleChanged) {
+                this.lastSyncedYaw = this.currentYaw;
+                this.lastSyncedPitch = this.currentPitch;
+                this.lastSyncedHasTarget = this.hasTarget;
+                setChanged();
+                serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            }
         }
     }
 

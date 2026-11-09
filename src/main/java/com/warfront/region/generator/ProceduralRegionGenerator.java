@@ -104,6 +104,19 @@ public class ProceduralRegionGenerator {
     }
 
     private final Map<Long, RegionData.RegionState> proceduralRawStateCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<Long, RegionData.RegionState> proceduralFullStateCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static Holder<Biome> sampleBiomeFast(ServerLevel level, int blockX, int blockY, int blockZ) {
+        return level.getNoiseBiome(blockX >> 2, blockY >> 2, blockZ >> 2);
+    }
+
+    public void invalidateFullStateCacheAround(int regionX, int regionZ) {
+        proceduralFullStateCache.remove(ChunkPos.asLong(regionX, regionZ));
+        proceduralFullStateCache.remove(ChunkPos.asLong(regionX, regionZ - 1));
+        proceduralFullStateCache.remove(ChunkPos.asLong(regionX, regionZ + 1));
+        proceduralFullStateCache.remove(ChunkPos.asLong(regionX - 1, regionZ));
+        proceduralFullStateCache.remove(ChunkPos.asLong(regionX + 1, regionZ));
+    }
 
     private static ServerLevel ensureOverworld(ServerLevel level) {
         if (level != null && level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
@@ -152,15 +165,30 @@ public class ProceduralRegionGenerator {
      */
     public RegionData.RegionState generateRegion(ServerLevel level, long worldSeed, int regionX, int regionZ) {
         level = ensureOverworld(level);
+        long key = ChunkPos.asLong(regionX, regionZ);
+        if (level != null) {
+            RegionData.RegionState cached = proceduralFullStateCache.get(key);
+            if (cached != null) {
+                return cached;
+            }
+        }
         for (int i = 0; i < factionGenerators.size(); i++) {
             FactionGenerator generator = factionGenerators.get(i);
             Optional<RegionData.RegionState> result = generator.generateRegion(level, worldSeed, regionX, regionZ);
 
             if (result.isPresent()) {
-                return result.get();
+                RegionData.RegionState state = result.get();
+                if (level != null) {
+                    proceduralFullStateCache.put(key, state);
+                }
+                return state;
             }
         }
-        return new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L);
+        RegionData.RegionState unclaimed = new RegionData.RegionState(Faction.UNCLAIMED, 0.0F, 0.0F, BaseType.NONE, 0L);
+        if (level != null) {
+            proceduralFullStateCache.put(key, unclaimed);
+        }
+        return unclaimed;
     }
 
     public boolean biomeAvailable(ServerLevel level, int regionX, int regionZ) {
@@ -194,12 +222,15 @@ public class ProceduralRegionGenerator {
 
     public void clearAllCaches() {
         proceduralRawStateCache.clear();
+        proceduralFullStateCache.clear();
         baseBiomeCache.clear();
         expansionBiomeCache.clear();
         outpostRiverCache.clear();
         mainBaseRiverCache.clear();
         megaBaseRiverCache.clear();
         physicalBaseAnchorCache.clear();
+        com.warfront.region.terrain.BiomeElevation.clearCache();
+        com.warfront.region.terrain.TerrainClassifier.clearCaches();
         for (FactionGenerator generator : factionGenerators) {
             if (generator instanceof GridClusterFactionGenerator gridGen) {
                 gridGen.clearValidityCaches();
@@ -293,7 +324,7 @@ public class ProceduralRegionGenerator {
                 return false;
             }
             // For unloaded chunks: fast O(1) multi-noise biome check
-            Holder<Biome> biome = level.getBiome(new BlockPos(blockX, 64, blockZ));
+            Holder<Biome> biome = sampleBiomeFast(level, blockX, 64, blockZ);
             if (isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome)) {
                 return true;
             }
@@ -306,7 +337,7 @@ public class ProceduralRegionGenerator {
             int oceanFloorY = generator.getBaseHeight(blockX, blockZ, net.minecraft.world.level.levelgen.Heightmap.Types.OCEAN_FLOOR_WG, level, randomState);
             return surfaceY > oceanFloorY;
         } catch (Exception e) {
-            Holder<Biome> biome = level.getBiome(new BlockPos(blockX, 64, blockZ));
+            Holder<Biome> biome = sampleBiomeFast(level, blockX, 64, blockZ);
             return isOceanBiome(biome) || isRiverBiome(biome) || isBeachBiome(biome);
         }
     }
@@ -353,7 +384,7 @@ public class ProceduralRegionGenerator {
         int centerBlockZ = minBlockZ + sizeZ / 2;
 
         // 1. Center of the base structure MUST be dry land and not ocean, river, beach, or surface water
-        Holder<Biome> centerBiome = level.getBiome(new BlockPos(centerBlockX, 64, centerBlockZ));
+        Holder<Biome> centerBiome = sampleBiomeFast(level, centerBlockX, 64, centerBlockZ);
         if (isOceanBiome(centerBiome) || isRiverBiome(centerBiome) || isBeachBiome(centerBiome) || isSurfaceWaterAt(level, centerBlockX, centerBlockZ)) {
             return new FootprintFitnessResult(false, Double.NEGATIVE_INFINITY, 64, 0, 0);
         }
@@ -375,7 +406,7 @@ public class ProceduralRegionGenerator {
                 { maxX, maxZ }
         };
         for (int[] c : corners) {
-            Holder<Biome> cornerBiome = level.getBiome(new BlockPos(c[0], 64, c[1]));
+            Holder<Biome> cornerBiome = sampleBiomeFast(level, c[0], 64, c[1]);
             if (isOceanBiome(cornerBiome) || isRiverBiome(cornerBiome) || isBeachBiome(cornerBiome) || isSurfaceWaterAt(level, c[0], c[1])) {
                 cornerWaterCount++;
             }
@@ -390,7 +421,7 @@ public class ProceduralRegionGenerator {
             if (cornerWaterCount >= 2) {
                 int oceanCorners = 0;
                 for (int[] c : corners) {
-                    Holder<Biome> cb = level.getBiome(new BlockPos(c[0], 64, c[1]));
+                    Holder<Biome> cb = sampleBiomeFast(level, c[0], 64, c[1]);
                     if (isOceanBiome(cb) || isBeachBiome(cb)) oceanCorners++;
                 }
                 if (oceanCorners > 0) {
@@ -411,7 +442,7 @@ public class ProceduralRegionGenerator {
                 int z = minBlockZ + oz;
                 totalSamples++;
 
-                Holder<Biome> biome = level.getBiome(new BlockPos(x, 64, z));
+                Holder<Biome> biome = sampleBiomeFast(level, x, 64, z);
                 if (isOceanBiome(biome)) {
                     String id = biome.unwrapKey().map(k -> k.location().toString()).orElse("");
                     if (id.contains("deep_ocean")) {
@@ -691,9 +722,8 @@ public class ProceduralRegionGenerator {
             for (int chunkZ = minChunk; chunkZ <= maxChunk; chunkZ++) {
                 int sampleX = startBlockX + (chunkX * 16) + 8;
                 int sampleZ = startBlockZ + (chunkZ * 16) + 8;
-                BlockPos samplePos = new BlockPos(sampleX, 64, sampleZ);
 
-                Holder<Biome> biomeHolder = level.getBiome(samplePos);
+                Holder<Biome> biomeHolder = sampleBiomeFast(level, sampleX, 64, sampleZ);
                 if (isRiverBiome(biomeHolder)) {
                     return true; // Graceful early break on first detected river chunk!
                 }
@@ -764,9 +794,8 @@ public class ProceduralRegionGenerator {
             for (int chunkZ = 2; chunkZ <= 5; chunkZ++) {
                 int sampleX = startBlockX + (chunkX * 16) + 8;
                 int sampleZ = startBlockZ + (chunkZ * 16) + 8;
-                BlockPos samplePos = new BlockPos(sampleX, 64, sampleZ);
 
-                Holder<Biome> biomeHolder = level.getBiome(samplePos);
+                Holder<Biome> biomeHolder = sampleBiomeFast(level, sampleX, 64, sampleZ);
                 if (isOceanBiome(biomeHolder) || isRiverBiome(biomeHolder) || isBeachBiome(biomeHolder)) {
                     waterCount++;
                 }

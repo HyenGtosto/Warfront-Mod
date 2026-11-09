@@ -23,6 +23,9 @@ public final class RegionTriggerEvents {
     // Tracks if player currently has the active mission HUD open
     private static final Map<UUID, Boolean> PLAYER_IN_ACTIVE_MISSION = new HashMap<>();
 
+    // Throttles projectile shield-raise AABB scan to at most once every 10 ticks per player
+    private static final Map<UUID, Long> LAST_PROJECTILE_ALERT_TICK = new HashMap<>();
+
     private RegionTriggerEvents() {
     }
 
@@ -51,9 +54,10 @@ public final class RegionTriggerEvents {
         int sx = subPos.subX();
         int sz = subPos.subZ();
 
-        // 1. Chunk entry trigger for unlocking map regions
+        // 1. Chunk entry trigger for unlocking map regions & tracking world owner's last location
         if (previousChunkLong == null || !previousChunkLong.equals(currentChunkLong)) {
             RegionData regions = RegionData.get(level);
+            regions.updateOwnerLocation(player);
             regions.unlock3x3AroundForPlayer(playerUUID, rx, rz);
         }
 
@@ -146,19 +150,24 @@ public final class RegionTriggerEvents {
             }
         }
 
-        if (event.getEntity() instanceof net.minecraft.world.entity.projectile.Projectile projectile) {
+        if (!event.getLevel().isClientSide() && event.getEntity() instanceof net.minecraft.world.entity.projectile.Projectile projectile) {
             if (projectile.getOwner() instanceof net.minecraft.world.entity.player.Player player) {
-                java.util.List<com.warfront.entity.PillagerWarriorEntity> warriors = event.getLevel().getEntitiesOfClass(
-                        com.warfront.entity.PillagerWarriorEntity.class,
-                        projectile.getBoundingBox().inflate(24.0D),
-                        w -> w.isAlive()
-                );
-                for (com.warfront.entity.PillagerWarriorEntity warrior : warriors) {
-                    warrior.raiseShield(80);
-                    if (warrior.getTarget() == null) {
-                        warrior.setTarget(player);
+                long gameTime = event.getLevel().getGameTime();
+                Long lastAlert = LAST_PROJECTILE_ALERT_TICK.get(player.getUUID());
+                if (lastAlert == null || gameTime - lastAlert >= 10L) {
+                    LAST_PROJECTILE_ALERT_TICK.put(player.getUUID(), gameTime);
+                    java.util.List<com.warfront.entity.PillagerWarriorEntity> warriors = event.getLevel().getEntitiesOfClass(
+                            com.warfront.entity.PillagerWarriorEntity.class,
+                            projectile.getBoundingBox().inflate(24.0D),
+                            w -> w.isAlive()
+                    );
+                    for (com.warfront.entity.PillagerWarriorEntity warrior : warriors) {
+                        warrior.raiseShield(80);
+                        if (warrior.getTarget() == null) {
+                            warrior.setTarget(player);
+                        }
+                        warrior.getLookControl().setLookAt(player, 60.0F, 60.0F);
                     }
-                    warrior.getLookControl().setLookAt(player, 60.0F, 60.0F);
                 }
             }
         }

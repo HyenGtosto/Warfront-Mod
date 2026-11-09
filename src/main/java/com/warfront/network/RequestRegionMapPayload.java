@@ -92,7 +92,7 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         cachedWorldSeed = Long.MIN_VALUE;
     }
 
-    private static int getOrComputeBiomeColor(ServerLevel level, int chunkX, int chunkZ, BlockPos.MutableBlockPos samplePos, int seaLevel) {
+    public static int getOrComputeBiomeColor(ServerLevel level, int chunkX, int chunkZ) {
         if (level.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
             return 0xFF000000;
         }
@@ -115,15 +115,15 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
             surfaceY = com.warfront.region.terrain.BiomeElevation.getEstimatedSurfaceHeight(level, chunkX, chunkZ);
         }
         int sampleY = Math.clamp(surfaceY, level.getMinBuildHeight(), level.getMaxBuildHeight() - 1);
-        samplePos.set(chunkX * 16 + 8, sampleY, chunkZ * 16 + 8);
-        net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biomeHolder = level.getBiome(samplePos);
+        int quartX = (chunkX << 2) + 2;
+        int quartZ = (chunkZ << 2) + 2;
+        net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> biomeHolder = level.getNoiseBiome(quartX, sampleY >> 2, quartZ);
 
         // Cave-Bypass: Prevent subterranean cave biomes (dripstone, lush, deep dark) from leaking onto surface map
         if (com.warfront.region.terrain.BiomeElevation.isCaveBiome(biomeHolder)) {
             int upwardY = Math.max(sampleY + 32, 120);
             while (upwardY < level.getMaxBuildHeight() - 16) {
-                samplePos.set(chunkX * 16 + 8, upwardY, chunkZ * 16 + 8);
-                net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> candidate = level.getBiome(samplePos);
+                net.minecraft.core.Holder<net.minecraft.world.level.biome.Biome> candidate = level.getNoiseBiome(quartX, upwardY >> 2, quartZ);
                 if (!com.warfront.region.terrain.BiomeElevation.isCaveBiome(candidate)) {
                     biomeHolder = candidate;
                     break;
@@ -137,17 +137,11 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
         int clampedElevation = Math.clamp(elevation, 0, 255);
         int packed = (clampedElevation << 24) | color;
 
-        if (CHUNK_BIOME_COLOR_CACHE.size() > 262144) {
-            CHUNK_BIOME_COLOR_CACHE.clear();
-        }
         CHUNK_BIOME_COLOR_CACHE.put(key, packed);
         return packed;
     }
 
     private static void buildAndSendSnapshot(ServerPlayer player, MapViewType viewType, boolean isExplicitRequest) {
-        if (isExplicitRequest) {
-            CHUNK_BIOME_COLOR_CACHE.clear();
-        }
         long startNano = System.nanoTime();
         ServerLevel level = player.serverLevel();
         RegionData regions = RegionData.get(level);
@@ -199,9 +193,6 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
             }
         }
 
-        BlockPos.MutableBlockPos samplePos = new BlockPos.MutableBlockPos();
-        int seaLevel = level.getSeaLevel();
-
         for (int chunkZ = originChunkZ; chunkZ < originChunkZ + diameter; chunkZ++) {
             int rz = Math.floorDiv(chunkZ, 8);
             int subZ = Math.floorMod(chunkZ, 8) >= 4 ? 1 : 0;
@@ -210,9 +201,8 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
                 int rx = Math.floorDiv(chunkX, 8);
                 int subX = Math.floorMod(chunkX, 8) >= 4 ? 1 : 0;
 
-                int biomeColor = getOrComputeBiomeColor(level, chunkX, chunkZ, samplePos, seaLevel);
-
                 CachedRegionData cache = regionCache.get(net.minecraft.world.level.ChunkPos.asLong(rx, rz));
+                int biomeColor = cache.isVisited() ? getOrComputeBiomeColor(level, chunkX, chunkZ) : 0;
                 RegionData.SubRegionState subRegion = cache.getSubRegion(subX, subZ);
                 boolean isSieged = com.warfront.mission.ActiveCampaignMissionManager.hasActiveMission(rx, rz, subX, subZ);
 

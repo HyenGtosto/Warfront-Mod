@@ -562,14 +562,14 @@ public class PillagerRiflemanEntity extends AbstractIllager implements GeoEntity
                         return;
                     }
 
-                    boolean blockedByFellow = this.mob.isRiflemanInLineOfSight(target);
-
                     // Aim acquisition: 20 ticks (1.0s)
                     if (this.attackPhaseTicks >= 20 && canSee) {
+                        boolean shouldCheckLane = (this.attackPhaseTicks == 20) || ((this.mob.tickCount + this.mob.getId()) % 4 == 0);
+                        boolean blockedByFellow = shouldCheckLane && this.mob.isRiflemanInLineOfSight(target);
                         if (blockedByFellow) {
-                            this.attackPhaseTicks = 20; // Hold fire!
+                            this.attackPhaseTicks = 21; // Hold fire!
                             this.repositionCooldown = 0;
-                        } else {
+                        } else if (shouldCheckLane) {
                             this.currentPhase = STATE_SHOOTING;
                             this.attackPhaseTicks = 0;
                             this.mob.setCombatState(STATE_SHOOTING);

@@ -60,6 +60,9 @@ public class MortarBlockEntity extends BlockEntity implements GeoBlockEntity {
     private boolean hasTarget = false;
     private UUID targetPlayerUuid = null;
     private int scanInterval = 0;
+    private float lastSyncedYaw = Float.NaN;
+    private float lastSyncedPitch = Float.NaN;
+    private boolean lastSyncedHasTarget = false;
 
     public MortarBlockEntity(BlockPos pos, BlockState state) {
         super(WarfrontBlockEntities.MORTAR.get(), pos, state);
@@ -110,10 +113,19 @@ public class MortarBlockEntity extends BlockEntity implements GeoBlockEntity {
             }
         }
 
-        // Periodic sync to client
+        // Periodic sync to client only when angles or target state actually changed
         if (scanInterval % 5 == 0) {
-            setChanged();
-            serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            boolean angleChanged = Float.isNaN(this.lastSyncedYaw)
+                    || Math.abs(Mth.degreesDifference(this.currentYaw, this.lastSyncedYaw)) > 0.05F
+                    || Math.abs(this.currentPitch - this.lastSyncedPitch) > 0.05F
+                    || this.hasTarget != this.lastSyncedHasTarget;
+            if (angleChanged) {
+                this.lastSyncedYaw = this.currentYaw;
+                this.lastSyncedPitch = this.currentPitch;
+                this.lastSyncedHasTarget = this.hasTarget;
+                setChanged();
+                serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            }
         }
     }
 

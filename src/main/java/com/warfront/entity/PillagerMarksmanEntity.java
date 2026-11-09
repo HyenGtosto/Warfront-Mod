@@ -453,15 +453,16 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
             switch (this.currentPhase) {
                 case STATE_AIMING -> {
                     this.mob.setCombatState(STATE_AIMING);
-                    boolean blockedByMarksman = this.mob.isMarksmanInLineOfSight(target);
 
                     if (this.attackPhaseTicks >= 20 && canSee) {
+                        boolean shouldCheckLane = (this.attackPhaseTicks == 20) || ((this.mob.tickCount + this.mob.getId()) % 4 == 0);
+                        boolean blockedByMarksman = shouldCheckLane && this.mob.isMarksmanInLineOfSight(target);
                         if (blockedByMarksman) {
                             // Hold fire! Keep crossbow aimed and ready, waiting for a clear line of sight
-                            this.attackPhaseTicks = 20;
+                            this.attackPhaseTicks = 21;
                             // Prompt immediate spacing/sidestepping to clear the firing lane
                             this.repositionCooldown = 0;
-                        } else {
+                        } else if (shouldCheckLane) {
                             this.currentPhase = STATE_SHOOTING;
                             this.attackPhaseTicks = 0;
                             this.mob.setCombatState(STATE_SHOOTING);
@@ -521,6 +522,10 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                 double backX = this.mob.getX() - (target.getX() - this.mob.getX());
                 double backZ = this.mob.getZ() - (target.getZ() - this.mob.getZ());
                 this.mob.getNavigation().moveTo(backX, this.mob.getY(), backZ, this.speedModifier * 1.15D);
+                return;
+            }
+
+            if (this.repositionCooldown > 0 && !this.mob.getNavigation().isDone()) {
                 return;
             }
 

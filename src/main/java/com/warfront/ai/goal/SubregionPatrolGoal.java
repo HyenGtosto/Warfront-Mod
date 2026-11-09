@@ -33,6 +33,8 @@ public class SubregionPatrolGoal extends Goal {
     private final int offsetZ;
     private int repathCooldownTicks = 0;
     private int lookCooldownTicks = 0;
+    private int bridgeCheckCooldown = 0;
+    private boolean bridgeIntactCached = true;
     private BlockPos lastKnownWaypoint = null;
 
     public SubregionPatrolGoal(Mob mob, SubregionPatrolManager.PatrolSquad squad, int offsetX, int offsetZ) {
@@ -46,24 +48,25 @@ public class SubregionPatrolGoal extends Goal {
     @Override
     public boolean canUse() {
         if (!mob.isAlive()) return false;
+        // Yield immediately to combat AI when actively targeting an enemy
+        if (mob.getTarget() != null && mob.getTarget().isAlive()) {
+            return false;
+        }
         // Retaliate if damaged by player
         if (mob.getLastHurtByMob() instanceof net.minecraft.world.entity.player.Player player && player.isAlive()) {
             squad.alertSquadToTarget(mob.level(), player);
-            if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
-                mob.setTarget(player);
-            }
+            mob.setTarget(player);
             return false;
         }
-        // If another squad member spotted a target, sync to it and yield to combat AI
-        net.minecraft.world.entity.LivingEntity squadTarget = squad.getSquadTarget(mob.level());
-        if (squadTarget != null && squadTarget.isAlive()) {
-            if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
+        // Throttle squad target polling to every 10 ticks to avoid 36 UUID lookups per squad per tick
+        if ((mob.tickCount + mob.getId()) % 10 == 0) {
+            net.minecraft.world.entity.LivingEntity squadTarget = squad.getSquadTarget(mob.level());
+            if (squadTarget != null && squadTarget.isAlive()) {
                 mob.setTarget(squadTarget);
+                return false;
             }
-            return false;
         }
-        // Yield to combat AI when actively targeting an enemy
-        return mob.getTarget() == null || !mob.getTarget().isAlive();
+        return true;
     }
 
     @Override
@@ -113,27 +116,33 @@ public class SubregionPatrolGoal extends Goal {
         int navDestZ = targetZ;
         boolean crossingBridge = false;
 
-        if (bridge != null && mob.level() instanceof ServerLevel sl && bridge.isIntact(sl) && bridge.isOppositeSides(mob.getX(), mob.getZ(), targetX, targetZ)) {
-            crossingBridge = true;
-            BlockPos approach = bridge.getApproachPos(mob.getX(), mob.getZ());
-            BlockPos anchor = bridge.centerAnchor();
-            BlockPos exit = bridge.getExitPos(mob.getX(), mob.getZ());
+        if (bridge != null && mob.level() instanceof ServerLevel sl && bridge.isOppositeSides(mob.getX(), mob.getZ(), targetX, targetZ)) {
+            if (--bridgeCheckCooldown <= 0) {
+                bridgeCheckCooldown = 20;
+                bridgeIntactCached = bridge.isIntact(sl);
+            }
+            if (bridgeIntactCached) {
+                crossingBridge = true;
+                BlockPos approach = bridge.getApproachPos(mob.getX(), mob.getZ());
+                BlockPos anchor = bridge.centerAnchor();
+                BlockPos exit = bridge.getExitPos(mob.getX(), mob.getZ());
 
-            double distToApproachSq = mob.distanceToSqr(approach.getX() + 0.5D, approach.getY(), approach.getZ() + 0.5D);
-            double distToAnchorSq = mob.distanceToSqr(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D);
+                double distToApproachSq = mob.distanceToSqr(approach.getX() + 0.5D, approach.getY(), approach.getZ() + 0.5D);
+                double distToAnchorSq = mob.distanceToSqr(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D);
 
-            if (!bridge.isOnBridgeDeck(mob.getX(), mob.getZ()) && distToApproachSq > 9.0D) {
-                // Navigate to bridge entry approach on current bank
-                navDestX = approach.getX();
-                navDestZ = approach.getZ();
-            } else if (distToAnchorSq > 4.0D && bridge.isSameSideAsApproach(mob.getX(), mob.getZ(), approach)) {
-                // Cross from approach onto the bridge towards the crown anchor
-                navDestX = anchor.getX();
-                navDestZ = anchor.getZ();
-            } else {
-                // Cross from crown anchor towards the exit approach on destination bank
-                navDestX = exit.getX();
-                navDestZ = exit.getZ();
+                if (!bridge.isOnBridgeDeck(mob.getX(), mob.getZ()) && distToApproachSq > 9.0D) {
+                    // Navigate to bridge entry approach on current bank
+                    navDestX = approach.getX();
+                    navDestZ = approach.getZ();
+                } else if (distToAnchorSq > 4.0D && bridge.isSameSideAsApproach(mob.getX(), mob.getZ(), approach)) {
+                    // Cross from approach onto the bridge towards the crown anchor
+                    navDestX = anchor.getX();
+                    navDestZ = anchor.getZ();
+                } else {
+                    // Cross from crown anchor towards the exit approach on destination bank
+                    navDestX = exit.getX();
+                    navDestZ = exit.getZ();
+                }
             }
         }
 

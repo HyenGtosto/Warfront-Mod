@@ -264,9 +264,23 @@ public final class SubregionPatrolManager {
          * Synchronizes target across all squad members if any member has engaged an enemy.
          */
         public void syncSquadTarget(Level level) {
-            LivingEntity target = getSquadTarget(level);
+            List<Mob> living = getLivingMembers(level);
+            LivingEntity target = null;
+            for (Mob mob : living) {
+                LivingEntity t = mob.getTarget();
+                if (t != null && t.isAlive() && !com.warfront.entity.AlliedFactionHelper.isAllied(mob, t)) {
+                    target = t;
+                    break;
+                }
+            }
             if (target != null) {
-                alertSquadToTarget(level, target);
+                this.engagedInCombat = true;
+                for (Mob mob : living) {
+                    if (com.warfront.entity.AlliedFactionHelper.isAllied(mob, target)) continue;
+                    if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
+                        mob.setTarget(target);
+                    }
+                }
             }
         }
     }
@@ -486,15 +500,16 @@ public final class SubregionPatrolManager {
         for (Map.Entry<Long, List<PatrolSquad>> entry : ACTIVE_PATROLS.entrySet()) {
             long subKey = entry.getKey();
             List<PatrolSquad> squads = entry.getValue();
-            for (PatrolSquad squad : squads) {
-                if (squad.countLiving(level) == 0 && !squad.wasEngagedInCombat()) {
-                    if (level.getDifficulty() != Difficulty.PEACEFUL) {
+            squads.removeIf(squad -> {
+                if (squad.countLiving(level) == 0) {
+                    if (!squad.wasEngagedInCombat() && level.getDifficulty() != Difficulty.PEACEFUL) {
                         LAST_SPAWN_TIME.remove(subKey);
                         Warfront.LOGGER.debug("[PATROL] Squad {} emptied without combat. Subregion cooldown refunded.", squad.getSquadId());
                     }
+                    return true;
                 }
-            }
-            squads.removeIf(squad -> squad.countLiving(level) == 0);
+                return false;
+            });
             for (PatrolSquad squad : squads) {
                 squad.tickHoldTimer(level);
                 squad.syncSquadTarget(level);
@@ -599,6 +614,9 @@ public final class SubregionPatrolManager {
                         LAST_SPAWN_TIME.put(subKey, gameTime);
                         Warfront.LOGGER.info("[PATROL] Spawned squad {} in Subregion ({}, {} - {}, {}). Active squads: {}/{}",
                                 spawned.getSquadId(), rx, rz, sx, sz, squads.size(), maxSquads);
+                    } else {
+                        // Back off for 10 seconds (200 ticks) when border spawn fails (e.g. ocean/unloaded border)
+                        LAST_SPAWN_TIME.put(subKey, gameTime - cooldownTicks + 200L);
                     }
                 }
             }
@@ -630,15 +648,19 @@ public final class SubregionPatrolManager {
 
             if (!scoutAlive) {
                 Long lastSpawn = LAST_SCOUT_SPAWN_TIME.get(subKey);
+                long minCooldown = 3L * 60L * 20L;
+                if (lastSpawn != null && (gameTime - lastSpawn) < minCooldown) {
+                    continue;
+                }
                 long scoutCooldown = SCOUT_SPAWN_COOLDOWN_TICKS;
                 com.warfront.region.terrain.TerrainClassifier.SubRegionTerrainData subTerrain =
                         com.warfront.region.terrain.TerrainClassifier.getSubRegionTerrain(level, rx, rz, sx, sz);
                 int subCenterCX = (rx * 8) + (sx * 4) + 2;
                 int subCenterCZ = (rz * 8) + (sz * 4) + 2;
                 int elevation = com.warfront.region.terrain.BiomeElevation.getChunkElevation(
-                        level, subCenterCX, subCenterCZ, level.getBiome(new BlockPos(subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8)));
+                        level, subCenterCX, subCenterCZ, com.warfront.region.generator.ProceduralRegionGenerator.sampleBiomeFast(level, subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8));
                 if (TerrainSpawnDoctrine.isScoutAcceleratedTerrain(subTerrain.primary(), elevation)) {
-                    scoutCooldown = 3L * 60L * 20L; // 3 minutes = 3600 ticks in rugged / high elevation
+                    scoutCooldown = minCooldown; // 3 minutes = 3600 ticks in rugged / high elevation
                 }
 
                 if (lastSpawn == null || (gameTime - lastSpawn) >= scoutCooldown) {
@@ -648,6 +670,8 @@ public final class SubregionPatrolManager {
                         LAST_SCOUT_SPAWN_TIME.put(subKey, gameTime);
                         Warfront.LOGGER.info("[SCOUT] Spawned autonomous scout {} in Subregion ({}, {} - {}, {})",
                                 spawnedScout.getUUID(), rx, rz, sx, sz);
+                    } else {
+                        LAST_SCOUT_SPAWN_TIME.put(subKey, gameTime - scoutCooldown + 200L);
                     }
                 }
             }
@@ -684,7 +708,7 @@ public final class SubregionPatrolManager {
         int subCenterCX = (rx * 8) + (sx * 4) + 2;
         int subCenterCZ = (rz * 8) + (sz * 4) + 2;
         int elevation = com.warfront.region.terrain.BiomeElevation.getChunkElevation(
-                level, subCenterCX, subCenterCZ, level.getBiome(new BlockPos(subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8)));
+                level, subCenterCX, subCenterCZ, com.warfront.region.generator.ProceduralRegionGenerator.sampleBiomeFast(level, subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8));
 
         List<Object> rolePool = TerrainSpawnDoctrine.buildPatrolRolePool(
                 faction, tier, subTerrain.primary(), subTerrain.secondary(), elevation);

@@ -29,6 +29,9 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                 com.warfront.faction.PlayerFactionData.get(player.serverLevel()).syncToPlayer(player);
+                if (player.serverLevel().dimension() == net.minecraft.world.level.Level.OVERWORLD) {
+                    com.warfront.region.RegionData.get(player.serverLevel()).updateOwnerLocation(player);
+                }
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerChangedDimensionEvent event) -> {
@@ -60,14 +63,16 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onLivingChangeTarget);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onProjectileImpact);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.LevelEvent.Load event) -> {
-            if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel) {
+            if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                    && serverLevel.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
                 com.warfront.network.RequestRegionMapPayload.clearColorCache();
                 com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
                 com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.LevelEvent.Unload event) -> {
-            if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel) {
+            if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel
+                    && serverLevel.dimension() == net.minecraft.world.level.Level.OVERWORLD) {
                 com.warfront.network.RequestRegionMapPayload.clearColorCache();
                 com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
                 com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
@@ -77,6 +82,45 @@ public final class Warfront {
             com.warfront.network.RequestRegionMapPayload.clearColorCache();
             com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
             com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
+
+            net.minecraft.server.level.ServerLevel overworld = event.getServer().overworld();
+            if (overworld != null) {
+                long startNs = System.nanoTime();
+                com.warfront.region.RegionData regionData = com.warfront.region.RegionData.get(overworld);
+                net.minecraft.world.level.ChunkPos ownerCenter = regionData.resolveOwnerCenterChunk(overworld);
+                int centerRegionX = Math.floorDiv(ownerCenter.x, 8);
+                int centerRegionZ = Math.floorDiv(ownerCenter.z, 8);
+                int regionRadius = 12; // 24x24 regions (192x192 chunks) centered on world owner's last location
+
+                com.warfront.region.generator.ProceduralRegionGenerator generator =
+                        com.warfront.region.generator.ProceduralRegionGenerator.getInstance();
+
+                // Pass 1: Pre-bake raw procedural region states, terrain classification, and chunk biome map colors
+                for (int rx = centerRegionX - regionRadius; rx <= centerRegionX + regionRadius; rx++) {
+                    for (int rz = centerRegionZ - regionRadius; rz <= centerRegionZ + regionRadius; rz++) {
+                        regionData.getRawOrSavedRegionState(rx, rz);
+                        com.warfront.region.terrain.TerrainClassifier.getRegionTerrainName(overworld, rx, rz);
+                        int baseCx = rx * 8;
+                        int baseCz = rz * 8;
+                        for (int dx = 0; dx < 8; dx++) {
+                            for (int dz = 0; dz < 8; dz++) {
+                                com.warfront.network.RequestRegionMapPayload.getOrComputeBiomeColor(overworld, baseCx + dx, baseCz + dz);
+                            }
+                        }
+                    }
+                }
+
+                // Pass 2: Pre-bake full region states (including regional strength & bordering boosts)
+                for (int rx = centerRegionX - regionRadius; rx <= centerRegionX + regionRadius; rx++) {
+                    for (int rz = centerRegionZ - regionRadius; rz <= centerRegionZ + regionRadius; rz++) {
+                        regionData.regionAt(rx, rz);
+                    }
+                }
+
+                long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+                LOGGER.info("[Warfront] Pre-baked 24x24 region theatre (192x192 chunks) around owner chunk ({}, {}) in {} ms.",
+                        ownerCenter.x, ownerCenter.z, elapsedMs);
+            }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent event) -> {
             com.warfront.network.RequestRegionMapPayload.clearColorCache();

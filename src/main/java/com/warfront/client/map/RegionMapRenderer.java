@@ -62,8 +62,8 @@ public final class RegionMapRenderer {
         return ResourceLocation.fromNamespaceAndPath("warfront", "textures/gui/map/" + name + ".png");
     }
 
-    private DynamicTexture mapTexture;
-    private ResourceLocation mapTextureLocation;
+    private static DynamicTexture mapTexture;
+    private static ResourceLocation mapTextureLocation;
     private boolean textureNeedsUpdate = true;
 
     public void markTextureDirty() {
@@ -156,7 +156,7 @@ public final class RegionMapRenderer {
                 for (int cx = 0; cx < diameter; cx++) {
                     int chunkX = state.getOriginChunkX() + cx;
                     int chunkZ = state.getOriginChunkZ() + cz;
-                    RegionMapPayload.ChunkData chunk = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ));
+                    RegionMapPayload.ChunkData chunk = state.getChunkAt(chunkX, chunkZ);
                     int colorABGR;
                     if (chunk == null) {
                         colorABGR = 0xFF000000;
@@ -170,10 +170,10 @@ public final class RegionMapRenderer {
 
                         boolean isSiege = isChunkSieged(chunk, chunkX, chunkZ, state);
 
-                        RegionMapPayload.ChunkData north = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ - 1));
-                        RegionMapPayload.ChunkData south = state.getChunks().get(ChunkPos.asLong(chunkX, chunkZ + 1));
-                        RegionMapPayload.ChunkData west = state.getChunks().get(ChunkPos.asLong(chunkX - 1, chunkZ));
-                        RegionMapPayload.ChunkData east = state.getChunks().get(ChunkPos.asLong(chunkX + 1, chunkZ));
+                        RegionMapPayload.ChunkData north = state.getChunkAt(chunkX, chunkZ - 1);
+                        RegionMapPayload.ChunkData south = state.getChunkAt(chunkX, chunkZ + 1);
+                        RegionMapPayload.ChunkData west = state.getChunkAt(chunkX - 1, chunkZ);
+                        RegionMapPayload.ChunkData east = state.getChunkAt(chunkX + 1, chunkZ);
 
                         if (chunk.factionId() != Faction.UNCLAIMED.id()) {
                             Faction faction = Faction.byId(chunk.factionId());
