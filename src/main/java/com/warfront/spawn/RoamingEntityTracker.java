@@ -4,6 +4,7 @@ import com.warfront.config.WarfrontConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Difficulty;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -137,7 +138,7 @@ public final class RoamingEntityTracker {
 
             // Despawn wandering mobs that wandered too far beyond the relaxed despawn radius
             if (minDistSq > despawnRadiusSq && !mob.hasCustomName()) {
-                if (data.getBoolean("isPatrolMob") && data.hasUUID("squadId")) {
+                if (level.getDifficulty() != Difficulty.PEACEFUL && data.getBoolean("isPatrolMob") && data.hasUUID("squadId")) {
                     UUID squadId = data.getUUID("squadId");
                     int rx = data.getInt("originRegionX");
                     int rz = data.getInt("originRegionZ");

@@ -5,6 +5,7 @@ import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Difficulty;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.levelgen.Heightmap;
 
@@ -77,6 +78,10 @@ public final class ExplorationSpawnManager {
      * @param level  the server level
      */
     public static void evaluateNearbyRegions(ServerPlayer player, ServerLevel level) {
+        if (level.getDifficulty() == Difficulty.PEACEFUL) {
+            return;
+        }
+
         RegionData regions = RegionData.get(level);
         long gameTime = level.getGameTime();
 

@@ -49,6 +49,8 @@ public final class RegionData extends SavedData {
     private final List<String> warfrontLogs = new ArrayList<>();
     private final java.util.Set<Long> visitedRegions = new java.util.HashSet<>();
     private final Map<UUID, Set<Long>> playerVisitedRegions = new HashMap<>();
+    private final Map<Long, com.warfront.region.bridge.SubregionBridge> subregionBridges = new HashMap<>();
+    private final java.util.Set<Long> evaluatedBridgeSubregions = new java.util.HashSet<>();
     private long worldSeed;
     private transient ServerLevel level;
     private transient boolean logsMigrated = false;
@@ -286,6 +288,27 @@ public final class RegionData extends SavedData {
             com.warfront.claim.PlayerConstructionTracker.getInstance().load(tag.getCompound("player_constructions"));
         }
 
+        if (tag.contains("subregion_bridges", Tag.TAG_LIST)) {
+            ListTag bridgesTag = tag.getList("subregion_bridges", Tag.TAG_COMPOUND);
+            for (int i = 0; i < bridgesTag.size(); i++) {
+                CompoundTag bTag = bridgesTag.getCompound(i);
+                try {
+                    com.warfront.region.bridge.SubregionBridge bridge = com.warfront.region.bridge.SubregionBridge.fromCompoundTag(bTag);
+                    data.subregionBridges.put(bridge.subKey(), bridge);
+                    data.evaluatedBridgeSubregions.add(bridge.subKey());
+                } catch (Exception e) {
+                    Warfront.LOGGER.warn("[Warfront] Failed to deserialize bridge tag: {}", bTag, e);
+                }
+            }
+        }
+
+        if (tag.contains("evaluated_bridge_subregions", Tag.TAG_LONG_ARRAY)) {
+            long[] evalArray = tag.getLongArray("evaluated_bridge_subregions");
+            for (long k : evalArray) {
+                data.evaluatedBridgeSubregions.add(k);
+            }
+        }
+
         data.migrateLegacyClusterIds();
 
         return data;
@@ -444,7 +467,37 @@ public final class RegionData extends SavedData {
 
         tag.put("player_constructions", com.warfront.claim.PlayerConstructionTracker.getInstance().save(new CompoundTag()));
 
+        ListTag bridgesTag = new ListTag();
+        for (com.warfront.region.bridge.SubregionBridge bridge : subregionBridges.values()) {
+            bridgesTag.add(bridge.toCompoundTag());
+        }
+        tag.put("subregion_bridges", bridgesTag);
+
+        long[] evalArray = evaluatedBridgeSubregions.stream().mapToLong(Long::longValue).toArray();
+        tag.putLongArray("evaluated_bridge_subregions", evalArray);
+
         return tag;
+    }
+
+    public com.warfront.region.bridge.SubregionBridge getSubregionBridge(long subKey) {
+        return subregionBridges.get(subKey);
+    }
+
+    public boolean hasEvaluatedBridge(long subKey) {
+        return evaluatedBridgeSubregions.contains(subKey);
+    }
+
+    public void recordBridge(com.warfront.region.bridge.SubregionBridge bridge) {
+        if (bridge != null) {
+            subregionBridges.put(bridge.subKey(), bridge);
+            evaluatedBridgeSubregions.add(bridge.subKey());
+            setDirty();
+        }
+    }
+
+    public void recordNoBridge(long subKey) {
+        evaluatedBridgeSubregions.add(subKey);
+        setDirty();
     }
 
     public boolean isRegionVisited(int regionX, int regionZ) {

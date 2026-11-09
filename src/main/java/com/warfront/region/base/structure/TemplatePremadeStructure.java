@@ -212,7 +212,7 @@ public class TemplatePremadeStructure implements PremadeStructure {
 
                         pos.set(worldX, downY, worldZ);
                         BlockState existing = level.getBlockState(pos);
-                        if (!existing.isAir() && !existing.canBeReplaced() && existing.getFluidState().isEmpty()) {
+                        if (!com.warfront.region.base.PillagerHeadquartersGenerator.isLandfillPenetrable(existing)) {
                             break;
                         }
                         level.setBlock(pos, cobble, SET_BLOCK_FLAGS);

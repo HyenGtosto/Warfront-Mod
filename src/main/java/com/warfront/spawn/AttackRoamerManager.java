@@ -8,6 +8,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Difficulty;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.ChunkPos;
@@ -102,6 +103,12 @@ public final class AttackRoamerManager {
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerLevel level = event.getServer().overworld();
         if (level == null) {
+            return;
+        }
+
+        if (level.getDifficulty() == Difficulty.PEACEFUL) {
+            if (!ACTIVE_SQUADS_BY_REGION.isEmpty()) ACTIVE_SQUADS_BY_REGION.clear();
+            if (!TERMINAL_SQUADS_BY_REGION.isEmpty()) TERMINAL_SQUADS_BY_REGION.clear();
             return;
         }
 

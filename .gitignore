@@ -43,6 +43,7 @@ repo/
 .models/
 .docs/
 .scratch/
+.tools/
 
 ### Agent ###
 AGENTS.md

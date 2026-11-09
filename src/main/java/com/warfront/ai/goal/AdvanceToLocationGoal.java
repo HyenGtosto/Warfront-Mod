@@ -1,8 +1,13 @@
 package com.warfront.ai.goal;
 
+import com.warfront.region.bridge.SubregionBridge;
+import com.warfront.region.bridge.SubregionBridgeManager;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.level.pathfinder.PathType;
 
 import java.util.EnumSet;
 
@@ -66,25 +71,58 @@ public class AdvanceToLocationGoal extends Goal {
     }
 
     private void navigateToTarget() {
-        double dx = targetX - mob.getX();
-        double dz = targetZ - mob.getZ();
+        int navX = targetX;
+        int navZ = targetZ;
+
+        SubregionBridge bridge = SubregionBridgeManager.getBridgeAt(mob.level(), mob.blockPosition());
+        if (bridge != null && mob.level() instanceof ServerLevel sl && bridge.isIntact(sl) && bridge.isOppositeSides(mob.getX(), mob.getZ(), targetX, targetZ)) {
+            BlockPos approach = bridge.getApproachPos(mob.getX(), mob.getZ());
+            BlockPos anchor = bridge.centerAnchor();
+            BlockPos exit = bridge.getExitPos(mob.getX(), mob.getZ());
+
+            double distToApproachSq = mob.distanceToSqr(approach.getX() + 0.5D, approach.getY(), approach.getZ() + 0.5D);
+            double distToAnchorSq = mob.distanceToSqr(anchor.getX() + 0.5D, anchor.getY(), anchor.getZ() + 0.5D);
+
+            if (!bridge.isOnBridgeDeck(mob.getX(), mob.getZ()) && distToApproachSq > 9.0D) {
+                navX = approach.getX();
+                navZ = approach.getZ();
+            } else if (distToAnchorSq > 4.0D && bridge.isSameSideAsApproach(mob.getX(), mob.getZ(), approach)) {
+                navX = anchor.getX();
+                navZ = anchor.getZ();
+            } else {
+                navX = exit.getX();
+                navZ = exit.getZ();
+            }
+        }
+
+        double dx = navX - mob.getX();
+        double dz = navZ - mob.getZ();
         double dist = Math.hypot(dx, dz);
 
         if (dist <= 0.5D) {
             return;
         }
 
+        boolean inWater = mob.isInWater();
+        double effectiveSpeed = inWater ? 1.15D : speedModifier;
+        mob.setPathfindingMalus(PathType.WATER, inWater ? 0.0F : 8.0F);
+
+        int targetY;
         if (dist <= 20.0D) {
-            int targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, targetX, targetZ);
-            mob.getNavigation().moveTo(targetX + 0.5D, targetY, targetZ + 0.5D, speedModifier);
+            targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, navX, navZ);
+            mob.getNavigation().moveTo(navX + 0.5D, targetY, navZ + 0.5D, effectiveSpeed);
         } else {
             // Incremental waypoint step (20 blocks forward)
             double ux = dx / dist;
             double uz = dz / dist;
             int stepX = (int) Math.round(mob.getX() + ux * 20.0D);
             int stepZ = (int) Math.round(mob.getZ() + uz * 20.0D);
-            int stepY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, stepX, stepZ);
-            mob.getNavigation().moveTo(stepX + 0.5D, stepY, stepZ + 0.5D, speedModifier);
+            targetY = mob.level().getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, stepX, stepZ);
+            mob.getNavigation().moveTo(stepX + 0.5D, targetY, stepZ + 0.5D, effectiveSpeed);
+        }
+
+        if (inWater && (mob.getNavigation().isDone() || !mob.getNavigation().isInProgress())) {
+            mob.getMoveControl().setWantedPosition(navX + 0.5D, targetY, navZ + 0.5D, effectiveSpeed);
         }
     }
 

@@ -549,7 +549,7 @@ public class ProceduralRegionGenerator {
             physicalBaseAnchorCache.put(key, Optional.empty());
             return Optional.empty();
         } else if (baseType == BaseType.HEADQUARTERS) {
-            // Headquarters (Medium Base): 50x90 or 90x50 footprint centered across 2 adjacent subregions
+            // Headquarters (Medium Base): 52x93 or 93x52 footprint centered across 2 adjacent subregions
             int[][] hqConfigs = new int[][] {
                     { 96, 64, 0 }, // 0: EAST  - Subregions (1,0) & (1,1)
                     { 32, 64, 0 }, // 1: WEST  - Subregions (0,0) & (0,1)
@@ -569,10 +569,10 @@ public class ProceduralRegionGenerator {
                 int cardIdx = (startCard + i) % 4;
                 int baseAnchorX = startBlockX + hqConfigs[cardIdx][0];
                 int baseAnchorZ = startBlockZ + hqConfigs[cardIdx][1];
-                int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z (50x90), 1 = shift in X (90x50)
+                int shiftAxis = hqConfigs[cardIdx][2]; // 0 = shift in Z (52x93), 1 = shift in X (93x52)
 
-                int sizeX = (shiftAxis == 0) ? 50 : 90;
-                int sizeZ = (shiftAxis == 0) ? 90 : 50;
+                int sizeX = (shiftAxis == 0) ? 52 : 93;
+                int sizeZ = (shiftAxis == 0) ? 93 : 52;
 
                 for (int delta : axisDeltas) {
                     int candAnchorX = baseAnchorX + (shiftAxis == 1 ? delta : 0);

@@ -10,6 +10,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Difficulty;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -106,6 +107,10 @@ public final class SubregionPatrolManager {
         }
 
         public UUID getSquadId() { return squadId; }
+        public int getRegionX() { return regionX; }
+        public int getRegionZ() { return regionZ; }
+        public int getSubX() { return subX; }
+        public int getSubZ() { return subZ; }
         public BlockPos getCurrentWaypoint() { return currentWaypoint; }
         public boolean isHoldingGround() { return holdingGround; }
         public boolean wasEngagedInCombat() { return engagedInCombat; }
@@ -373,6 +378,15 @@ public final class SubregionPatrolManager {
         ServerLevel level = event.getServer().overworld();
         if (level == null) return;
 
+        // In Peaceful mode, suppress all patrol, scout, and reinforcement spawning and clean up tracking
+        if (level.getDifficulty() == Difficulty.PEACEFUL) {
+            if (!ACTIVE_PATROLS.isEmpty()) ACTIVE_PATROLS.clear();
+            if (!ACTIVE_SCOUTS.isEmpty()) ACTIVE_SCOUTS.clear();
+            if (!PENDING_REINFORCEMENTS.isEmpty()) PENDING_REINFORCEMENTS.clear();
+            if (!TERMINAL_PATROL_MOBS.isEmpty()) TERMINAL_PATROL_MOBS.clear();
+            return;
+        }
+
         long gameTime = level.getGameTime();
 
         List<ServerPlayer> players = level.players();
@@ -474,8 +488,10 @@ public final class SubregionPatrolManager {
             List<PatrolSquad> squads = entry.getValue();
             for (PatrolSquad squad : squads) {
                 if (squad.countLiving(level) == 0 && !squad.wasEngagedInCombat()) {
-                    LAST_SPAWN_TIME.remove(subKey);
-                    Warfront.LOGGER.debug("[PATROL] Squad {} emptied without combat. Subregion cooldown refunded.", squad.getSquadId());
+                    if (level.getDifficulty() != Difficulty.PEACEFUL) {
+                        LAST_SPAWN_TIME.remove(subKey);
+                        Warfront.LOGGER.debug("[PATROL] Squad {} emptied without combat. Subregion cooldown refunded.", squad.getSquadId());
+                    }
                 }
             }
             squads.removeIf(squad -> squad.countLiving(level) == 0);
@@ -644,6 +660,10 @@ public final class SubregionPatrolManager {
             int rx, int rz,
             int sx, int sz,
             Faction faction) {
+
+        if (level.getDifficulty() == Difficulty.PEACEFUL) {
+            return null;
+        }
 
         BlockPos spawnBorder = pickRandomBorderPoint(level, rx, rz, sx, sz);
         if (spawnBorder == null) return null;
@@ -966,6 +986,7 @@ public final class SubregionPatrolManager {
      */
     public static void triggerScoutReinforcements(ServerLevel level, int rx, int rz, int sx, int sz, Player player) {
         if (level == null || player == null || !player.isAlive()) return;
+        if (level.getDifficulty() == Difficulty.PEACEFUL) return;
 
         RegionData regions = RegionData.get(level);
         RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
@@ -1037,6 +1058,10 @@ public final class SubregionPatrolManager {
      * Spawns an autonomous Pillager Scout in the subregion independent of patrol squads.
      */
     private static PillagerScoutEntity spawnSubregionScout(ServerLevel level, int rx, int rz, int sx, int sz) {
+        if (level.getDifficulty() == Difficulty.PEACEFUL) {
+            return null;
+        }
+
         BlockPos borderPoint = pickRandomBorderPoint(level, rx, rz, sx, sz);
         int spawnX = borderPoint != null ? borderPoint.getX() : (rx * 128 + sx * 64 + 32);
         int spawnZ = borderPoint != null ? borderPoint.getZ() : (rz * 128 + sz * 64 + 32);

@@ -1,15 +1,19 @@
 package com.warfront.entity;
 
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
@@ -35,6 +39,7 @@ import net.minecraft.world.entity.raid.Raider;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import software.bernie.geckolib.animatable.GeoEntity;
@@ -46,6 +51,7 @@ import software.bernie.geckolib.animation.PlayState;
 import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 
+import javax.annotation.Nullable;
 import java.util.EnumSet;
 import java.util.List;
 
@@ -61,6 +67,8 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
 
     private static final EntityDataAccessor<Byte> COMBAT_STATE =
             SynchedEntityData.defineId(PillagerMarksmanEntity.class, EntityDataSerializers.BYTE);
+    private static final EntityDataAccessor<Byte> TERRAIN_VARIANT =
+            SynchedEntityData.defineId(PillagerMarksmanEntity.class, EntityDataSerializers.BYTE);
 
     private static final RawAnimation IDLE = RawAnimation.begin().thenLoop("idle");
     private static final RawAnimation WALK = RawAnimation.begin().thenLoop("walking");
@@ -71,6 +79,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
 
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
     private byte lastCombatState = STATE_IDLE;
+    private boolean terrainVariantResolved = false;
 
     public PillagerMarksmanEntity(EntityType<? extends AbstractIllager> entityType, Level level) {
         super(entityType, level);
@@ -90,6 +99,39 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
         builder.define(COMBAT_STATE, STATE_IDLE);
+        builder.define(TERRAIN_VARIANT, EntityTerrainVariant.STANDARD.id());
+    }
+
+    public EntityTerrainVariant getTerrainVariant() {
+        return EntityTerrainVariant.byId(this.entityData.get(TERRAIN_VARIANT));
+    }
+
+    public void setTerrainVariant(EntityTerrainVariant variant) {
+        this.entityData.set(TERRAIN_VARIANT, variant != null ? variant.id() : EntityTerrainVariant.STANDARD.id());
+        this.terrainVariantResolved = true;
+    }
+
+    @Nullable
+    @Override
+    public SpawnGroupData finalizeSpawn(ServerLevelAccessor level, DifficultyInstance difficulty, MobSpawnType spawnType, @Nullable SpawnGroupData spawnGroupData) {
+        SpawnGroupData data = super.finalizeSpawn(level, difficulty, spawnType, spawnGroupData);
+        this.setTerrainVariant(EntityTerrainVariant.resolveForMob(this, level.getLevel()));
+        return data;
+    }
+
+    @Override
+    public void addAdditionalSaveData(CompoundTag compound) {
+        super.addAdditionalSaveData(compound);
+        compound.putByte("TerrainVariant", this.entityData.get(TERRAIN_VARIANT));
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag compound) {
+        super.readAdditionalSaveData(compound);
+        if (compound.contains("TerrainVariant")) {
+            this.entityData.set(TERRAIN_VARIANT, compound.getByte("TerrainVariant"));
+            this.terrainVariantResolved = true;
+        }
     }
 
     public byte getCombatState() {
@@ -219,6 +261,9 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     public void aiStep() {
         super.aiStep();
         if (!this.level().isClientSide) {
+            if (!this.terrainVariantResolved && this.level() instanceof ServerLevel serverLevel) {
+                this.setTerrainVariant(EntityTerrainVariant.resolveForMob(this, serverLevel));
+            }
             LivingEntity target = this.getTarget();
             boolean hasTarget = target != null && target.isAlive();
             this.setAggressive(hasTarget);
