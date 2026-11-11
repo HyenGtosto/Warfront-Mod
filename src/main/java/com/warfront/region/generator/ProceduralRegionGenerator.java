@@ -68,7 +68,7 @@ public class ProceduralRegionGenerator {
         registerGenerator(new GridClusterFactionGenerator(
                 Faction.PILLAGER_CONQUERORS,
                 new FactionGeneratorConfig(
-                        16,
+                        10, // Canonical separation: 10
                         1, // minClusterSize
                         2, // maxClusterSize
                         2, // minDistanceFromSpawn
@@ -81,7 +81,7 @@ public class ProceduralRegionGenerator {
         registerGenerator(new GridClusterFactionGenerator(
                 Faction.ZOMBIE_HORDE,
                 new FactionGeneratorConfig(
-                        16,
+                        10, // Canonical separation: 10
                         1, // minClusterSize
                         2, // maxClusterSize
                         2, // minDistanceFromSpawn

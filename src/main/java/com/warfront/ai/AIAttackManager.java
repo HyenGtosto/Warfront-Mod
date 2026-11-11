@@ -2,9 +2,7 @@ package com.warfront.ai;
 
 import com.warfront.Warfront;
 import com.warfront.ai.strategy.AttackContext;
-
 import com.warfront.ai.strategy.HQPos;
-import com.warfront.config.WarfrontConfig;
 import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
@@ -29,8 +27,68 @@ public final class AIAttackManager {
     private static final Random RANDOM = new Random();
     private static final int PLAYER_SQUARE_RADIUS_REGIONS = 12; // 24x24 region grid (radius 12)
     private static long lastEvaluationTick = 0L;
+    private static long lastArmyMovementTick = 0L;
+    private static volatile boolean turboMode = false;
+
+    public static final long AI_ATTACK_INTERVAL_TICKS = 6000L; // 5 minutes (300 seconds)
+    public static final double AI_EXPANSION_CHANCE = 0.35D;
+    public static final int AI_MAX_SIMULTANEOUS_SIEGES = 3;
+
+    public static final long ARMY_MOVEMENT_INTERVAL_TICKS = 12000L; // 10 minutes between moving
+    public static final long ARMY_MOVEMENT_TURBO_TICKS = 400L;      // 20 seconds in turbo mode
 
     private AIAttackManager() {
+    }
+
+    public static boolean isTurboMode() {
+        return turboMode;
+    }
+
+    public static void setTurboMode(ServerLevel level, boolean enabled) {
+        turboMode = enabled;
+        if (enabled && level != null) {
+            ServerLevel overworld = level.getServer() != null ? level.getServer().overworld() : level;
+            if (overworld != null) {
+                long gameTime = overworld.getGameTime();
+                RegionData regions = RegionData.get(overworld);
+                boolean modified = false;
+
+                for (Map.Entry<Long, RegionData.SiegeCampaign> entry : new ArrayList<>(regions.getActiveSieges().entrySet())) {
+                    RegionData.SiegeCampaign sc = entry.getValue();
+                    if (sc != null && sc.attacker() != Faction.HUMANITY) {
+                        long elapsed = Math.max(0L, gameTime - sc.startTick());
+                        long maxDuration = elapsed + 120L; // 6 seconds remaining
+                        if (sc.durationTicks() > maxDuration) {
+                            regions.getActiveSieges().put(entry.getKey(), sc.withDurationTicks(maxDuration));
+                            modified = true;
+                        }
+                    }
+                }
+
+                for (Map.Entry<Long, RegionData.ReinforcementState> entry : new ArrayList<>(regions.getActiveReinforcements().entrySet())) {
+                    RegionData.ReinforcementState rs = entry.getValue();
+                    if (rs != null) {
+                        long elapsed = Math.max(0L, gameTime - rs.startTick());
+                        long maxDuration = elapsed + 300L; // 15 seconds remaining
+                        if (rs.durationTicks() > maxDuration) {
+                            regions.getActiveReinforcements().put(entry.getKey(),
+                                    new RegionData.ReinforcementState(rs.regionX(), rs.regionZ(), rs.owner(),
+                                            rs.originalStability(), rs.originalResistance(), rs.startTick(), maxDuration, rs.salt()));
+                            modified = true;
+                        }
+                    }
+                }
+
+                if (modified) {
+                    regions.setDirty();
+                    com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(overworld);
+                }
+
+                // Immediately trigger AI attacks to populate up to 6 sieges without waiting 20s
+                lastEvaluationTick = gameTime;
+                evaluateAIFactionAttacks(overworld);
+            }
+        }
     }
 
     public static void onServerTick(ServerTickEvent.Post event) {
@@ -46,8 +104,18 @@ public final class AIAttackManager {
             checkSiegeTimeouts(level, gameTime);
         }
 
-        // 2. Evaluate AI expansion cycles
-        int intervalTicks = WarfrontConfig.AI_ATTACK_INTERVAL_TICKS.get();
+        // 2. Evaluate Field Army maneuver cycles (dedicated 10-minute cooldown)
+        long armyInterval = turboMode ? ARMY_MOVEMENT_TURBO_TICKS : ARMY_MOVEMENT_INTERVAL_TICKS;
+        if (gameTime - lastArmyMovementTick >= armyInterval) {
+            lastArmyMovementTick = gameTime;
+            boolean armiesMoved = com.warfront.region.army.ClusterArmyManager.tickClusterArmies(level, RegionData.get(level), RANDOM);
+            if (armiesMoved) {
+                com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+            }
+        }
+
+        // 3. Evaluate AI expansion cycles (5-minute cooldown)
+        long intervalTicks = turboMode ? 400L : AI_ATTACK_INTERVAL_TICKS;
         if (gameTime - lastEvaluationTick < intervalTicks) {
             return;
         }
@@ -241,8 +309,11 @@ public final class AIAttackManager {
         RegionData regions = RegionData.get(level);
         regions.decayZombieRetaliation();
 
-        double expansionChance = WarfrontConfig.AI_EXPANSION_CHANCE.get();
-        int maxSieges = WarfrontConfig.AI_MAX_SIMULTANEOUS_SIEGES.get();
+        Set<Long> pillagerClusterIds = regions.getAllClusterIds(level, Faction.PILLAGER_CONQUERORS);
+        Set<Long> zombieClusterIds = regions.getAllClusterIds(level, Faction.ZOMBIE_HORDE);
+
+        double expansionChance = turboMode ? 1.0D : AI_EXPANSION_CHANCE;
+        int maxSieges = turboMode ? 6 : AI_MAX_SIMULTANEOUS_SIEGES;
 
         int activeSiegesCount = regions.getActiveSieges().size();
         if (activeSiegesCount >= maxSieges) {
@@ -250,9 +321,6 @@ public final class AIAttackManager {
         }
 
         int openSlots = maxSieges - activeSiegesCount;
-
-        Set<Long> pillagerClusterIds = regions.getAllClusterIds(level, Faction.PILLAGER_CONQUERORS);
-        Set<Long> zombieClusterIds = regions.getAllClusterIds(level, Faction.ZOMBIE_HORDE);
 
         List<StrategicActor> actors = new ArrayList<>();
         if (pillagerClusterIds.isEmpty()) {
@@ -362,7 +430,7 @@ public final class AIAttackManager {
             slotAttemptsExecuted++;
 
             // Roll independent per-slot expansion chance
-            if (RANDOM.nextDouble() > expansionChance) {
+            if (!turboMode && RANDOM.nextDouble() > expansionChance) {
                 continue; // Skipped slot attempt based on roll
             }
 
@@ -465,7 +533,8 @@ public final class AIAttackManager {
 
             if (neighbor.owner() == attacker) {
                 RegionData.SourcePos srcPos = new RegionData.SourcePos(nrx, nrz);
-                if ((nrx == primarySrcX && nrz == primarySrcZ) || RANDOM.nextDouble() < 0.5D) {
+                boolean neighborHasArmy = regions.hasArmyAt(nrx, nrz);
+                if ((nrx == primarySrcX && nrz == primarySrcZ) || neighborHasArmy || RANDOM.nextDouble() < 0.5D) {
                     if (!sources.contains(srcPos)) {
                         sources.add(srcPos);
                     }

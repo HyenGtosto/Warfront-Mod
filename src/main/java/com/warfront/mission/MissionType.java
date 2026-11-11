@@ -172,7 +172,13 @@ public enum MissionType {
     DEFEAT_INVADING_FORCES(ObjectiveType.ELIMINATE_TARGETS),
 
     /** Hold the Chokepoint: Hold ground at an improvised perimeter against invading waves using terrain and player defenses. */
-    HOLD_THE_CHOKEPOINT(ObjectiveType.SURVIVE_ASSAULT);
+    HOLD_THE_CHOKEPOINT(ObjectiveType.SURVIVE_ASSAULT),
+
+    // ==========================================
+    // Mobile Field Army Battle Mission (Whole Region)
+    // ==========================================
+    /** Mobile Field Army Battle: Unified region-wide field battle against a stationed mobile army / horde vanguard. */
+    FIELD_BATTLE(ObjectiveType.ELIMINATE_TARGETS);
 
     private final ObjectiveType defaultObjectiveType;
 
@@ -201,9 +207,17 @@ public enum MissionType {
                  MUNITIONS_DEPOT,
                  BREAK_THE_GATES,
                  SILENCE_THE_GUNS,
-                 SEVER_COMMUNICATIONS -> true;
+                 SEVER_COMMUNICATIONS,
+                 FIELD_BATTLE -> true;
             default -> false;
         };
+    }
+
+    /**
+     * Checks if this mission is an army unified field battle.
+     */
+    public boolean isFieldBattle() {
+        return this == FIELD_BATTLE;
     }
 
     /**

@@ -1,6 +1,5 @@
 package com.warfront.spawn;
 
-import com.warfront.config.WarfrontConfig;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import net.minecraft.server.level.ServerLevel;
@@ -90,7 +89,7 @@ public final class ExplorationSpawnManager {
         int playerRegionX = Math.floorDiv(playerBlockX, RegionData.REGION_SIZE_BLOCKS);
         int playerRegionZ = Math.floorDiv(playerBlockZ, RegionData.REGION_SIZE_BLOCKS);
 
-        long cooldownTicks = WarfrontConfig.SUBREGION_SPAWN_COOLDOWN_SECONDS.get() * 20L;
+        long cooldownTicks = 160L; // 8 seconds cooldown
 
         List<EligibleSubRegion> eligibleSubRegions = new ArrayList<>();
 

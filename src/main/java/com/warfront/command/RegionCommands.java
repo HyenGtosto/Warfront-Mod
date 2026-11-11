@@ -50,6 +50,11 @@ public final class RegionCommands {
                                         .suggests((context, builder) -> SharedSuggestionProvider.suggest(
                                                 Arrays.stream(Faction.values()).filter(f -> f != Faction.UNCLAIMED).map(Faction::commandName), builder))
                                         .executes(RegionCommands::wipeFaction)))
+                        .then(Commands.literal("turbo")
+                                .requires(source -> source.hasPermission(2))
+                                .executes(ctx -> RegionCommands.setTurboMode(ctx, !com.warfront.ai.AIAttackManager.isTurboMode()))
+                                .then(Commands.argument("enabled", com.mojang.brigadier.arguments.BoolArgumentType.bool())
+                                        .executes(ctx -> RegionCommands.setTurboMode(ctx, com.mojang.brigadier.arguments.BoolArgumentType.getBool(ctx, "enabled")))))
                         .then(Commands.literal("base")
                                 .then(Commands.literal("locate")
                                         .executes(RegionCommands::locateBase))
@@ -129,6 +134,14 @@ public final class RegionCommands {
         final int count = wipedCount;
         context.getSource().sendSuccess(
                 () -> Component.translatable("command.warfront.wipe_success", count, faction.displayName()), true);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int setTurboMode(CommandContext<CommandSourceStack> context, boolean enabled) {
+        ServerLevel level = context.getSource().getLevel();
+        com.warfront.ai.AIAttackManager.setTurboMode(level, enabled);
+        String key = enabled ? "command.warfront.turbo.enabled" : "command.warfront.turbo.disabled";
+        context.getSource().sendSuccess(() -> Component.translatable(key), true);
         return Command.SINGLE_SUCCESS;
     }
 

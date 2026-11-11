@@ -460,36 +460,26 @@ public final class ActiveCampaignMissionManager {
                     level, subCenterCX, subCenterCZ, level.getBiome(new BlockPos(subCenterCX * 16 + 8, level.getSeaLevel(), subCenterCZ * 16 + 8)));
         }
 
+        boolean hasArmy = (regions != null) && regions.hasArmyAt(regionX, regionZ);
         SubRegionMission[] generatedMissions = MissionProfile.generateForRegion(
                 regionX, regionZ, targetFaction, baseType, resistance, stability,
-                BiomeCategory.STANDARD, subTerrains, subElevations, missionSeed, baseAnchor, isDefense);
+                BiomeCategory.STANDARD, subTerrains, subElevations, missionSeed, baseAnchor, isDefense, hasArmy);
 
         Map<Integer, ActiveSubRegionProgress> subMissions = ACTIVE_CAMPAIGN_MISSIONS.computeIfAbsent(regionKey, k -> new HashMap<>());
 
-        for (int i = 0; i < 4; i++) {
-            int subX = i % 2;
-            int subZ = i / 2;
-            int bit = subZ * 2 + subX;
-
-            if ((activeSubRegionsMask & (1 << bit)) != 0) {
-                ActiveSubRegionProgress existing = subMissions.get(bit);
-                if (existing != null) {
-                    if (existing.isCompleted()) {
-                        // Relaunching a previously failed or completed mission during an ongoing campaign:
-                        // Reset progress state in-place while keeping existing missionSiteAnchor,
-                        // trackedBlockPositions, and temporaryStructuresBuilt flag intact to prevent height shifts and cratering.
-                        existing.setCompleted(false);
-                        existing.setCurrentProgress(0);
-                        existing.setPhaseIndex(0);
-                        existing.trackedEntityUuids().clear();
-                        broadcastHudUpdate(level, regionX, regionZ, subX, subZ, existing);
-                    }
-                    continue;
-                }
-                SubRegionMission gen = generatedMissions[i];
-                subMissions.put(bit, new ActiveSubRegionProgress(
+        if (generatedMissions != null && generatedMissions.length > 0 && generatedMissions[0].type() == MissionType.FIELD_BATTLE) {
+            SubRegionMission gen = generatedMissions[0];
+            ActiveSubRegionProgress existing = subMissions.get(0);
+            if (existing != null && existing.isCompleted()) {
+                existing.setCompleted(false);
+                existing.setCurrentProgress(0);
+                existing.setPhaseIndex(0);
+                existing.trackedEntityUuids().clear();
+                broadcastHudUpdate(level, regionX, regionZ, -1, -1, existing);
+            } else if (existing == null) {
+                ActiveSubRegionProgress fieldBattleProgress = new ActiveSubRegionProgress(
                         regionX, regionZ,
-                        subX, subZ,
+                        -1, -1,
                         targetFaction,
                         gen.targetRoleName(),
                         gen.displayName(),
@@ -497,7 +487,45 @@ public final class ActiveCampaignMissionManager {
                         gen.type(),
                         gen.objectiveType(),
                         gen.targetCount()
-                ));
+                );
+                for (int i = 0; i < 4; i++) {
+                    subMissions.put(i, fieldBattleProgress);
+                }
+            }
+        } else {
+            for (int i = 0; i < 4; i++) {
+                int subX = i % 2;
+                int subZ = i / 2;
+                int bit = subZ * 2 + subX;
+
+                if ((activeSubRegionsMask & (1 << bit)) != 0) {
+                    ActiveSubRegionProgress existing = subMissions.get(bit);
+                    if (existing != null) {
+                        if (existing.isCompleted()) {
+                            // Relaunching a previously failed or completed mission during an ongoing campaign:
+                            // Reset progress state in-place while keeping existing missionSiteAnchor,
+                            // trackedBlockPositions, and temporaryStructuresBuilt flag intact to prevent height shifts and cratering.
+                            existing.setCompleted(false);
+                            existing.setCurrentProgress(0);
+                            existing.setPhaseIndex(0);
+                            existing.trackedEntityUuids().clear();
+                            broadcastHudUpdate(level, regionX, regionZ, subX, subZ, existing);
+                        }
+                        continue;
+                    }
+                    SubRegionMission gen = generatedMissions[i];
+                    subMissions.put(bit, new ActiveSubRegionProgress(
+                            regionX, regionZ,
+                            subX, subZ,
+                            targetFaction,
+                            gen.targetRoleName(),
+                            gen.displayName(),
+                            gen.description(),
+                            gen.type(),
+                            gen.objectiveType(),
+                            gen.targetCount()
+                    ));
+                }
             }
         }
 
@@ -1064,12 +1092,25 @@ public final class ActiveCampaignMissionManager {
 
         RegionData regions = RegionData.get(level);
         if (regions != null) {
-            regions.claimSubRegion(level, regionX, regionZ, subX, subZ, Faction.HUMANITY, 100.0F);
+            if (progress.missionType() == MissionType.FIELD_BATTLE) {
+                // Unified Field Battle: claim all 4 sub-regions to Humanity, triggering full region capture
+                for (int sx = 0; sx <= 1; sx++) {
+                    for (int sz = 0; sz <= 1; sz++) {
+                        regions.claimSubRegion(level, regionX, regionZ, sx, sz, Faction.HUMANITY, 100.0F);
+                    }
+                }
+                String logMsg = String.format("§aField Battle Decisive Victory! Mobile Army in Region (%d, %d) wiped out. Entire region secured.",
+                        regionX, regionZ);
+                regions.addLog(level, logMsg);
+                regions.setDirty();
+            } else {
+                regions.claimSubRegion(level, regionX, regionZ, subX, subZ, Faction.HUMANITY, 100.0F);
 
-            String logMsg = String.format("§aMission Completed! Sub-region (%d, %d) in Region (%d, %d) secured.",
-                    subX, subZ, regionX, regionZ);
-            regions.addLog(level, logMsg);
-            regions.setDirty();
+                String logMsg = String.format("§aMission Completed! Sub-region (%d, %d) in Region (%d, %d) secured.",
+                        subX, subZ, regionX, regionZ);
+                regions.addLog(level, logMsg);
+                regions.setDirty();
+            }
         }
 
         Warfront.LOGGER.info("Subregion mission completed: Region ({}, {}) Sub ({}, {}). Captured to HUMANITY.",
@@ -1163,9 +1204,18 @@ public final class ActiveCampaignMissionManager {
                 isDefense
         );
 
-        int subCenterBlockX = (regionX * 128) + (subX * 64) + 32;
-        int subCenterBlockZ = (regionZ * 128) + (subZ * 64) + 32;
-        double maxDistSq = 192.0D * 192.0D;
+        int subCenterBlockX;
+        int subCenterBlockZ;
+        double maxDistSq;
+        if (progress.missionType() == MissionType.FIELD_BATTLE || subX < 0 || subZ < 0) {
+            subCenterBlockX = (regionX * 128) + 64;
+            subCenterBlockZ = (regionZ * 128) + 64;
+            maxDistSq = 256.0D * 256.0D;
+        } else {
+            subCenterBlockX = (regionX * 128) + (subX * 64) + 32;
+            subCenterBlockZ = (regionZ * 128) + (subZ * 64) + 32;
+            maxDistSq = 192.0D * 192.0D;
+        }
 
         for (ServerPlayer player : level.players()) {
             if (player.distanceToSqr(subCenterBlockX, player.getY(), subCenterBlockZ) <= maxDistSq) {

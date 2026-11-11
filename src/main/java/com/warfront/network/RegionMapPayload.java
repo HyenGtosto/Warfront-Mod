@@ -93,6 +93,7 @@ public record RegionMapPayload(
             ByteBufCodecs.VAR_INT, RegionMarkerData::regionZ,
             ByteBufCodecs.VAR_INT, RegionMarkerData::factionId,
             ByteBufCodecs.VAR_INT, RegionMarkerData::baseTypeId,
+            ByteBufCodecs.BOOL, RegionMarkerData::hasArmy,
             RegionMarkerData::new);
 
     private static final StreamCodec<RegistryFriendlyByteBuf, java.util.List<RegionMarkerData>> MARKERS_CODEC = ByteBufCodecs
@@ -189,7 +190,10 @@ public record RegionMapPayload(
         }
     }
 
-    public record RegionMarkerData(int regionX, int regionZ, int factionId, int baseTypeId) {
+    public record RegionMarkerData(int regionX, int regionZ, int factionId, int baseTypeId, boolean hasArmy) {
+        public RegionMarkerData(int regionX, int regionZ, int factionId, int baseTypeId) {
+            this(regionX, regionZ, factionId, baseTypeId, false);
+        }
     }
 
     public record SiegeArrowData(int sourceRegionX, int sourceRegionZ, int targetRegionX, int targetRegionZ, boolean encircled) {

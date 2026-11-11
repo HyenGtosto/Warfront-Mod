@@ -44,15 +44,6 @@ public class GridClusterFactionGenerator implements FactionGenerator {
     }
 
     public int getSeparation() {
-        try {
-            if (this.faction == Faction.PILLAGER_CONQUERORS && com.warfront.config.WarfrontConfig.PILLAGER_SEPARATION != null) {
-                return com.warfront.config.WarfrontConfig.PILLAGER_SEPARATION.get();
-            }
-            if (this.faction == Faction.ZOMBIE_HORDE && com.warfront.config.WarfrontConfig.ZOMBIE_SEPARATION != null) {
-                return com.warfront.config.WarfrontConfig.ZOMBIE_SEPARATION.get();
-            }
-        } catch (Exception ignored) {
-        }
         return config.separation();
     }
 
@@ -83,7 +74,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
 
         if (level == null) {
             long cellSeed = hashCell(worldSeed, cellX, cellZ, salt);
-            int megaThreshold = (int) (com.warfront.config.WarfrontConfig.MEGA_BASE_CHANCE.get() * 100.0D);
+            int megaThreshold = 15; // 15% Mega Base rate
             int clusterRoll = (int) (Math.abs(cellSeed ^ 0x9E3779B9L) % 100);
             int size = (clusterRoll < megaThreshold) ? 3 : ((clusterRoll < 75) ? 2 : 1);
             return new CellClusterInfo(fallbackCenter[0], fallbackCenter[1], size, cellFaction);
@@ -96,7 +87,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         }
 
         long cellSeed = hashCell(worldSeed, cellX, cellZ, salt);
-        int megaThreshold = (int) (com.warfront.config.WarfrontConfig.MEGA_BASE_CHANCE.get() * 100.0D);
+        int megaThreshold = 15; // 15% Mega Base rate
         int clusterRoll = (int) (Math.abs(cellSeed ^ 0x9E3779B9L) % 100);
 
         int rolledTier;
@@ -294,13 +285,7 @@ public class GridClusterFactionGenerator implements FactionGenerator {
         int baseCellX = Math.floorDiv(regionX, separation);
         int baseCellZ = Math.floorDiv(regionZ, separation);
 
-        int bufferDistance = 1;
-        try {
-            if (com.warfront.config.WarfrontConfig.FACTION_BUFFER_DISTANCE != null) {
-                bufferDistance = com.warfront.config.WarfrontConfig.FACTION_BUFFER_DISTANCE.get();
-            }
-        } catch (Exception ignored) {
-        }
+        int bufferDistance = 3;
 
         // Check if this region is land. If it's ocean, it cannot be claimed by any faction!
         if (level != null && !ProceduralRegionGenerator.getInstance().biomeAvailableForBase(level, regionX, regionZ)) {

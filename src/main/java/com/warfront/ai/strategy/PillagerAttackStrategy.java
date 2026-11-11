@@ -149,7 +149,12 @@ public class PillagerAttackStrategy implements FactionAttackStrategy {
 
             double finalScore = Math.max(0.1D, arcScore + frontCompletionBonus + humanityDistanceScore + humanityBonus + neighborBonus - overExtensionPenalty - corridorTipPenalty);
 
-            if (isInsideSector) {
+            boolean sourceHasArmy = regions.hasArmyAt(candidate.sourceRegionX(), candidate.sourceRegionZ());
+            if (sourceHasArmy) {
+                finalScore = (finalScore * 3.0D) + 60.0D;
+            }
+
+            if (isInsideSector || sourceHasArmy) {
                 tier1Frontline.add(new ScoredCandidate(candidate, finalScore));
             } else {
                 tier2Fallback.add(new ScoredCandidate(candidate, finalScore));

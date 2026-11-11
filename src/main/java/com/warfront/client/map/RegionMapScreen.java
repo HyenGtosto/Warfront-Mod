@@ -431,6 +431,11 @@ public final class RegionMapScreen extends Screen {
         if (sel != null && sel.isFieldBattle()) {
             return Component.translatable("screen.warfront.subregion.field_label", subX, subZ).getString();
         }
+        if (sel != null && sel.hasArmy() && sel.baseType() == com.warfront.region.BaseType.NONE) {
+            String armyName = com.warfront.region.army.ClusterArmy.formatArmyDisplayName(
+                    sel.owner(), sel.armyOrdinalIndex(), sel.armyEpithetIndex()).getString();
+            return String.format("%s\n%s", armyName, Component.translatable("screen.warfront.army_field_battle").getString());
+        }
         boolean isDefense = isDefense(sel);
         if (sel != null) {
             int bit = subZ * 2 + subX;
@@ -554,8 +559,14 @@ public final class RegionMapScreen extends Screen {
                     selectedRegion.resistance(), selectedRegion.stability(),
                     selectedRegion.missionSeed(), selectedRegion.baseAnchor(), isDefense);
 
+            boolean isArmyRegion = selectedRegion.hasArmy() && selectedRegion.baseType() == com.warfront.region.BaseType.NONE;
+
             for (int i = 0; i < 4; i++) {
                 if (subRegionMissionButtons[i] != null) {
+                    if (isArmyRegion && i > 0) {
+                        subRegionMissionButtons[i].visible = false;
+                        continue;
+                    }
                     int sx = i % 2;
                     int sz = i / 2;
                     int bit = sz * 2 + sx;
@@ -572,12 +583,17 @@ public final class RegionMapScreen extends Screen {
                     // Always rebuild the label via the shared helper to keep format consistent
                     subRegionMissionButtons[i].setMessage(Component.literal(buildSubRegionLabel(i)));
 
-                    com.warfront.mission.SubRegionMission[] missions = state.getCachedMissions(selectedRegion.regionX(), selectedRegion.regionZ());
-                    if (missions != null && i < missions.length && missions[i] != null) {
+                    if (isArmyRegion) {
                         subRegionMissionButtons[i].setTooltip(net.minecraft.client.gui.components.Tooltip.create(
-                                Component.translatable("screen.warfront.subregion.tooltip", sx, sz, missions[i].displayLabel(), missions[i].description())));
+                                Component.translatable("screen.warfront.army_field_battle.desc")));
                     } else {
-                        subRegionMissionButtons[i].setTooltip(null);
+                        com.warfront.mission.SubRegionMission[] missions = state.getCachedMissions(selectedRegion.regionX(), selectedRegion.regionZ());
+                        if (missions != null && i < missions.length && missions[i] != null) {
+                            subRegionMissionButtons[i].setTooltip(net.minecraft.client.gui.components.Tooltip.create(
+                                    Component.translatable("screen.warfront.subregion.tooltip", sx, sz, missions[i].displayLabel(), missions[i].description())));
+                        } else {
+                            subRegionMissionButtons[i].setTooltip(null);
+                        }
                     }
                 }
             }
@@ -704,13 +720,19 @@ public final class RegionMapScreen extends Screen {
         }
 
         int subMask = 0;
-        for (int i = 0; i < 4; i++) {
-            int sx = i % 2;
-            int sz = i / 2;
-            int bit = sz * 2 + sx;
-            boolean isConquered = !isDefense && ((selectedRegion.conqueredMask() & (1 << bit)) != 0);
-            if (!isConquered && state.isSubRegionMissionToggled(i)) {
-                subMask |= (1 << bit);
+        if (selectedRegion.hasArmy() && selectedRegion.baseType() == com.warfront.region.BaseType.NONE) {
+            if (state.isSubRegionMissionToggled(0)) {
+                subMask = 0xF;
+            }
+        } else {
+            for (int i = 0; i < 4; i++) {
+                int sx = i % 2;
+                int sz = i / 2;
+                int bit = sz * 2 + sx;
+                boolean isConquered = !isDefense && ((selectedRegion.conqueredMask() & (1 << bit)) != 0);
+                if (!isConquered && state.isSubRegionMissionToggled(i)) {
+                    subMask |= (1 << bit);
+                }
             }
         }
         if (subMask == 0) {

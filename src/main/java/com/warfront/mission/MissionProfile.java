@@ -83,14 +83,60 @@ public final class MissionProfile {
 
     /**
      * Comprehensive entry point with terrain and elevation: Generates 4 deterministic subregion missions
-     * incorporating physical terrain types, elevations, seed, base anchor, and defense state.
+     * incorporating physical terrain types, elevations, seed, base anchor, defense state, and army presence.
      */
     public static SubRegionMission[] generateForRegion(
             int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability,
             BiomeCategory biomeCategory, com.warfront.region.terrain.TerrainType[] subTerrains, int[] subElevations,
-            long seed, BlockPos baseAnchor, boolean isDefense) {
+            long seed, BlockPos baseAnchor, boolean isDefense, boolean hasArmy) {
+        if (hasArmy && baseType == BaseType.NONE && faction != null && faction.isAI()) {
+            return generateFieldBattleMissions(regionX, regionZ, faction, resistance, stability, seed);
+        }
         return getGenerator(faction).generateMissionsWithTerrainAndElevation(
                 regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, subTerrains, subElevations, seed, baseAnchor, isDefense);
+    }
+
+    public static SubRegionMission[] generateForRegion(
+            int regionX, int regionZ, Faction faction, BaseType baseType, float resistance, float stability,
+            BiomeCategory biomeCategory, com.warfront.region.terrain.TerrainType[] subTerrains, int[] subElevations,
+            long seed, BlockPos baseAnchor, boolean isDefense) {
+        return generateForRegion(regionX, regionZ, faction, baseType, resistance, stability, biomeCategory, subTerrains, subElevations, seed, baseAnchor, isDefense, false);
+    }
+
+    /**
+     * Generates a unified Field Battle mission for regions housing an active Mobile Field Army.
+     */
+    public static SubRegionMission[] generateFieldBattleMissions(
+            int regionX, int regionZ, Faction faction, float resistance, float stability, long seed) {
+        int targetKills = Math.max(25, 30 + (int) (resistance * 0.15F));
+        String roleName = (faction == Faction.ZOMBIE_HORDE) ? "SWARM_HORDE" : "LEGION_VANGUARD";
+        String name = (faction == Faction.ZOMBIE_HORDE)
+                ? net.minecraft.network.chat.Component.translatable("mission.warfront.field_battle.zombie.name").getString()
+                : net.minecraft.network.chat.Component.translatable("mission.warfront.field_battle.pillager.name").getString();
+        String desc = (faction == Faction.ZOMBIE_HORDE)
+                ? net.minecraft.network.chat.Component.translatable("mission.warfront.field_battle.zombie.desc").getString()
+                : net.minecraft.network.chat.Component.translatable("mission.warfront.field_battle.pillager.desc").getString();
+
+        SubRegionMission[] missions = new SubRegionMission[4];
+        for (int i = 0; i < 4; i++) {
+            int sx = i % 2;
+            int sz = i / 2;
+            missions[i] = new SubRegionMission(
+                    MissionType.FIELD_BATTLE,
+                    ObjectiveType.ELIMINATE_TARGETS,
+                    faction,
+                    sx, sz,
+                    targetKills,
+                    roleName,
+                    name,
+                    desc,
+                    BaseType.NONE,
+                    BiomeCategory.STANDARD,
+                    seed,
+                    true // isBaseMission
+            );
+        }
+        return missions;
     }
 
     /**

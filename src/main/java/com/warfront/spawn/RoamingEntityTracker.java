@@ -1,6 +1,5 @@
 package com.warfront.spawn;
 
-import com.warfront.config.WarfrontConfig;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -81,13 +80,9 @@ public final class RoamingEntityTracker {
             return;
         }
 
-        int activationRadius  = WarfrontConfig.ROAMING_AI_ACTIVATION_RADIUS.get();
-        int deactivationRadius = WarfrontConfig.ROAMING_AI_DEACTIVATION_RADIUS.get();
-        if (deactivationRadius <= activationRadius) {
-            deactivationRadius = activationRadius + 1;
-        }
-
-        int despawnRadius = WarfrontConfig.ROAMING_DESPAWN_RADIUS.get();
+        int activationRadius = 128;
+        int deactivationRadius = 160;
+        int despawnRadius = 256;
         double despawnRadiusSq = (double) despawnRadius * despawnRadius;
 
         List<UUID> toRemove = new ArrayList<>();

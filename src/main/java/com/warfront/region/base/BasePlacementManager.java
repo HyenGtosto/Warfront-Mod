@@ -60,6 +60,14 @@ public final class BasePlacementManager {
                 for (int drz = -SCAN_REGION_RADIUS; drz <= SCAN_REGION_RADIUS && !placedAny; drz++) {
                     int rx = playerRX + drx;
                     int rz = playerRZ + drz;
+                    if (drx != 0 || drz != 0) {
+                        RegionData.RegionState saved = regions.getSavedRegionState(rx, rz);
+                        if (saved != null && saved.baseType() == BaseType.OUTPOST) {
+                            if (regions.tryUpgradeOutpostToHeadquarters(level, rx, rz)) {
+                                com.warfront.network.RequestRegionMapPayload.notifyActiveMapTerminals(level);
+                            }
+                        }
+                    }
                     if (tryPlaceBase(level, regions, rx, rz, false, player.blockPosition())) {
                         placedAny = true; // Rate-limit to max 1 base placement per tick per player for silky performance
                     }
@@ -154,6 +162,41 @@ public final class BasePlacementManager {
                     return false; // Footprint chunks not yet loaded by player view distance; defer placement cleanly without server hitching
                 }
                 level.getChunk(cx, cz);
+            }
+        }
+
+        // 5b. If placing a saved HEADQUARTERS (e.g. upgraded from an OUTPOST while chunks were unloaded),
+        // ensure any residual Outpost structure at the deterministic Outpost anchor is cleaned up first.
+        if (baseType == BaseType.HEADQUARTERS && regions.getSavedRegionState(regionX, regionZ) != null) {
+            BlockPos oldOutpostAnchor = ProceduralRegionGenerator.getInstance()
+                    .findPhysicalBaseAnchor(level, level.getSeed(), regionX, regionZ, BaseType.OUTPOST)
+                    .orElse(null);
+            if (oldOutpostAnchor != null) {
+                int oMinCX = (oldOutpostAnchor.getX() - 15) >> 4;
+                int oMaxCX = (oldOutpostAnchor.getX() + 15) >> 4;
+                int oMinCZ = (oldOutpostAnchor.getZ() - 15) >> 4;
+                int oMaxCZ = (oldOutpostAnchor.getZ() + 15) >> 4;
+                for (int cx = oMinCX; cx <= oMaxCX; cx++) {
+                    for (int cz = oMinCZ; cz <= oMaxCZ; cz++) {
+                        if (!force && !level.getChunkSource().hasChunk(cx, cz)) {
+                            return false;
+                        }
+                        level.getChunk(cx, cz);
+                    }
+                }
+                int oSurfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, oldOutpostAnchor.getX(), oldOutpostAnchor.getZ());
+                // Check both the procedural anchor Y and the loaded ground Y around the Outpost center
+                PersistentBaseProtectionManager.instantDemolishOutpostForUpgrade(level, regionX, regionZ, owner, oldOutpostAnchor);
+                if (oSurfaceY != oldOutpostAnchor.getY() && oSurfaceY > level.getMinBuildHeight()) {
+                    for (int dy = -25; dy <= 2; dy++) {
+                        BlockPos candidateAnchor = new BlockPos(oldOutpostAnchor.getX(), oSurfaceY + dy, oldOutpostAnchor.getZ());
+                        if (level.getBlockState(candidateAnchor.below()).is(net.minecraft.world.level.block.Blocks.COBBLESTONE)
+                                || level.getBlockState(candidateAnchor).is(net.minecraft.world.level.block.Blocks.STONE_BRICKS)) {
+                            PersistentBaseProtectionManager.instantDemolishOutpostForUpgrade(level, regionX, regionZ, owner, candidateAnchor);
+                            break;
+                        }
+                    }
+                }
             }
         }
 

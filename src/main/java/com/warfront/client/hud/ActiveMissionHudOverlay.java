@@ -48,8 +48,9 @@ public final class ActiveMissionHudOverlay {
         if (name == null || name.isEmpty()) {
             name = "Active Operation";
         }
-        String sectorText = String.format("§7Sector [%d,%d] — Reg (%d,%d)",
-                currentPayload.subX(), currentPayload.subZ(), currentPayload.regionX(), currentPayload.regionZ());
+        String sectorText = (currentPayload.subX() < 0)
+                ? net.minecraft.network.chat.Component.translatable("hud.warfront.field_battle.army", currentPayload.regionX(), currentPayload.regionZ()).getString()
+                : String.format("§7Sector [%d,%d] — Reg (%d,%d)", currentPayload.subX(), currentPayload.subZ(), currentPayload.regionX(), currentPayload.regionZ());
 
         String objDesc = currentPayload.objectiveDescription();
         if (objDesc == null || objDesc.isEmpty()) {

@@ -88,13 +88,22 @@ public class ZombieAttackStrategy implements FactionAttackStrategy {
 
             double dot = (toHumanityLen > 0.0001D) ? (dirX * toHumanityX + dirZ * toHumanityZ) / toHumanityLen : 0.0D;
             double score = (dot * 10.0D) + Math.max(0.0D, 30.0D - distToHumanityTarget);
+            boolean sourceHasArmy = regions.hasArmyAt(c.sourceRegionX(), c.sourceRegionZ());
 
             if (isDirectHumanityAttack) {
                 // Tier 1: Direct attack on HUMANITY territory
-                tier1Direct.add(new ScoredCandidate(c, Math.max(1.0D, score + 100.0D)));
-            } else if (humanityTarget != null && distToHumanityTarget <= 3.0D && dot > 0.0D) {
-                // Tier 2: Direct push toward claimed Humanity territory (ONLY when distToHumanityTarget <= 3.0D)
-                tier2PushForward.add(new ScoredCandidate(c, Math.max(1.0D, score)));
+                double t1Score = Math.max(1.0D, score + 100.0D);
+                if (sourceHasArmy) {
+                    t1Score = (t1Score * 3.0D) + 60.0D;
+                }
+                tier1Direct.add(new ScoredCandidate(c, t1Score));
+            } else if ((humanityTarget != null && distToHumanityTarget <= 3.0D && dot > 0.0D) || sourceHasArmy) {
+                // Tier 2: Direct push toward claimed Humanity territory (or spearheaded by stationed Horde Army)
+                double t2Score = Math.max(1.0D, score);
+                if (sourceHasArmy) {
+                    t2Score = (t2Score * 3.0D) + 60.0D;
+                }
+                tier2PushForward.add(new ScoredCandidate(c, t2Score));
             } else {
                 // Tier 3: Normal spiral expansion / enemy-vs-enemy warfare
                 double dx = c.targetRegionX() - hq.x();

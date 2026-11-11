@@ -53,6 +53,12 @@ public final class PersistentBaseProtectionManager {
         PRISTINE_PLACED_BASES.remove(ChunkPos.asLong(rx, rz));
     }
 
+    public static void invalidateBaseCache(int rx, int rz) {
+        long key = ChunkPos.asLong(rx, rz);
+        BLUEPRINT_CACHE.remove(key);
+        PRISTINE_PLACED_BASES.remove(key);
+    }
+
     private PersistentBaseProtectionManager() {
     }
 
@@ -260,10 +266,105 @@ public final class PersistentBaseProtectionManager {
         }
 
         com.warfront.region.base.garrison.BaseGarrisonManager.cleanupGarrisonOnConquest(level, rx, rz);
+        invalidateBaseCache(rx, rz);
 
         if (regions != null && regions.isBasePlaced(rx, rz)) {
             regions.setBasePlaced(rx, rz, false);
         }
+    }
+
+    /**
+     * Synchronously removes an existing placed Outpost structure and its stepped foundations
+     * when the region upgrades from BaseType.OUTPOST to BaseType.HEADQUARTERS.
+     * Clears container inventories prior to block removal and backfills foundations flush to natural ground.
+     */
+    public static void instantDemolishOutpostForUpgrade(ServerLevel level, int rx, int rz, com.warfront.region.Faction owner, BlockPos anchor) {
+        invalidateBaseCache(rx, rz);
+        if (level == null) return;
+
+        com.warfront.region.base.garrison.BaseGarrisonManager.cleanupGarrisonOnConquest(level, rx, rz);
+        if (anchor == null) return;
+
+        com.warfront.region.Faction effectiveOwner = (owner != null && owner.isAI())
+                ? owner
+                : com.warfront.region.Faction.PILLAGER_CONQUERORS;
+        BaseBuildingGenerator generator = BaseBuildingRegistry.getGenerator(effectiveOwner, com.warfront.region.BaseType.OUTPOST);
+        Map<BlockPos, BlockState> blueprint = (generator != null) ? generator.getPristineBlocks(level, anchor) : Map.of();
+
+        List<BlockPos> blocksToClear = new ArrayList<>();
+        int foundationMinY = anchor.getY() - 1;
+
+        if (!blueprint.isEmpty()) {
+            for (BlockPos pos : blueprint.keySet()) {
+                if (pos.getY() >= foundationMinY && level.hasChunkAt(pos)) {
+                    BlockState current = level.getBlockState(pos);
+                    if (!current.isAir()) {
+                        blocksToClear.add(pos.immutable());
+                    }
+                }
+            }
+        }
+
+        // Also check stepped foundation columns under the 29x29 Outpost perimeter down to depth 14 beneath origin
+        int sizeX = 29;
+        int sizeZ = 29;
+        int halfX = sizeX / 2;
+        int halfZ = sizeZ / 2;
+        BlockPos origin = new BlockPos(anchor.getX() - halfX, anchor.getY() - 1, anchor.getZ() - halfZ);
+        for (int x = 0; x < sizeX; x++) {
+            boolean isPerimeterX = (x == 0 || x == sizeX - 1);
+            for (int z = 0; z < sizeZ; z++) {
+                boolean isPerimeterZ = (z == 0 || z == sizeZ - 1);
+                if (isPerimeterX || isPerimeterZ) {
+                    int wx = origin.getX() + x;
+                    int wz = origin.getZ() + z;
+                    for (int depth = 1; depth <= 14; depth++) {
+                        int wy = origin.getY() - depth;
+                        if (wy < level.getMinBuildHeight()) break;
+                        BlockPos fPos = new BlockPos(wx, wy, wz);
+                        if (level.hasChunkAt(fPos)) {
+                            BlockState bs = level.getBlockState(fPos);
+                            if (bs.is(Blocks.COBBLESTONE)) {
+                                blocksToClear.add(fPos.immutable());
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (blocksToClear.isEmpty()) {
+            return;
+        }
+
+        // Sort top-to-bottom so attached blocks and upper floors are removed cleanly first
+        blocksToClear.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
+        int floorY = anchor.getY();
+
+        for (BlockPos pos : blocksToClear) {
+            if (!level.hasChunkAt(pos)) continue;
+            net.minecraft.world.Clearable.tryClear(level.getBlockEntity(pos));
+            BlockState targetState;
+            if (pos.getY() < floorY) {
+                if (pos.getY() == floorY - 1) {
+                    targetState = Blocks.GRASS_BLOCK.defaultBlockState();
+                } else if (pos.getY() >= floorY - 4) {
+                    targetState = Blocks.DIRT.defaultBlockState();
+                } else {
+                    targetState = Blocks.STONE.defaultBlockState();
+                }
+            } else {
+                targetState = Blocks.AIR.defaultBlockState();
+            }
+            if (!level.getBlockState(pos).is(targetState.getBlock())) {
+                level.setBlock(pos, targetState, 3);
+            }
+        }
+
+        Warfront.LOGGER.info("[Warfront] Synchronously cleared {} old Outpost blocks at {} in Region ({}, {}) for HQ upgrade.",
+                blocksToClear.size(), anchor, rx, rz);
     }
 
     private static void evaluateAndRepairBase(ServerLevel level, int rx, int rz, RegionData.Region reg, BlockPos anchor, RegionData regions) {

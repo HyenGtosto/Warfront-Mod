@@ -45,6 +45,8 @@ public final class RegionMapState {
     private RegionMapPayload.ChunkData[] chunkGrid;
     private final Set<Long> visitedRegions = new HashSet<>();
     private final Map<Long, BaseType> regionBases = new HashMap<>();
+    private final Map<Long, Faction> regionOwners = new HashMap<>();
+    private final Set<Long> regionArmies = new HashSet<>();
     private final List<RegionMapPayload.RegionMarkerData> markers = new ArrayList<>();
     private final List<RegionMapPayload.SiegeArrowData> siegeArrows = new ArrayList<>();
     private final List<RegionMapPayload.ActiveWarData> activeWars = new ArrayList<>();
@@ -106,6 +108,8 @@ public final class RegionMapState {
         this.chunks.clear();
         this.visitedRegions.clear();
         this.regionBases.clear();
+        this.regionOwners.clear();
+        this.regionArmies.clear();
 
         int diameter = viewType.chunkDiameter();
         if (this.chunkGrid == null || this.chunkGrid.length != diameter * diameter) {
@@ -141,6 +145,7 @@ public final class RegionMapState {
             }
             if (chunk.factionId() != Faction.UNCLAIMED.id() && chunk.isVisited()) {
                 regionBases.putIfAbsent(regKey, BaseType.NONE);
+                regionOwners.putIfAbsent(regKey, Faction.byId(chunk.factionId()));
             }
         }
         if (payload.markers() != null) {
@@ -149,6 +154,10 @@ public final class RegionMapState {
             for (RegionMapPayload.RegionMarkerData marker : payload.markers()) {
                 long regKey = ChunkPos.asLong(marker.regionX(), marker.regionZ());
                 regionBases.put(regKey, BaseType.byId(marker.baseTypeId()));
+                regionOwners.put(regKey, Faction.byId(marker.factionId()));
+                if (marker.hasArmy()) {
+                    regionArmies.add(regKey);
+                }
             }
         }
         if (payload.siegeArrows() != null) {
@@ -220,7 +229,10 @@ public final class RegionMapState {
                 payload.playerInFactionRegion(),
                 payload.terrainName(),
                 payload.subTerrainsPacked(),
-                payload.subElevationsPacked());
+                payload.subElevationsPacked(),
+                payload.hasArmy(),
+                payload.armyOrdinalIndex(),
+                payload.armyEpithetIndex());
 
         if (payload.underSiege()) {
             activatedRegions.add(regKey);
@@ -351,6 +363,14 @@ public final class RegionMapState {
         return regionBases.get(regionKey);
     }
 
+    public Faction getRegionOwner(int regionX, int regionZ) {
+        return regionOwners.getOrDefault(ChunkPos.asLong(regionX, regionZ), Faction.UNCLAIMED);
+    }
+
+    public boolean hasRegionArmy(int regionX, int regionZ) {
+        return regionArmies.contains(ChunkPos.asLong(regionX, regionZ));
+    }
+
     public boolean isRegionAtWar(int regionX, int regionZ) {
         long key = ChunkPos.asLong(regionX, regionZ);
         if (activatedRegions.contains(key)) {
@@ -457,9 +477,10 @@ public final class RegionMapState {
         int[] subElevations = (selectedRegion != null && selectedRegion.regionX() == regionX && selectedRegion.regionZ() == regionZ)
                 ? selectedRegion.getSubRegionElevations()
                 : null;
+        boolean hasArmy = hasRegionArmy(regionX, regionZ);
         SubRegionMission[] missions = MissionProfile.generateForRegion(
                 regionX, regionZ, faction, baseType, resistance, stability,
-                com.warfront.region.BiomeCategory.STANDARD, subTerrains, subElevations, seed, baseAnchor, isDefense);
+                com.warfront.region.BiomeCategory.STANDARD, subTerrains, subElevations, seed, baseAnchor, isDefense, hasArmy);
         missionCache.put(key, missions);
         return missions;
     }

@@ -17,7 +17,6 @@ public final class Warfront {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public Warfront(IEventBus modEventBus, net.neoforged.fml.ModContainer modContainer) {
-        modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.COMMON, com.warfront.config.WarfrontConfig.SPEC, "warfront-common.toml");
         modEventBus.addListener(WarfrontPayloads::register);
         modEventBus.addListener(WarfrontBlocks::addToCreativeTab);
         WarfrontBlocks.BLOCKS.register(modEventBus);
@@ -123,6 +122,7 @@ public final class Warfront {
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent event) -> {
+            com.warfront.ai.AIAttackManager.setTurboMode(null, false);
             com.warfront.network.RequestRegionMapPayload.clearColorCache();
             com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
             com.warfront.region.base.PersistentBaseProtectionManager.clearCache();

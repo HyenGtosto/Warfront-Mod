@@ -175,6 +175,11 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
                     state = com.warfront.region.generator.ProceduralRegionGenerator.getInstance().generateRawRegionState(level, level.getSeed(), rx, rz);
                 }
 
+                // Ensure any discovered HEADQUARTERS in the map view has initialized its linked cluster army
+                if (state.baseType() == com.warfront.region.BaseType.HEADQUARTERS && state.owner() != null && state.owner().isAI()) {
+                    com.warfront.region.army.ClusterArmyManager.ensureHqArmyInitialized(level, regions, rx, rz, state);
+                }
+
                 // Fog-of-war rule: DEBUG view is always visited; COMMAND view checks persistent visited state; SCOUT view is local
                 boolean isVisited = !viewType.hasFogOfWar() || regions.isRegionVisitedForPlayer(level, player.getUUID(), rx, rz);
 
@@ -185,10 +190,18 @@ public record RequestRegionMapPayload(MapViewType viewType) implements CustomPac
 
                 regionCache.put(net.minecraft.world.level.ChunkPos.asLong(rx, rz),
                         new CachedRegionData(isVisited, state.baseType(), state.owner(), s00, s10, s01, s11));
+            }
+        }
 
-                // Fog-of-war rule: Base markers ONLY included if region is VISITED or in DEBUG view
-                if (isVisited && state.baseType() != com.warfront.region.BaseType.NONE) {
-                    markers.add(new RegionMapPayload.RegionMarkerData(rx, rz, state.owner().id(), state.baseType().id()));
+        // Second pass for markers (after all HQs in view have initialized their armies)
+        for (int rx = minRegionX; rx <= maxRegionX; rx++) {
+            for (int rz = minRegionZ; rz <= maxRegionZ; rz++) {
+                CachedRegionData cached = regionCache.get(net.minecraft.world.level.ChunkPos.asLong(rx, rz));
+                if (cached != null && cached.isVisited()) {
+                    boolean hasArmy = regions.hasArmyAt(rx, rz);
+                    if (cached.baseType() != com.warfront.region.BaseType.NONE || hasArmy) {
+                        markers.add(new RegionMapPayload.RegionMarkerData(rx, rz, cached.owner().id(), cached.baseType().id(), hasArmy));
+                    }
                 }
             }
         }

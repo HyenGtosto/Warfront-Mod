@@ -152,6 +152,11 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
             }
 
             Warfront.LOGGER.debug("Sending details for sub-region ({}, {}, sub: {}, {})", region.x(), region.z(), payload.subX(), payload.subZ());
+            com.warfront.region.army.ClusterArmy stationedArmy = regions.getArmyAt(region.x(), region.z());
+            boolean hasArmy = (stationedArmy != null && stationedArmy.faction() == region.owner());
+            int armyOrdinal = hasArmy ? stationedArmy.ordinalIndex() : 0;
+            int armyEpithet = hasArmy ? stationedArmy.epithetIndex() : 0;
+
             PacketDistributor.sendToPlayer(player, new RegionDetailsPayload(
                     region.x(), region.z(), payload.subX(), payload.subZ(),
                     region.owner().id(), effectiveStability, effectiveResistance,
@@ -161,7 +166,8 @@ public record RequestRegionDetailsPayload(int regionX, int regionZ, int subX, in
                     baseAnchor, missionSeed,
                     playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress,
                     playerInFactionRegion, terrainName,
-                    subTerrainsPacked, subElevationsPacked));
+                    subTerrainsPacked, subElevationsPacked,
+                    hasArmy, armyOrdinal, armyEpithet));
         }
     }
 

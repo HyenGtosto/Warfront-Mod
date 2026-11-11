@@ -60,6 +60,16 @@ Warfront transforms Minecraft's localized mob spawning into a persistent, macro-
   - **Headquarters (+15.0):** Radiates strictly to its 4 cardinal neighbors (corners excluded).
   - **Outpost (+10.0):** Radiates across the entire 3×3 grid (corners included).
   - Eliminates interior low-resistance corridors and enforces strategic progression: conquering satellite bases dynamically weakens central strongholds.
+* **Dynamic Outpost-to-Headquarters Promotion & Non-Recursive Cohesion Refresh:**
+  - **8/8 Full Encirclement Upgrade Rule:** Existing AI-owned `BaseType.OUTPOST` regions upgrade to `BaseType.HEADQUARTERS` once all 8 surrounding neighbors in their $3 \times 3$ box are owned by the same faction, neither the Outpost nor its neighbors are under siege, and a valid dry-land $52 \times 93$ HQ terrain anchor exists (`findPhysicalBaseAnchor`). `BaseType.NONE` wilderness never upgrades.
+  - **Seamless Physical Replacement:** Unvisited Outposts (`basePlaced == false`) upgrade instantaneously in metadata; placed Outposts (`basePlaced == true`) wait until no player is inside the region, synchronously clear the old Outpost blueprint with crater-free foundation backfilling (including an unloaded-chunk fallback in `BasePlacementManager`), and queue the $52 \times 93$ HQ for placement.
+  - **Non-Recursive Cardinal Cohesion Refresh:** Capturing a region refreshes stored cardinal-neighbor cohesion (`+2.5` per cardinal ally, preserving war-timeout hardening) on its 4 cardinal AI neighbors via a flat depth-1 map update without calling `setRegion`.
+* **Cluster Mobile Field Armies & Territorial Housing:**
+  - **HQ-Exclusive Linkage:** Exactly 1 mobile field army is anchored per `BaseType.HEADQUARTERS` in the cluster (Outposts and Mega Bases do not anchor armies).
+  - **Housing & Maneuver AI:** Armies strictly occupy `BaseType.NONE` wilderness regions of the same faction and cluster, relocating across contiguous friendly cardinal neighbors on a dedicated 10-minute (12,000 tick) cooldown cycle (compressed to 400 ticks / 20s in turbo mode). Severing territorial connections immobilizes the army in an encircled pocket.
+  - **Stat Boost & Decapitation:** Armies confer `+40.0` Resistance and `+40.0` Stability to their host region. If the anchoring HQ is conquered or destroyed, the army is decapitated, degrading its stat contribution to `+10.0/+10.0`.
+  - **Offensive Multipliers:** Occupied regions gain a $3\times$ priority multiplier and flat $+60$ bonus during AI attack selection, force 100% flank participation from neighboring bases, accelerate defense duration by 20%, and increase sector domino collapse thresholds to 3–4 subregions.
+  - **Map Representation & Localization:** Replaces the wilderness banner icon with the faction army emblem (crossed battleaxe shield for Pillagers, toxic biohazard crest for Zombies) and renames the region display to the army's designated nomenclature (`[Ordinal] [Epithet] Legion / Cohort` for Pillagers, `Horde [Greek Letter]` for Zombies) with full 1:1 EN/TR dual-language parity.
 * **Domino Capture Invariant:**
   - Securing required adjacent subregions triggers a domino collapse to claim the entire region.
   - Baseline stability (38.0 on neutral ground) requires 2 sectors; harsh biomes allow 1 sector.
@@ -71,8 +81,10 @@ Warfront transforms Minecraft's localized mob spawning into a persistent, macro-
 
 ### 3.1. The Factions
 * **Humanity (Player):** Expanding defensive alliance and player-created factions.
-* **Pillager Conquerors:** Militaristic, disciplined army.
-* **Zombie Horde:** Swarm-based organic blight (currently using vanilla mob proxies pending GeckoLib roster).
+* **Pillager Conquerors:** Militaristic, disciplined army focusing on conventional territorial defense and heavy siege engineering.
+* **Zombie Horde:** Swarm-based organic blight utilizing mobile bio-tactical offense, breach surges, and attrition (currently using vanilla mob proxies pending GeckoLib roster).
+* **Piglin Expedition (DLC 1: "Piglin Incursions"):** Frontier mercenary economy, war bartering, and opportunistic Overworld incursion beachheads.
+* **Ender Eclipse (DLC 2: "The Ender Ascendancy"):** Post-dragon "space wizard" multidimensional conquerors inspired by the Illuminate, wielding Shulker psionics and providing Warfront macro QoL meta relief.
 
 ### 3.2. Custom Pillager Roster (GeckoLib 4.7.4)
 1. **Pillager Warrior (`warfront:pillager_warrior`):** Shock infantry with an iron battleaxe and multipart tower shield (`PillagerWarriorShieldPart`). Physical shield hitbox absorbs bullets, arrows, and melee attacks; axe hits disable shield for 10 seconds (`shieldDisableTicks = 200`). Strikes actively while shield is raised (`performShieldAttack`).
@@ -125,6 +137,53 @@ Warfront transforms Minecraft's localized mob spawning into a persistent, macro-
   4. Persistent NBT `squadId` match or `faction` ID match.
 * `LivingChangeTargetEvent` cancels ally targeting without re-entrantly calling `mob.setTarget(null)` to prevent event dispatch stack overflows, and suppresses inter-faction retaliatory civil wars if an ally is struck by friendly projectiles or splash damage.
 * **Ballistic Projectile Friendly Fire & Line-of-Fire Safety:** High-velocity Rifleman bullets and Cannoneer cannon bombs deal authentic friendly fire damage on contact/splash while passing harmlessly through allied Pillager Ironclad shields. Riflemen hold fire whenever any allied entity obstructs their firing corridor; Marksmen hold fire for fellow Marksmen normally, and for all allied entities during Commander Flag Rally buffs.
+
+### 3.5. Piglin Expedition (DLC 1: "Piglin Incursions") — Architecture, Bartering & Mercenary Incursions
+* **Unclaimed Frontier Incursion Beachheads:**
+  - Piglins do not expand methodically like Pillagers. They establish expeditionary bastions and gilded outposts through Nether Incursion Portals situated exclusively in **Unclaimed Territory** (`Faction.UNCLAIMED`).
+  - They treat war as a ruthless, violent business rather than ideological conquest.
+* **Autonomous 3-Way Frontline Skirmishes:**
+  - Piglin garrisons clash with adjacent Pillager patrols over contested frontier borders (territorial rivalry) and aggressively hunt Zombie swarms (abhorring undead rot).
+  - Players can observe, exploit, or intervene in dynamic 3-way faction combat across contested wilderness borders.
+* **Supply Wagon Hijacking:**
+  - Piglin foraging squads ambush passing Pillager and Humanity supply convoys, stockpiling stolen timber, metals, and ammunition inside their bastions.
+* **Early Purge Strategic Option:**
+  - Players can choose to eradicate a nearby Piglin incursion before they entrench.
+  - Launching an early strike to destroy an Incursion Portal permanently collapses the rift in that sector and yields a **Nether Gateway Core** (used to craft fire- and blast-proof gilded fortification plating).
+* **War Bartering & Mercenary Economy:**
+  - Replaces vanilla single-ingot random barter junk with high-stakes military contracts funded exclusively through **Gold Bullion / Ingot payments**:
+    - **Mercenary Contracts:** Hire Piglin Vanguard and Brute shock squads to assault enemy subregions alongside players or reinforce frontline positions.
+    - **Black-Market Pyrotechnics:** Purchase specialized incendiary mortar shells and demolition charges.
+* **Reputation & War Disposition System:**
+  - Reputation is tracked per Player Faction on a scale from **-100 (Hostile Hunt)** to **+100 (Bloodsworn Allies)**:
+    - **Hostile Hunt (-100 to -50):** Attack on sight regardless of gold armor. Piglins actively stage opportunistic border raids against adjacent player subregions.
+    - **Suspicious (-49 to -10):** Tolerated only when wearing gold armor; weapons are drawn if players approach bastion centers. Mercenary contracts and bartering are locked.
+    - **Neutral (-9 to +25):** Baseline arrival state. Standard gold bartering and basic mercenary vanguard hiring open.
+    - **Honored (+26 to +65):** Gold armor no longer required inside bastions. Unlocks elite Piglin Brute shock contracts, incendiary ordnance, and early map terminal warnings of incoming Pillager sieges.
+    - **Bloodsworn (+66 to +100):** If an adjacent player region is attacked by Pillagers or Zombies, an allied Piglin warband automatically rides in to reinforce player lines. Unlocks joint co-op assaults against enemy HQs.
+* **Nemesis Reputation Recovery (The Blood-Gold Tribute Altar):**
+  - Accidental stray bullets or early uninformed combat do not permanently lock players out of the Piglin mercenary economy.
+  - Piglins maintain a neutral **Tribute Cauldron / Gilded Altar** on the outer perimeter of their bastion in unclaimed territory.
+  - A player wearing gold armor can approach the perimeter altar and deposit a heavy **Blood-Gold Tribute** (e.g. 8–16 Gold Blocks, or Gold Blocks + a captured Pillager Commander Standard).
+  - Depositing the tribute strikes an anvil chime and ignites a crimson smoke flare, resetting reputation from **Nemesis (-100) up to Suspicious (-30)**, immediately lifting the kill-on-sight order and reopening diplomatic avenues.
+
+### 3.6. Ender Eclipse (DLC 2: "The Ender Ascendancy") — Space Wizards, Post-Dragon Incursions & Warfront QoL Meta
+* **Thematic & Combat Profile ("The Illuminate" Space Wizards):**
+  - High-tech, psionic extraterrestrial mystics utilizing reverse-engineered Shulker dynamics and void magic:
+    - **Shulker-Warp Shielding:** Units project pearlescent, hard-light kinetic shells (reminiscent of open/closed Shulker armor) that absorb full physical/projectile/melee damage until overloaded, forcing players to break shields before damaging health.
+    - **Phase-Step & Blink Repositioning:** Agile combatants teleport short distances when targeted by sniper fire or charged in melee, reforming at tactical angles.
+    - **Levitating Gravity Fields (Shulker Tech):** Casters fire guided zero-g charges that detonate into levitation zones, lifting defenders and players out of trench cover.
+    - **Psionic Disorientation & Hexes:** Mind-wave attacks that induce temporal dizziness, invert player movement controls for 3–4 seconds, or deploy holographic phantom decoys that draw friendly mortar and ballista fire.
+* **Post-Dragon Incursion & Spire Spawn Mechanics:**
+  - **Progression Trigger:** Slated strictly for the post-dragon endgame. Activates upon defeating the Ender Dragon (`minecraft:end/kill_dragon` advancement).
+  - **Wilderness Targeting Rule:** Dimensional tears materialize in `BaseType.NONE` (wilderness) sectors located within a 2-to-4 region perimeter around player-held territory (`Faction.HUMANITY` or active Claim Cores).
+  - **Anti-Grief Invariant:** Incursion rifts strictly avoid overwriting player-claimed land or player-built structures, establishing strongholds on the wild frontier of player civilization.
+  - **Spire Architecture:** A monolithic **Grand Void Citadel** (central spire) flanked by orbiting **Resonance Spires** (satellite nodes) that project shielding to the citadel.
+* **Warfront-Specific Chore Relief (QoL Meta Unlocks):**
+  - Conquering Ender Spires grants macro-level quality-of-life systems designed specifically to alleviate Warfront's late-game campaign friction (rather than adding overpowered super-weapons or encroaching on external transportation mods):
+    1. **Recon Chore Relief (Far-Distance Remote Scrying):** Eliminates manual scouting treks. Converted spires allow the Strategic Map Terminal to remotely scry and unveil unvisited distant regions, hostile clusters, terrain, and enemy base tiers without requiring the player to physically travel thousands of blocks. Grants real-time vector telemetry tracking enemy Mobile Field Army movements.
+    2. **Defense Chore Relief (Siege Timer Extension & Anti-Domino Dampening):** Eliminates peripheral babysitting and siege panic. Active Planar Stasis Anchors project an aura onto adjacent player territories, granting a +5 to +10 minute grace extension to defensive war timers, dampening domino collapse to a maximum of 1 subregion on defeat/timeout, and automatically deflecting low-intensity enemy probing attacks without requiring player attendance.
+    3. **Limited Tethered Fast-Transit:** Converted spires can establish a strict **1-to-1 tethered rift conduit** between the Spire and a designated player Headquarters for rapid frontline response, leaving global logistics, cargo hauling, and multi-base transit intact for rail/transport mods (such as Create).
 
 ---
 
@@ -422,6 +481,9 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 55. **Map Cache Eviction on Open, 8-Corner Voronoi Biome Sampling & Recursive Neighbor Strength cascades:**
     - *Problem:* Clearing chunk biome color caches on explicit map open or non-Overworld dimension loads forced the server to recompute 6D multi-noise climate and 3D Voronoi `getBiome` across $192 \times 192$ chunks (up to 442,368 evaluations) on every map open. Furthermore, calling full `regionAt` (which calculates regional strength and 3×3 base boosts) inside neighbor/cluster scans and persistent base protection loops triggered redundant recursive strength cascades on uncached procedural regions.
     - *Rule:* Static world-seed-derived caches (chunk biome colors, chunk climate elevation offsets, chunk terrain classifications, raw and full procedural region states) must remain permanently resident in RAM for the duration of the server session, cleared only on Overworld lifecycle boundaries (`ServerStartedEvent` / `ServerStoppingEvent`) with localized $3 \times 3$ invalidation when a region's base or ownership mutates. Unloaded and map-level biome queries must bypass 8-corner 3D Voronoi interpolation (`level.getBiome`) in favor of direct quart-coordinate `level.getNoiseBiome(x >> 2, y >> 2, z >> 2)`. Neighbor ownership, cluster ID, and base-boost queries must inspect lightweight `getRawOrSavedRegionState` rather than triggering full `regionAt` strength cascades, and world startup (`ServerStartedEvent`) pre-bakes the $24 \times 24$ region ($192 \times 192$ chunk) strategic theatre centered on the world owner's last location.
+56. **Procedural Grid Separation Constant Drift on Config Purge:**
+    - *Problem:* Hardcoding `separation = 16` in `ProceduralRegionGenerator` when purging `WarfrontConfig` broke seed reproducibility for worlds generated with custom separation (`separation = 10`), causing an unintended $2.56\times$ cell area dilation and shifting all cluster centers.
+    - *Rule:* Authoritative domain generation constants must preserve established worldgen spacing (`SEPARATION = 10`, `BUFFER_DISTANCE = 3`), guaranteeing $100\%$ seed reproducibility across versions without configuration file reliance.
 
 ---
 
@@ -479,6 +541,8 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 - [x] **Biome-Specific Tactical Missions & Regional Salvage Matrix:** Expanded mission roster with 24 procedural biome missions (12 Easy / 12 Hard across 6 tactical biomes: Highlands, Woodlands, Wetlands, Arid, Grasslands, Glacial Arctic) resolving region mission repetition bottlenecks. Excludes River and Ocean from mission generation. Employs procedural stepped foundation building ($Y-1 \rightarrow Y-8$) with natural site clearing and native mob garrisons. Introduces a functional regional salvage matrix: Optical Rangefinder Lens, Cured Siege Timber, Giant Bolt Bundle (unpacks to 16 ballista bolts), Alchemical Sulfur Slag (high-efficiency 4x burn fuel), Frost-Tempered Heatsink, and rare lootable Cryo Artillery Shells (freezing flashburst), fueling player artillery, defense fortifications, and ammunition logistics.
 - [x] **Procedural River Arch Bridges, Squad Crossing & Strategic Sabotage AI:** Adaptive stone-and-timber arch bridges procedurally generated in Pillager subregions across river channels (span 5–32 blocks). Multi-transect candidate evaluation with depth and flow continuity filtering eliminates puddles, while inland slope profiling adapts to flat aprons and sudden hills. Squads and attack roamers dynamically route through bridges when crossing rivers. Features real-time physical deck integrity detection (`isIntact`): destroying the bridge crown (via TNT, cannons, or mining) severs bridge routing, forcing squads to wade through water at ~0.3x crawl speed as exposed strategic targets.
 - [x] **Session-Resident Worldgen Caches, World-Load Pre-Baking & AI/TPS Optimization:** Permanently resident session caches for chunk biome colors, 6D climate elevation offsets, chunk terrain classifications, and full procedural region states with localized $3 \times 3$ invalidation on territory/base mutation. Replaced 8-corner 3D Voronoi `getBiome` lookups with direct quart-coordinate `getNoiseBiome` across worldgen, map rendering, and terrain classification. Added world-load pre-baking (`ServerStartedEvent`) for the $24 \times 24$ region ($192 \times 192$ chunk) strategic theatre centered on the world owner's last location, flat $O(1)$ array indexing and persistent GPU `DynamicTexture` reuse on the client map, event-driven dirty tracking for base self-repair blueprints, and throttled AI/AABB/turret-sync loops.
+- [x] **Dynamic Outpost-to-Headquarters Promotion & Non-Recursive Cohesion Refresh:** Automatic promotion of AI-owned `BaseType.OUTPOST` regions to `BaseType.HEADQUARTERS` upon $8/8$ full $3 \times 3$ neighbor encirclement when a valid $52 \times 93$ HQ terrain anchor exists, breaking the 50-resistance expansion ceiling and scaling Cluster Mobile Field Army capacity. Includes synchronous crater-free Outpost block/garrison cleanup for placed bases (with unloaded-chunk fallback in `BasePlacementManager`) and strictly non-recursive depth-1 cardinal neighbor cohesion updates on territory capture.
+- [x] **Cluster Mobile Field Armies — Phase 1 (Territorial Housing, Maneuver AI, Stat Boosting & Map Visuals):** Macro mobile field armies and hordes anchored strictly to `BaseType.HEADQUARTERS` (1 army per HQ within its cluster). Armies occupy only `BaseType.NONE` wilderness regions of the same faction and cluster, dynamically maneuvering across contiguous friendly cardinal territory. Grants `+40.0/+40.0` Resistance & Stability (dropping to `+10.0/+10.0` decapitated status upon parent HQ destruction), 100% neighbor flank participation in offensive sieges, $3\times$ attack selection priority, 20% defense acceleration, and elevated domino collapse thresholds (3–4 sectors). Features distinct client map icons (tactical legion shield for Pillagers, biohazard crest for Zombies), top-down pixel-art base structures (`pillager_base1..3`, `zombie_base1..3`), heraldic banners (`pillager_nobase`, `zombie_nobase`), and full EN/TR dual-language nomenclature (`[Ordinal] [Epithet] Legion / Cohort` and `Horde [Greek Letter]`).
 
 ---
 
@@ -486,24 +550,27 @@ To prevent regression of critical architectural bugs, keep these lessons in mind
 
 ### Active Focus (In Progress):
 - [ ] **Headquarters & Mega Base NBT Blueprints:** Pillager Headquarters ($52 \times 93$) modular shell and 3 facility templates completed; Mega Base ($100 \times 100$) pending.
-- [ ] **Cluster Mobile Field Armies & Maneuver Warfare:**
-  - Capacity: 1 army per Medium Base (HQ) in the cluster; armies occupy only non-base regions.
-  - Interval Movement: Relocates across contiguous friendly cardinal neighbors back to cluster base.
-  - Encirclement & Pocketing: Severing friendly connections immobilizes the army in an isolated pocket.
-  - Stat Impact: Raises region Resistance to 80–90 levels and multiplies attack value in offensive sieges.
-  - Decapitation Rule: Capturing parent HQ cuts army stat bonus in half (40–45 Resistance).
-  - Combat Encounter: Replaces 4 subregion missions with a single region-wide "Field Battle / Army Extermination" mission.
-  - Faction Army Nomenclature:
-    - **Pillager Conquerors (Imperial Legions):** Classical military legionary naming (`[Ordinal] [Epithet] Legion / Cohort`, e.g., *1st Iron Legion*, *3rd Vanguard Cohort*, *7th Ravager Legion*).
-    - **Zombie Horde (Viral Strains):** Epidemiological biohazard classification (`Horde [Greek Letter]`, e.g., *Horde Alpha*, *Horde Delta*, *Horde Omicron*).
+- [ ] **Cluster Mobile Field Armies — Phase 2 (Physical Field Battle & Mob Roster Encounters):**
+  - [x] Unified Region Field Battle Architecture: Whole-region decisive battle (`MissionType.FIELD_BATTLE`) replacing 4 subregion missions with a single region-wide mission. Single button in map UI (`subRegionMissionButtons[0]` with full army nomenclature), whole-region activation (`0xF` mask), whole-region kill tracking via `ArmyFieldBattleMissionHandler`, HUD integration (`hud.warfront.field_battle.army`), and full region liberation with army elimination on victory.
+  - [ ] Physical Entity Spawning: Deploys dynamic high-density mob regiments and elite units in the field without static base structures.
 - [ ] **Mob Component Drops & Bulk Logistics Loot Tables:** Tiered military component drops for mobs (rivets, fletchings, prisms, ciphers) and bulk engineering logistics loot tables for Supply Wagons.
 
 ### Planned Milestones:
 - [ ] **High-Character Regional Entity Variants (Clothing Geometry & Environmental Motifs):** Postponed visual enhancement milestone to expand upon the baseline primary-terrain variant system (`EntityTerrainVariant`). Introduces minimal environment-specific clothing geometry cubes (`.geo.json`) and bespoke hand-painted textures per biome (e.g. Desert turbans, dust veils, and sun shields; Jungle/Swamp bamboo hats, moss, and crocodile-scale harnesses; Arctic spectacle helms, fur mantles, and frost runes) sharing existing animations and hitboxes.
 - [ ] **Remaining Physical Player Fortifications (Watchtowers & Acoustic War Horn Relays):** Salvaged installation cores (`REINFORCED_REDOUBT_PLATE`, `ACOUSTIC_WAR_HORN_RELAY`) used to construct defensive watchtowers and acoustic war horn relays to expand player territory defense alongside completed Friendly Mortars and Giant Ballistas.
 - [ ] **Zombie Horde Infestation System & Custom Entities:** `ZombieInfestationManager` ambient saturation engine, Helldivers 2-style breach & grace cycle (3-minute purge grace, emergence surges, accelerating cooldown curve), zero-pathfinding burrow-relocation anti-stuck AI, continuous density scaling ($15 \rightarrow 70$), shared elite pool ($0 \rightarrow 12$), dual-tier spatial leashing, and custom GeckoLib entity classes (Fodder, Hunter, Spitter, Screamer, Tank).
-- [ ] **Future Incursion Factions (Piglin Expedition, Ender Eclipse):** Unclaimed frontier portal incursions, mercenary bartering, and reality-bending endgame siege mechanics.
 - [ ] **Kinetic Military Automation Hooks:** Optional mechanical automation interfaces for player fortifications (Create mod compatibility).
+- [ ] **DLC 1: "Piglin Incursions" (Frontier Mercenary Warfare):**
+  - **Frontier Beachheads & 3-Way Frontlines:** Incursion portals active exclusively in unclaimed territory; autonomous 3-way skirmishes against Pillager borders and Zombie swarms; supply convoy hijacking and stockpiling.
+  - **War Bartering & Mercenary Muscle:** Military contracts paid exclusively in Gold Bullion/Ingots for hiring Piglin Vanguard/Brute squads and purchasing incendiary ordnance.
+  - **Early Incursion Purge:** Early strike option on incursion portals permanently closing sector rifts and rewarding Nether Gateway Cores for crafting gilded blast/fireproof plating.
+  - **Reputation Matrix & Blood-Gold Wergild:** 5-tier reputation system (-100 Hostile Hunt to +100 Bloodsworn Allies) with perimeter Blood-Gold Tribute Altars to lift Nemesis hunt orders via gold restitution.
+- [ ] **DLC 2: "The Ender Ascendancy" (Post-Dragon Endgame Meta):**
+  - **"The Illuminate" Combat Taxonomy:** Space wizard combatants featuring Shulker-warp shielding, agile phase-step blink repositioning, guided zero-g levitation fields, and psionic control inversion/phantom decoys.
+  - **Post-Dragon Wilderness Spawns:** Incursion rifts awaken strictly post-dragon in wilderness (`BaseType.NONE`) sectors within 2–4 regions of player borders; strict anti-grief invariant preserving player territory.
+  - **Macro Recon Chore Relief (Far-Distance Remote Scrying):** Eliminates manual travel treks by remotely scrying unvisited distant regions, clusters, terrain, and enemy base tiers on the Strategic Map Terminal, backed by real-time Mobile Army vector tracking.
+  - **Macro Defense Chore Relief (Siege Dampening & Skirmish Deflection):** Planar Stasis Anchors project an aura extending defense war timers by +5 to +10 minutes grace period, capping domino collapse to 1 subregion, and automatically deflecting low-intensity probing attacks.
+  - **Tethered Fast-Transit:** Strict 1-to-1 rift conduit linking the Spire to a designated player HQ, preserving external rail/transport mods for wider logistics.
 - [ ] **DLC 3: "Overworld Strikes Back" (Post-End Dimensional Warfare):**
   - **End-Tech Gate & Vanilla Preservation:** Dimension territory claiming is gated behind post-dragon End-tier tech (Planar Staging Cores); early-game visits retain 100% vanilla loot and mechanics without territory claiming.
   - **Total Hostile Ownership with Proximity Gradient:** Dimensions generate 100% enemy-owned (Piglin Dominion / Ender Hive), with Resistance/Stability scaling dynamically from frontier fringes (20–30) up to central Citadels (80–90+) via base aura boosting.

@@ -162,7 +162,7 @@ public record LaunchAttackPayload(int regionX, int regionZ, int subX, int subZ, 
             }
 
             long startTick = level.getGameTime();
-            long durationTicks = com.warfront.config.WarfrontConfig.SIEGE_RESOLUTION_DURATION_SECONDS.get() * 20L;
+            long durationTicks = 12000L; // 10 minutes (600 seconds) baseline for player field battles
 
             RegionData.SiegeCampaign fieldBattleSiege = new RegionData.SiegeCampaign(
                     com.warfront.region.Faction.HUMANITY,

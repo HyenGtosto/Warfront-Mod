@@ -32,12 +32,30 @@ public final class RegionMapRenderer {
     private static ResourceLocation base1Loc;
     private static ResourceLocation base2Loc;
     private static ResourceLocation base3Loc;
+    private static ResourceLocation pillagerArmyLoc;
+    private static ResourceLocation zombieNobaseLoc;
+    private static ResourceLocation zombieBase1Loc;
+    private static ResourceLocation zombieBase2Loc;
+    private static ResourceLocation zombieBase3Loc;
+    private static ResourceLocation zombieArmyLoc;
     private static ResourceLocation missionLogoLoc;
     private static ResourceLocation warAttackLoc;
     private static ResourceLocation warDefenseLoc;
 
-    private static ResourceLocation getBaseTexture(BaseType baseType) {
+    private static ResourceLocation getBaseTexture(Faction owner, BaseType baseType, boolean hasArmy) {
         ensureBaseTexturesLoaded();
+        boolean isZombie = (owner == Faction.ZOMBIE_HORDE);
+        if (hasArmy && baseType == BaseType.NONE) {
+            return isZombie ? zombieArmyLoc : pillagerArmyLoc;
+        }
+        if (isZombie) {
+            return switch (baseType) {
+                case OUTPOST -> zombieBase1Loc;
+                case HEADQUARTERS -> zombieBase2Loc;
+                case MEGA_BASE -> zombieBase3Loc;
+                default -> zombieNobaseLoc;
+            };
+        }
         return switch (baseType) {
             case OUTPOST -> base1Loc;
             case HEADQUARTERS -> base2Loc;
@@ -52,6 +70,12 @@ public final class RegionMapRenderer {
         base1Loc = loadTexture("pillager_base1");
         base2Loc = loadTexture("pillager_base2");
         base3Loc = loadTexture("pillager_base3");
+        pillagerArmyLoc = loadTexture("pillager_army");
+        zombieNobaseLoc = loadTexture("zombie_nobase");
+        zombieBase1Loc = loadTexture("zombie_base1");
+        zombieBase2Loc = loadTexture("zombie_base2");
+        zombieBase3Loc = loadTexture("zombie_base3");
+        zombieArmyLoc = loadTexture("zombie_army");
         missionLogoLoc = loadTexture("mission_logo");
         warAttackLoc = loadTexture("war_attack");
         warDefenseLoc = loadTexture("war_defense");
@@ -434,33 +458,63 @@ public final class RegionMapRenderer {
                 }
                 BaseType baseType = state.getRegionBase(rx, rz);
                 if (baseType != null) {
-                    renderBaseIcon(graphics, viewport, camera, rx, rz, baseType);
+                    Faction owner = state.getRegionOwner(rx, rz);
+                    boolean hasArmy = state.hasRegionArmy(rx, rz);
+                    renderBaseIcon(graphics, viewport, camera, rx, rz, owner, baseType, hasArmy);
                 }
             }
         }
     }
 
-    private void renderBaseIcon(GuiGraphics graphics, MapViewport viewport, RegionMapCamera camera, int regionX, int regionZ, BaseType baseType) {
-        ResourceLocation texture = getBaseTexture(baseType);
+    private void renderBaseIcon(GuiGraphics graphics, MapViewport viewport, RegionMapCamera camera, int regionX, int regionZ, Faction owner, BaseType baseType, boolean hasArmy) {
+        ResourceLocation texture = getBaseTexture(owner, baseType, hasArmy);
         double chunkSize;
+        int minPixels;
+        int maxPixels;
 
-        switch (baseType) {
-            case OUTPOST -> chunkSize = 4.0D; // Fits within 4x4 chunks
-            case HEADQUARTERS -> chunkSize = 4.0D; // Fits within 4x4 chunks
-            case MEGA_BASE -> chunkSize = 6.0D; // Fits within 6x6 chunks
-            default -> chunkSize = 2.0D; // BaseType.NONE -> Fits within 2x2 chunks (Flag)
+        if (hasArmy && baseType == BaseType.NONE) {
+            chunkSize = 4.0D; // Army emblem fills 50% of region width
+            minPixels = 9;
+            maxPixels = 54;
+        } else {
+            switch (baseType) {
+                case OUTPOST -> {
+                    chunkSize = 3.6D; // ~45% of region width
+                    minPixels = 8;
+                    maxPixels = 48;
+                }
+                case HEADQUARTERS -> {
+                    chunkSize = 4.4D; // ~55% of region width
+                    minPixels = 10;
+                    maxPixels = 58;
+                }
+                case MEGA_BASE -> {
+                    chunkSize = 5.2D; // ~65% of region width
+                    minPixels = 12;
+                    maxPixels = 68;
+                }
+                default -> {
+                    chunkSize = 2.8D; // Wilderness banner (~35% region width)
+                    minPixels = 7;
+                    maxPixels = 40;
+                }
+            }
         }
 
         double centerCX = regionX * 8 + 4.0D;
         double centerCZ = regionZ * 8 + 4.0D;
 
-        double startCX = centerCX - (chunkSize / 2.0D);
-        double startCZ = centerCZ - (chunkSize / 2.0D);
+        double centerScreenX = viewport.mapLeft() + (centerCX - camera.leftChunk(viewport)) * camera.getChunkTileSize();
+        double centerScreenY = viewport.mapTop() + (centerCZ - camera.topChunk(viewport)) * camera.getChunkTileSize();
 
-        int drawX = (int) Math.round(viewport.mapLeft() + (startCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
-        int drawY = (int) Math.round(viewport.mapTop() + (startCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
-        int drawW = (int) Math.round(chunkSize * camera.getChunkTileSize());
-        int drawH = (int) Math.round(chunkSize * camera.getChunkTileSize());
+        double regionPixels = 8.0D * camera.getChunkTileSize();
+        int baseDrawW = (int) Math.round(chunkSize * camera.getChunkTileSize());
+        int clampedW = Math.clamp(baseDrawW, minPixels, maxPixels);
+        int drawW = (int) Math.round(Math.min(clampedW, Math.max(minPixels, regionPixels * 0.85D)));
+        int drawH = drawW;
+
+        int drawX = (int) Math.round(centerScreenX - (drawW / 2.0D));
+        int drawY = (int) Math.round(centerScreenY - (drawH / 2.0D));
 
         if (drawX + drawW < viewport.mapLeft() || drawX > viewport.mapLeft() + viewport.mapSize()
                 || drawY + drawH < viewport.mapTop() || drawY > viewport.mapTop() + viewport.mapSize()) {
@@ -848,6 +902,11 @@ public final class RegionMapRenderer {
         Component ownerDisplayName = selectedRegion.owner().displayName();
         if (selectedRegion.playerFactionName() != null && !selectedRegion.playerFactionName().isEmpty()) {
             ownerDisplayName = Component.literal(selectedRegion.playerFactionName());
+        } else if (selectedRegion.hasArmy() && selectedRegion.baseType() == BaseType.NONE) {
+            ownerDisplayName = com.warfront.region.army.ClusterArmy.formatArmyDisplayName(
+                    selectedRegion.owner(),
+                    selectedRegion.armyOrdinalIndex(),
+                    selectedRegion.armyEpithetIndex());
         } else if (selectedRegion.baseType() != BaseType.NONE) {
             ownerDisplayName = selectedRegion.baseType().getDisplayName(selectedRegion.owner());
         }

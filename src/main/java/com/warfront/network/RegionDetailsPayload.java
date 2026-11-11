@@ -32,8 +32,37 @@ public record RegionDetailsPayload(
         boolean playerInFactionRegion,
         String terrainName,
         int subTerrainsPacked,
-        int subElevationsPacked
+        int subElevationsPacked,
+        boolean hasArmy,
+        int armyOrdinalIndex,
+        int armyEpithetIndex
 ) implements CustomPacketPayload {
+
+    public RegionDetailsPayload(
+            int regionX, int regionZ, int subX, int subZ,
+            int factionId, float stability, float resistance,
+            int baseTypeId, boolean underSiege, boolean isVisited,
+            long remainingSiegeTicks, int dominoThreshold,
+            int reachableMask, boolean regionReachable,
+            int existingSiegeMask, int conqueredMask,
+            int attackerFactionId,
+            boolean isAwaitingReinforcements,
+            long reinforcementRemainingTicks,
+            boolean isEncircled,
+            BlockPos baseAnchor,
+            long missionSeed,
+            String playerFactionName,
+            String attackerFactionName,
+            boolean isFieldBattle,
+            float attackerProgress,
+            float defenderProgress,
+            boolean playerInFactionRegion,
+            String terrainName,
+            int subTerrainsPacked,
+            int subElevationsPacked
+    ) {
+        this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attackerFactionId, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, subTerrainsPacked, subElevationsPacked, false, 0, 0);
+    }
 
     public RegionDetailsPayload(int regionX, int regionZ, int subX, int subZ, int factionId, float stability, float resistance, int baseTypeId, boolean underSiege, boolean isVisited) {
         this(regionX, regionZ, subX, subZ, factionId, stability, resistance, baseTypeId, underSiege, isVisited, 0L, 3, 0xF, true, 0, 0, 0, false, 0L, false, null, 0L, "", "", false, 0.0F, 0.0F, false, "Unknown", 0, 0);
@@ -143,6 +172,9 @@ public record RegionDetailsPayload(
             String terrainName = ByteBufCodecs.STRING_UTF8.decode(buf);
             int subTerrainsPacked = ByteBufCodecs.VAR_INT.decode(buf);
             int subElevationsPacked = ByteBufCodecs.VAR_INT.decode(buf);
+            boolean hasArmy = ByteBufCodecs.BOOL.decode(buf);
+            int armyOrdinalIndex = ByteBufCodecs.VAR_INT.decode(buf);
+            int armyEpithetIndex = ByteBufCodecs.VAR_INT.decode(buf);
 
             return new RegionDetailsPayload(
                     rx, rz, sx, sz,
@@ -165,7 +197,10 @@ public record RegionDetailsPayload(
                     playerInFactionRegion,
                     terrainName,
                     subTerrainsPacked,
-                    subElevationsPacked
+                    subElevationsPacked,
+                    hasArmy,
+                    armyOrdinalIndex,
+                    armyEpithetIndex
             );
         }
 
@@ -207,6 +242,9 @@ public record RegionDetailsPayload(
             ByteBufCodecs.STRING_UTF8.encode(buf, payload.terrainName() != null ? payload.terrainName() : "Plains");
             ByteBufCodecs.VAR_INT.encode(buf, payload.subTerrainsPacked());
             ByteBufCodecs.VAR_INT.encode(buf, payload.subElevationsPacked());
+            ByteBufCodecs.BOOL.encode(buf, payload.hasArmy());
+            ByteBufCodecs.VAR_INT.encode(buf, payload.armyOrdinalIndex());
+            ByteBufCodecs.VAR_INT.encode(buf, payload.armyEpithetIndex());
         }
     };
 

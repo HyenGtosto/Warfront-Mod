@@ -35,8 +35,28 @@ public record SelectedRegion(
         boolean playerInFactionRegion,
         String terrainName,
         int subTerrainsPacked,
-        int subElevationsPacked
+        int subElevationsPacked,
+        boolean hasArmy,
+        int armyOrdinalIndex,
+        int armyEpithetIndex
 ) {
+    public SelectedRegion(
+            int regionX, int regionZ, int subX, int subZ,
+            Faction owner, float stability, float resistance,
+            BaseType baseType, boolean underSiege, boolean isVisited,
+            long remainingSiegeTicks, int dominoThreshold,
+            int reachableMask, boolean regionReachable,
+            int existingSiegeMask, int conqueredMask,
+            Faction attacker, boolean isAwaitingReinforcements,
+            long reinforcementRemainingTicks, boolean isEncircled,
+            BlockPos baseAnchor, long missionSeed,
+            String playerFactionName, String attackerFactionName,
+            boolean isFieldBattle, float attackerProgress, float defenderProgress,
+            boolean playerInFactionRegion, String terrainName,
+            int subTerrainsPacked, int subElevationsPacked
+    ) {
+        this(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, subTerrainsPacked, subElevationsPacked, false, 0, 0);
+    }
     public SelectedRegion(
             int regionX, int regionZ, int subX, int subZ,
             Faction owner, float stability, float resistance,
@@ -92,10 +112,10 @@ public record SelectedRegion(
     }
 
     public SelectedRegion withRemainingSiegeTicks(long newTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, subTerrainsPacked, subElevationsPacked);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, newTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, reinforcementRemainingTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, subTerrainsPacked, subElevationsPacked, hasArmy, armyOrdinalIndex, armyEpithetIndex);
     }
 
     public SelectedRegion withReinforcementRemainingTicks(long newReinfTicks) {
-        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, subTerrainsPacked, subElevationsPacked);
+        return new SelectedRegion(regionX, regionZ, subX, subZ, owner, stability, resistance, baseType, underSiege, isVisited, remainingSiegeTicks, dominoThreshold, reachableMask, regionReachable, existingSiegeMask, conqueredMask, attacker, isAwaitingReinforcements, newReinfTicks, isEncircled, baseAnchor, missionSeed, playerFactionName, attackerFactionName, isFieldBattle, attackerProgress, defenderProgress, playerInFactionRegion, terrainName, subTerrainsPacked, subElevationsPacked, hasArmy, armyOrdinalIndex, armyEpithetIndex);
     }
 }

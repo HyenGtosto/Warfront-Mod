@@ -6,8 +6,8 @@ import java.util.Optional;
 public enum Faction {
     UNCLAIMED(0, "unclaimed", 0xD6D3D1),
     HUMANITY(1, "humanity", 0x21BCFF),
-    ZOMBIE_HORDE(2, "zombie_horde", 0xFF6467),
-    PILLAGER_CONQUERORS(3, "pillager_conquerors", 0xFFDF20);
+    ZOMBIE_HORDE(2, "zombie_horde", 0x2D6636),
+    PILLAGER_CONQUERORS(3, "pillager_conquerors", 0x991B1B);
 
     private final int id;
     private final String commandName;
