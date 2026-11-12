@@ -31,8 +31,9 @@ public final class MissionHandlerRegistry {
         HANDLERS.put(MissionType.FORWARD_OUTPOST, ForwardOutpostMissionHandler.getInstance());
         HANDLERS.put(MissionType.SCOUT_NETWORK, ScoutNetworkMissionHandler.getInstance());
 
-        // Base Outpost Mission Handler
+        // Base Outpost & Headquarters Mission Handlers
         HANDLERS.put(MissionType.OUTPOST_DESTROY_BUILDING, com.warfront.mission.base.OutpostDestructionMissionHandler.getInstance());
+        HANDLERS.put(MissionType.BASE_KILL_COMMANDER, com.warfront.mission.base.HQKillCommanderMissionHandler.getInstance());
 
         // Mobile Field Army Battle Handler
         HANDLERS.put(MissionType.FIELD_BATTLE, ArmyFieldBattleMissionHandler.getInstance());

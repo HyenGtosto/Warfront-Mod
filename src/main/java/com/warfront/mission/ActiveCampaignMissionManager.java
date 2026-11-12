@@ -201,6 +201,11 @@ public final class ActiveCampaignMissionManager {
             if (missionType == MissionType.ARTILLERY_BATTERY) {
                 return currentProgress + " / " + targetProgress + " Mortars Destroyed";
             }
+            if (missionType == MissionType.BASE_KILL_COMMANDER) {
+                return currentProgress >= targetProgress
+                        ? net.minecraft.network.chat.Component.translatable("hud.warfront.mission.commander_neutralized").getString()
+                        : net.minecraft.network.chat.Component.translatable("hud.warfront.mission.assassinate_commander").getString();
+            }
             if (missionType == MissionType.OFFICER_HUNT || objectiveType == ObjectiveType.ELIMINATE_LEADER) {
                 if (phaseIndex == 0) {
                     return "Assassinate Commander";
@@ -1099,7 +1104,7 @@ public final class ActiveCampaignMissionManager {
                         regions.claimSubRegion(level, regionX, regionZ, sx, sz, Faction.HUMANITY, 100.0F);
                     }
                 }
-                String logMsg = String.format("§aField Battle Decisive Victory! Mobile Army in Region (%d, %d) wiped out. Entire region secured.",
+                String logMsg = String.format("§aField Battle Decisive Victory! Army in Region (%d, %d) wiped out. Entire region secured.",
                         regionX, regionZ);
                 regions.addLog(level, logMsg);
                 regions.setDirty();

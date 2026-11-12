@@ -2,6 +2,8 @@ package com.warfront.spawn;
 
 import com.warfront.Warfront;
 import com.warfront.ai.goal.SubregionPatrolGoal;
+import com.warfront.mission.MissionProfile;
+import com.warfront.region.BaseType;
 import com.warfront.region.Faction;
 import com.warfront.region.RegionData;
 import com.warfront.entity.ModEntities;
@@ -565,6 +567,17 @@ public final class SubregionPatrolManager {
                 }
             }
 
+            // Suppress natural ambient patrol squads inside Headquarters and Mega Base footprints
+            RegionData.Region parentReg = regions.regionAt(rx, rz);
+            if (parentReg.baseType() == BaseType.HEADQUARTERS || parentReg.baseType() == BaseType.MEGA_BASE) {
+                int occupiedMask = MissionProfile.getOccupiedBaseSubRegionsMask(
+                        rx, rz, parentReg.baseType(), parentReg.baseAnchor());
+                int subBit = (sz & 1) * 2 + (sx & 1);
+                if (parentReg.baseAnchor() == null || (occupiedMask & (1 << subBit)) != 0) {
+                    continue;
+                }
+            }
+
             RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
             com.warfront.mission.ActiveCampaignMissionManager.ActiveSubRegionProgress progress =
                     com.warfront.mission.ActiveCampaignMissionManager.getActiveProgress(rx, rz, sx, sz);
@@ -632,6 +645,17 @@ public final class SubregionPatrolManager {
             RegionData.SubRegionState state = regions.subRegionAt(rx, rz, sx, sz);
             if (state.owner() != Faction.PILLAGER_CONQUERORS) {
                 continue; // Restrict strictly to pillager regions
+            }
+
+            // Suppress autonomous scout spawns inside Headquarters and Mega Base footprints
+            RegionData.Region scoutParentReg = regions.regionAt(rx, rz);
+            if (scoutParentReg.baseType() == BaseType.HEADQUARTERS || scoutParentReg.baseType() == BaseType.MEGA_BASE) {
+                int occupiedMask = MissionProfile.getOccupiedBaseSubRegionsMask(
+                        rx, rz, scoutParentReg.baseType(), scoutParentReg.baseAnchor());
+                int subBit = (sz & 1) * 2 + (sx & 1);
+                if (scoutParentReg.baseAnchor() == null || (occupiedMask & (1 << subBit)) != 0) {
+                    continue;
+                }
             }
 
             long subKey = makeSubKey(rx, rz, sx, sz);
@@ -720,7 +744,12 @@ public final class SubregionPatrolManager {
         UUID squadId = UUID.randomUUID();
         PatrolSquad squad = new PatrolSquad(squadId, rx, rz, sx, sz, destBorder);
 
+        SquadUpgradeTracker upgradeTracker = SquadUpgradeTracker.forSquadSize(squadSize);
         boolean hasCommander = false;
+        int eliteCount = 0;
+        int rangedCount = 0;
+        final int maxElites = 2;
+        final int maxRanged = Math.max(1, (int) Math.ceil(squadSize * 0.55));
         final int SCATTER = 3;
 
         for (int i = 0; i < squadSize; i++) {
@@ -746,6 +775,24 @@ public final class SubregionPatrolManager {
                 }
             }
 
+            // Cap Armored Elites to max 2 per squad
+            if (role == PillagerEnemyRole.ARMORED_ELITE) {
+                if (eliteCount >= maxElites) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    eliteCount++;
+                }
+            }
+
+            // Cap Ranged units to preserve melee infantry core
+            if (role == PillagerEnemyRole.RANGED) {
+                if (rangedCount >= maxRanged) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    rangedCount++;
+                }
+            }
+
             // EXCLUSION: Never spawn scouts in patrol squads as requested
             if (role == PillagerEnemyRole.SCOUT) {
                 role = PillagerEnemyRole.FIGHTER;
@@ -760,7 +807,7 @@ public final class SubregionPatrolManager {
                 spawnY = spawnBorder.getY();
             }
 
-            Entity entity = resolveEntity(faction, role, level, resistance);
+            Entity entity = resolveEntity(faction, role, level, resistance, upgradeTracker);
             if (!(entity instanceof Mob mob)) continue;
 
             mob.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
@@ -834,14 +881,18 @@ public final class SubregionPatrolManager {
         return pool;
     }
 
-    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance) {
+    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance, SquadUpgradeTracker tracker) {
         if (faction == Faction.PILLAGER_CONQUERORS && role instanceof PillagerEnemyRole pr) {
-            return EnemyEntityResolver.resolvePillagerRole(pr, level, resistance);
+            return EnemyEntityResolver.resolvePillagerRole(pr, level, resistance, tracker);
         }
         if (faction == Faction.ZOMBIE_HORDE && role instanceof ZombieEnemyRole zr) {
             return EnemyEntityResolver.resolveZombieRole(zr, level);
         }
         return null;
+    }
+
+    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance) {
+        return resolveEntity(faction, role, level, resistance, null);
     }
 
     /**

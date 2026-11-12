@@ -41,8 +41,6 @@ public final class EnemyEntityResolver {
 
     /**
      * Creates the entity corresponding to the given Pillager role with resistance-based spawn interception.
-     * For RANGED roles, intercepts Marksman spawns with quadratic probability P(R) = (R / 100)^2,
-     * replacing with Pillager Rifleman (25% at 50 resistance, 100% at 100 resistance).
      *
      * @param role       the pillager enemy role
      * @param level      the server level to create the entity in
@@ -50,15 +48,53 @@ public final class EnemyEntityResolver {
      * @return a new Entity instance, or null on failure
      */
     public static Entity resolvePillagerRole(PillagerEnemyRole role, ServerLevel level, float resistance) {
+        return resolvePillagerRole(role, level, resistance, null);
+    }
+
+    /**
+     * Creates the entity corresponding to the given Pillager role with resistance-based spawn interception
+     * and squad-level upgrade quota enforcement.
+     *
+     * For RANGED roles, intercepts Marksman spawns with quadratic probability P(R) = (R / 100)^2,
+     * replacing with Pillager Rifleman up to the tracker's RANGED quota.
+     *
+     * For FIGHTER roles, tracks upgrade slots independently for upcoming Warrior upgrades.
+     *
+     * @param role       the pillager enemy role
+     * @param level      the server level to create the entity in
+     * @param resistance regional resistance level (0 to 100)
+     * @param tracker    squad upgrade tracker enforcing independent per-role upgrade limits (may be null)
+     * @return a new Entity instance, or null on failure
+     */
+    public static Entity resolvePillagerRole(
+            PillagerEnemyRole role,
+            ServerLevel level,
+            float resistance,
+            SquadUpgradeTracker tracker) {
+
         if (role == PillagerEnemyRole.RANGED) {
-            if (resistance > 0.0F) {
+            boolean canUpgrade = tracker == null || tracker.canUpgrade(PillagerEnemyRole.RANGED);
+            if (resistance > 0.0F && canUpgrade) {
                 float clampedR = Math.clamp(resistance, 0.0F, 100.0F);
                 float pRifleman = (clampedR / 100.0F) * (clampedR / 100.0F);
                 if (level.getRandom().nextFloat() < pRifleman) {
+                    if (tracker != null) {
+                        tracker.recordUpgrade(PillagerEnemyRole.RANGED);
+                    }
                     return ModEntities.PILLAGER_RIFLEMAN.get().create(level);
                 }
             }
             return ModEntities.PILLAGER_MARKSMAN.get().create(level);
+        }
+
+        if (role == PillagerEnemyRole.FIGHTER) {
+            // Unit-type independent upgrade slot reserved for upcoming Warrior upgrade variant:
+            // boolean canUpgrade = tracker == null || tracker.canUpgrade(PillagerEnemyRole.FIGHTER);
+            // if (resistance > 0.0F && canUpgrade && level.getRandom().nextFloat() < pWarriorUpgrade) {
+            //     if (tracker != null) tracker.recordUpgrade(PillagerEnemyRole.FIGHTER);
+            //     return ModEntities.PILLAGER_WARRIOR_UPGRADED.get().create(level);
+            // }
+            return ModEntities.PILLAGER_WARRIOR.get().create(level);
         }
 
         return switch (role) {

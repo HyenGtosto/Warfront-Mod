@@ -58,6 +58,7 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener(com.warfront.mission.site.MissionSiteSnapshotManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.AttackRoamerManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.SubregionPatrolManager::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.region.base.hq.HQSquadPatrolManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.region.bridge.SubregionBridgeManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onLivingChangeTarget);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onProjectileImpact);
@@ -67,6 +68,8 @@ public final class Warfront {
                 com.warfront.network.RequestRegionMapPayload.clearColorCache();
                 com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
                 com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
+                com.warfront.region.base.hq.HQGatePortcullisController.cleanup();
+                com.warfront.region.base.hq.HQSquadPatrolManager.cleanup();
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.LevelEvent.Unload event) -> {
@@ -75,12 +78,16 @@ public final class Warfront {
                 com.warfront.network.RequestRegionMapPayload.clearColorCache();
                 com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
                 com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
+                com.warfront.region.base.hq.HQGatePortcullisController.cleanup();
+                com.warfront.region.base.hq.HQSquadPatrolManager.cleanup();
             }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStartedEvent event) -> {
             com.warfront.network.RequestRegionMapPayload.clearColorCache();
             com.warfront.region.generator.ProceduralRegionGenerator.getInstance().clearAllCaches();
             com.warfront.region.base.PersistentBaseProtectionManager.clearCache();
+            com.warfront.region.base.hq.HQGatePortcullisController.cleanup();
+            com.warfront.region.base.hq.HQSquadPatrolManager.cleanup();
 
             net.minecraft.server.level.ServerLevel overworld = event.getServer().overworld();
             if (overworld != null) {

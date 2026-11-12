@@ -135,6 +135,86 @@ public class PillagerHeadquartersGenerator implements BaseBuildingGenerator {
         };
     }
 
+    public static boolean isEastWest(BlockPos anchor) {
+        int localX = Math.floorMod(anchor.getX(), RegionData.REGION_SIZE_BLOCKS);
+        int localZ = Math.floorMod(anchor.getZ(), RegionData.REGION_SIZE_BLOCKS);
+        return Math.abs(localX - 64) > Math.abs(localZ - 64);
+    }
+
+    public static BlockPos getShellBoxMin(BlockPos anchor) {
+        boolean isEastWest = isEastWest(anchor);
+        int baseY = anchor.getY();
+        if (isEastWest) {
+            return new BlockPos(anchor.getX() - 26, baseY, anchor.getZ() - 46);
+        } else {
+            return new BlockPos(anchor.getX() - 46, baseY, anchor.getZ() - 26);
+        }
+    }
+
+    public static int getSubABit(BlockPos anchor) {
+        int localX = Math.floorMod(anchor.getX(), RegionData.REGION_SIZE_BLOCKS);
+        int localZ = Math.floorMod(anchor.getZ(), RegionData.REGION_SIZE_BLOCKS);
+        boolean isEastWest = Math.abs(localX - 64) > Math.abs(localZ - 64);
+        if (isEastWest) {
+            return (localX >= 64) ? 1 : 0;
+        } else {
+            return (localZ >= 64) ? 2 : 0;
+        }
+    }
+
+    public static int getSubBBit(BlockPos anchor) {
+        int localX = Math.floorMod(anchor.getX(), RegionData.REGION_SIZE_BLOCKS);
+        int localZ = Math.floorMod(anchor.getZ(), RegionData.REGION_SIZE_BLOCKS);
+        boolean isEastWest = Math.abs(localX - 64) > Math.abs(localZ - 64);
+        if (isEastWest) {
+            return (localX >= 64) ? 3 : 2;
+        } else {
+            return (localZ >= 64) ? 3 : 1;
+        }
+    }
+
+    /**
+     * Resolves the authoritative AABB enclosing the Headquarters and an outer perimeter margin,
+     * governing the 16-block maximum chase boundary for wall sentries and garrison defenders.
+     */
+    public static net.minecraft.world.phys.AABB getHQEngagementAABB(BlockPos anchor, double marginBlocks) {
+        boolean isEastWest = isEastWest(anchor);
+        int halfX = isEastWest ? 26 : 46;
+        int halfZ = isEastWest ? 46 : 26;
+        double minX = anchor.getX() - halfX - marginBlocks;
+        double maxX = anchor.getX() + halfX + marginBlocks;
+        double minZ = anchor.getZ() - halfZ - marginBlocks;
+        double maxZ = anchor.getZ() + halfZ + marginBlocks;
+        double minY = anchor.getY() - 10 - marginBlocks;
+        double maxY = anchor.getY() + HEIGHT + 15 + marginBlocks;
+        return new net.minecraft.world.phys.AABB(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /**
+     * Calculates the minimum corner of a facility slot bounding box within the 40x40 lot,
+     * dynamically centering templates smaller than 40x40 (such as the 36x18x38 Commander's Keep)
+     * so that generous 2-3 block walkways surround the structure inside the courtyard.
+     */
+    public static BlockPos getSlotBoxMin(BlockPos shellBoxMin, boolean isEastWest, boolean isSlotA, Vec3i templateSize, Rotation slotRot) {
+        int worldW = (slotRot == Rotation.CLOCKWISE_90 || slotRot == Rotation.COUNTERCLOCKWISE_90)
+                ? templateSize.getZ() : templateSize.getX();
+        int worldL = (slotRot == Rotation.CLOCKWISE_90 || slotRot == Rotation.COUNTERCLOCKWISE_90)
+                ? templateSize.getX() : templateSize.getZ();
+
+        int padX = Math.max(0, (40 - worldW) / 2);
+        int padZ = Math.max(0, (40 - worldL) / 2);
+
+        if (isEastWest) {
+            int baseOffsetX = 6 + padX;
+            int baseOffsetZ = (isSlotA ? 6 : 47) + padZ;
+            return shellBoxMin.offset(baseOffsetX, 0, baseOffsetZ);
+        } else {
+            int baseOffsetX = (isSlotA ? 6 : 47) + padX;
+            int baseOffsetZ = 6 + padZ;
+            return shellBoxMin.offset(baseOffsetX, 0, baseOffsetZ);
+        }
+    }
+
     @Override
     public boolean place(BasePlacementContext context) {
         ServerLevel level = context.level();
@@ -232,6 +312,9 @@ public class PillagerHeadquartersGenerator implements BaseBuildingGenerator {
         Rotation shellRot = getRotationBetween(SHELL_INITIAL_FACING, targetShellFacing);
         Rotation slotARot = getRotationBetween(getInitialFacingForMission(missionA), targetSlotAFacing);
         Rotation slotBRot = getRotationBetween(getInitialFacingForMission(missionB), targetSlotBFacing);
+
+        slotABoxMin = getSlotBoxMin(shellBoxMin, isEastWest, true, facATemplate.getSize(), slotARot);
+        slotBBoxMin = getSlotBoxMin(shellBoxMin, isEastWest, false, facBTemplate.getSize(), slotBRot);
 
         BlockPos shellOrigin = getRotatedOrigin(shellBoxMin, shellTemplate.getSize(), shellRot);
         BlockPos slotAOrigin = getRotatedOrigin(slotABoxMin, facATemplate.getSize(), slotARot);
@@ -372,10 +455,14 @@ public class PillagerHeadquartersGenerator implements BaseBuildingGenerator {
 
         manager.get(TEMPLATE_SHELL).ifPresent(t ->
                 extractRotatedTemplateBlocks(t, getRotatedOrigin(shellBoxMin, t.getSize(), shellRot), shellRot, level, result));
-        manager.get(facilityAId).ifPresent(t ->
-                extractRotatedTemplateBlocks(t, getRotatedOrigin(slotABoxMin, t.getSize(), slotARot), slotARot, level, result));
-        manager.get(facilityBId).ifPresent(t ->
-                extractRotatedTemplateBlocks(t, getRotatedOrigin(slotBBoxMin, t.getSize(), slotBRot), slotBRot, level, result));
+        manager.get(facilityAId).ifPresent(t -> {
+            BlockPos boxMin = getSlotBoxMin(shellBoxMin, isEastWest, true, t.getSize(), slotARot);
+            extractRotatedTemplateBlocks(t, getRotatedOrigin(boxMin, t.getSize(), slotARot), slotARot, level, result);
+        });
+        manager.get(facilityBId).ifPresent(t -> {
+            BlockPos boxMin = getSlotBoxMin(shellBoxMin, isEastWest, false, t.getSize(), slotBRot);
+            extractRotatedTemplateBlocks(t, getRotatedOrigin(boxMin, t.getSize(), slotBRot), slotBRot, level, result);
+        });
 
         // Include adaptive entrance stairs in pristine blueprint
         generateAdaptiveStairs(level, anchor, baseY, isEastWest, result);

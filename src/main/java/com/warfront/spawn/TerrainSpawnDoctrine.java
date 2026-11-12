@@ -132,9 +132,9 @@ public final class TerrainSpawnDoctrine {
                 default -> 1.0;
             };
             case DESERT -> switch (role) {
-                case FIGHTER -> 0.8;
-                case RANGED -> 1.4;
-                case ARMORED_ELITE -> 1.3;
+                case FIGHTER -> 1.0;
+                case RANGED -> 1.15;
+                case ARMORED_ELITE -> 1.1;
                 case COMMANDER -> 1.0;
                 default -> 1.0;
             };

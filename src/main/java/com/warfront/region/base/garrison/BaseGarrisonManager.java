@@ -200,7 +200,15 @@ public final class BaseGarrisonManager {
 
         if (state == null) {
             // Lazy initialization if base was placed before garrison tracking
-            ensureGarrisonSpawned(level, rx, rz, BaseType.OUTPOST, progress.targetFaction(), anchor);
+            RegionData regions = RegionData.get(level);
+            BaseType baseType = BaseType.OUTPOST;
+            if (regions != null) {
+                RegionData.RegionState regState = regions.getSavedRegionState(rx, rz);
+                if (regState != null && regState.baseType() != BaseType.NONE) {
+                    baseType = regState.baseType();
+                }
+            }
+            ensureGarrisonSpawned(level, rx, rz, baseType, progress.targetFaction(), anchor);
             state = data.getGarrison(rx, rz);
         }
 
@@ -213,10 +221,17 @@ public final class BaseGarrisonManager {
             return;
         }
 
+        boolean isKeepMission = progress.missionType() == com.warfront.mission.MissionType.BASE_KILL_COMMANDER;
+
         int livingEnlisted = 0;
         int instantRespawned = 0;
 
         for (GarrisonSlot slot : state.getSlots()) {
+            // Tri-Partite HQ Filtering: BASE_KILL_COMMANDER only activates Wing A and fortress shell walls
+            if (isKeepMission && !slot.roleId().startsWith("WING_A_") && !slot.roleId().startsWith("WALL_")) {
+                continue;
+            }
+
             UUID uuid = slot.getEntityUuid();
             Entity existing = (uuid != null) ? level.getEntity(uuid) : null;
 

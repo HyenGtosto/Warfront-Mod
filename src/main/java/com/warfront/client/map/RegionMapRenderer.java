@@ -731,6 +731,20 @@ public final class RegionMapRenderer {
         boolean isActivated = state.getActivatedRegions().contains(regKey) || sel.underSiege();
         if (!isActivated) return;
 
+        if (sel.hasArmy() && sel.baseType() == BaseType.NONE) {
+            boolean isSelectedOrActive = state.isSubRegionMissionToggled(0) || state.isSubRegionConfirmed(sel.regionX(), sel.regionZ(), 0) || sel.underSiege();
+            if (isSelectedOrActive) {
+                int minCX = sel.regionX() * 8;
+                int minCZ = sel.regionZ() * 8;
+                int sx0 = (int) Math.round(viewport.mapLeft() + (minCX - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+                int sy0 = (int) Math.round(viewport.mapTop() + (minCZ - camera.topChunk(viewport)) * camera.getChunkTileSize());
+                int sx1 = (int) Math.round(viewport.mapLeft() + (minCX + 8 - camera.leftChunk(viewport)) * camera.getChunkTileSize());
+                int sy1 = (int) Math.round(viewport.mapTop() + (minCZ + 8 - camera.topChunk(viewport)) * camera.getChunkTileSize());
+                graphics.fill(sx0, sy0, sx1, sy1, 0x50000000);
+            }
+            return;
+        }
+
         for (int i = 0; i < 4; i++) {
             boolean isSelectedOrActive = state.isSubRegionMissionToggled(i) || state.isSubRegionConfirmed(sel.regionX(), sel.regionZ(), i);
             if (!isSelectedOrActive) continue;
@@ -781,6 +795,31 @@ public final class RegionMapRenderer {
 
         com.warfront.mission.SubRegionMission[] missions = state.getCachedMissions(sel.regionX(), sel.regionZ());
         if (missions == null) return;
+
+        // If region houses an active Army, render the army icon as a whole centered on the region
+        if (sel.hasArmy() && sel.baseType() == BaseType.NONE) {
+            ResourceLocation armyLoc = getBaseTexture(sel.owner(), BaseType.NONE, true);
+            double centerCX = sel.regionX() * 8 + 4.0D;
+            double centerCZ = sel.regionZ() * 8 + 4.0D;
+            double iconChunks = 4.0D; // 50% of the 8x8 region footprint
+
+            double regionPixels = 8.0D * camera.getChunkTileSize();
+            int baseDrawW = (int) Math.round(iconChunks * camera.getChunkTileSize());
+            int clampedW = Math.clamp(baseDrawW, 10, 56);
+            int drawW = (int) Math.round(Math.min(clampedW, Math.max(10, regionPixels * 0.85D)));
+            int drawH = drawW;
+
+            double centerScreenX = viewport.mapLeft() + (centerCX - camera.leftChunk(viewport)) * camera.getChunkTileSize();
+            double centerScreenY = viewport.mapTop() + (centerCZ - camera.topChunk(viewport)) * camera.getChunkTileSize();
+            int drawX = (int) Math.round(centerScreenX - (drawW / 2.0D));
+            int drawY = (int) Math.round(centerScreenY - (drawH / 2.0D));
+
+            if (drawX + drawW >= viewport.mapLeft() && drawX <= viewport.mapLeft() + viewport.mapSize()
+                    && drawY + drawH >= viewport.mapTop() && drawY <= viewport.mapTop() + viewport.mapSize()) {
+                graphics.blit(armyLoc, drawX, drawY, drawW, drawH, 0.0F, 0.0F, 1, 1, 1, 1);
+            }
+            return;
+        }
 
         for (int i = 0; i < 4; i++) {
             int subX = i % 2;
@@ -964,7 +1003,7 @@ public final class RegionMapRenderer {
                 Component.translatable("screen.warfront.metric_resistance", formatMetric(selectedRegion.resistance())),
                 Component.translatable("screen.warfront.metric_stability", formatMetric(selectedRegion.stability())));
 
-        if (selectedRegion.isFieldBattle()) {
+        if (selectedRegion.isFieldBattle() || (selectedRegion.hasArmy() && selectedRegion.baseType() == BaseType.NONE && selectedRegion.underSiege())) {
             long totalSeconds = selectedRegion.remainingSiegeTicks() / 20L;
             long mins = totalSeconds / 60L;
             long secs = totalSeconds % 60L;
@@ -995,12 +1034,19 @@ public final class RegionMapRenderer {
                         Component.translatable("screen.warfront.infobox.arrival", mins, secs));
             }
         } else if (selectedRegion.owner() != Faction.HUMANITY && selectedRegion.owner() != Faction.UNCLAIMED) {
-            Component reqComp = (selectedRegion.baseType() != BaseType.NONE)
-                    ? Component.translatable("screen.warfront.infobox.req_base", selectedRegion.dominoThreshold())
-                    : Component.translatable("screen.warfront.infobox.req_sectors", selectedRegion.dominoThreshold());
-            renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
-                    Component.translatable("screen.warfront.infobox.attack_target"),
-                    reqComp);
+            if (selectedRegion.hasArmy() && selectedRegion.baseType() == BaseType.NONE) {
+                renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
+                        Component.translatable("screen.warfront.infobox.attack_target"),
+                        Component.translatable("screen.warfront.army_field_battle"),
+                        Component.translatable("screen.warfront.infobox.field_battle_target"));
+            } else {
+                Component reqComp = (selectedRegion.baseType() != BaseType.NONE)
+                        ? Component.translatable("screen.warfront.infobox.req_base", selectedRegion.dominoThreshold())
+                        : Component.translatable("screen.warfront.infobox.req_sectors", selectedRegion.dominoThreshold());
+                renderInfoBox(graphics, font, left, top + (boxHeight + boxGap) * 4, width, boxHeight,
+                        Component.translatable("screen.warfront.infobox.attack_target"),
+                        reqComp);
+            }
         } else if (selectedRegion.owner() == Faction.HUMANITY && selectedRegion.playerFactionName() != null && !selectedRegion.playerFactionName().isEmpty()) {
             String myFaction = com.warfront.client.faction.FactionClientState.get().getFactionName();
             if (myFaction != null && !myFaction.equalsIgnoreCase(selectedRegion.playerFactionName())) {

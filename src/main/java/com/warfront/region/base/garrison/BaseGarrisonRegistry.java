@@ -18,6 +18,7 @@ public final class BaseGarrisonRegistry {
     static {
         register(Faction.PILLAGER_CONQUERORS, BaseType.OUTPOST, OutpostGarrisonDefinition.INSTANCE);
         register(Faction.ZOMBIE_HORDE, BaseType.OUTPOST, ZombieOutpostGarrisonDefinition.INSTANCE);
+        register(Faction.PILLAGER_CONQUERORS, BaseType.HEADQUARTERS, PillagerHQGarrisonDefinition.INSTANCE);
     }
 
     private BaseGarrisonRegistry() {

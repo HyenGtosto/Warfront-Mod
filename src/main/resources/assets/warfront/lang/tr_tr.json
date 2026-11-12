@@ -155,6 +155,8 @@
   "chat.warfront.mission.battery_neutralized": "§a§l[WARFRONT] ✔ Havan Mevzisi Etkisiz Hale Getirildi! Tüm Havanlar Yok Edildi.",
   "chat.warfront.mission.officer_camp_repaired": "§c⚔ Saha Komutanı karargahı onarıldı ve takviye edildi!",
   "chat.warfront.mission.officer_neutralized": "§a§l[WARFRONT] ✔ Komutan Karargahı Etkisiz Hale Getirildi! Taktik Karargah Devre Dışı Bırakıldı.",
+  "chat.warfront.mission.hq_commander_neutralized": "§a§l[WARFRONT] ✔ Garnizon Komutanı Etkisiz Hale Getirildi! Karargah Kanadı Ele Geçirildi.",
+  "chat.warfront.mission.hq_keep_repaired": "§c⚔ Komutan Kalesi savunmaları takviye edildi!",
   "chat.warfront.mission.strongpoint_repaired": "§c⚔ Müstahkem korugan onarıldı ve takviye edildi!",
   "chat.warfront.mission.shield_relay_sabotaged": "§c[Warfront] 🛡 Savunma Kalkanı Sabote Edildi! [%d/%d]",
   "chat.warfront.mission.machinery_vault_disarmed": "§a§l[WARFRONT] %s Ağır Makine Kasası devre dışı bırakıldı!",
@@ -468,10 +470,13 @@
   "army.warfront.zombie.strain.10": "Omega",
   "army.warfront.zombie.strain.11": "Kimera",
   "screen.warfront.army_field_battle": "⚔ Meydan Savaşı",
-  "screen.warfront.army_field_battle.desc": "Konuşlu seyyar orduya karşı tek ve kesin bölge geneli meydan savaşı.",
+  "screen.warfront.army_field_battle.desc": "Konuşlu orduya karşı tek ve kesin bölge geneli meydan savaşı.",
+  "screen.warfront.infobox.field_battle_target": "Orduyu Yok Et",
   "mission.warfront.field_battle.pillager.name": "Lejyon Meydan Savaşı",
   "mission.warfront.field_battle.pillager.desc": "Bölge genelindeki düşman lejyon alaylarını yok et",
   "mission.warfront.field_battle.zombie.name": "Sürü Meydan Savaşı",
   "mission.warfront.field_battle.zombie.desc": "Bölge genelindeki gezici sürü öncülerini yok et",
-  "hud.warfront.field_battle.army": "§7Bölge (%d,%d) — Meydan Savaşı"
+  "hud.warfront.field_battle.army": "§7Bölge (%d,%d) — Meydan Savaşı",
+  "hud.warfront.mission.assassinate_commander": "Komutanı Etkisiz Hale Getir",
+  "hud.warfront.mission.commander_neutralized": "Komutan Etkisiz Hale Getirildi"
 }

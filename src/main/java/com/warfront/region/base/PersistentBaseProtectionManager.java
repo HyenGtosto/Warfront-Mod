@@ -399,6 +399,10 @@ public final class PersistentBaseProtectionManager {
                 continue;
             }
 
+            if (com.warfront.region.base.hq.HQGatePortcullisController.isGatePositionManaged(pos)) {
+                continue; // Do not self-repair temporarily opened or breached gate portcullises
+            }
+
             if (!level.hasChunkAt(pos)) {
                 allChunksLoaded = false;
                 continue;

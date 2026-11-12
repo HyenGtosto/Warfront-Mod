@@ -109,10 +109,37 @@ public final class EnemyEncounterSpawner {
         int subMaxZ = subMinZ + ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS - 1;
         final int SCATTER = 12;
 
+        SquadUpgradeTracker upgradeTracker = SquadUpgradeTracker.forSquadSize(encounterSize);
+        boolean hasCommander = false;
+        int eliteCount = 0;
+        int rangedCount = 0;
+        final int maxElites = 2;
+        final int maxRanged = Math.max(1, (int) Math.ceil(encounterSize * 0.55));
+
         int spawned = 0;
         for (int i = 0; i < encounterSize; i++) {
             Object role = selectWeightedRole(rolePool, level.getRandom());
             if (role == null) continue;
+
+            if (role == PillagerEnemyRole.COMMANDER) {
+                if (hasCommander) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    hasCommander = true;
+                }
+            } else if (role == PillagerEnemyRole.ARMORED_ELITE) {
+                if (eliteCount >= maxElites) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    eliteCount++;
+                }
+            } else if (role == PillagerEnemyRole.RANGED) {
+                if (rangedCount >= maxRanged) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    rangedCount++;
+                }
+            }
 
             int spawnX = originBlockX;
             int spawnZ = originBlockZ;
@@ -143,7 +170,7 @@ public final class EnemyEncounterSpawner {
                 continue;
             }
 
-            Entity entity = resolveEntity(faction, role, level, resistance);
+            Entity entity = resolveEntity(faction, role, level, resistance, upgradeTracker);
             if (entity == null) continue;
 
             entity.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
@@ -229,10 +256,37 @@ public final class EnemyEncounterSpawner {
         int subMaxZ = subMinZ + ExplorationSpawnManager.SUBREGION_SIZE_BLOCKS - 1;
         final int SCATTER = 12;
 
+        SquadUpgradeTracker upgradeTracker = SquadUpgradeTracker.forSquadSize(encounterSize);
+        boolean hasCommander = false;
+        int eliteCount = 0;
+        int rangedCount = 0;
+        final int maxElites = 2;
+        final int maxRanged = Math.max(1, (int) Math.ceil(encounterSize * 0.55));
+
         int spawned = 0;
         for (int i = 0; i < encounterSize; i++) {
             Object role = selectWeightedRole(rolePool, level.getRandom());
             if (role == null) continue;
+
+            if (role == PillagerEnemyRole.COMMANDER) {
+                if (hasCommander) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    hasCommander = true;
+                }
+            } else if (role == PillagerEnemyRole.ARMORED_ELITE) {
+                if (eliteCount >= maxElites) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    eliteCount++;
+                }
+            } else if (role == PillagerEnemyRole.RANGED) {
+                if (rangedCount >= maxRanged) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    rangedCount++;
+                }
+            }
 
             int spawnX = originBlockX;
             int spawnZ = originBlockZ;
@@ -263,7 +317,7 @@ public final class EnemyEncounterSpawner {
                 continue;
             }
 
-            Entity entity = resolveEntity(faction, role, level, resistance);
+            Entity entity = resolveEntity(faction, role, level, resistance, upgradeTracker);
             if (entity == null) continue;
 
             entity.moveTo(spawnX + 0.5D, spawnY, spawnZ + 0.5D, level.getRandom().nextFloat() * 360.0F, 0.0F);
@@ -348,7 +402,13 @@ public final class EnemyEncounterSpawner {
         List<Mob> spawnedMobs = new ArrayList<>();
         final int SCATTER = 4; // Tight squad formation at border
 
+        SquadUpgradeTracker upgradeTracker = SquadUpgradeTracker.forSquadSize(squadSize);
         boolean hasCommander = false;
+        int eliteCount = 0;
+        int rangedCount = 0;
+        final int maxElites = 2;
+        final int maxRanged = Math.max(1, (int) Math.ceil(squadSize * 0.55));
+
         for (int i = 0; i < squadSize; i++) {
             Object role = null;
 
@@ -380,6 +440,24 @@ public final class EnemyEncounterSpawner {
                 }
             }
 
+            // Cap Armored Elites to max 2 per squad
+            if (role == PillagerEnemyRole.ARMORED_ELITE) {
+                if (eliteCount >= maxElites) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    eliteCount++;
+                }
+            }
+
+            // Cap Ranged units to preserve melee infantry core
+            if (role == PillagerEnemyRole.RANGED) {
+                if (rangedCount >= maxRanged) {
+                    role = PillagerEnemyRole.FIGHTER;
+                } else {
+                    rangedCount++;
+                }
+            }
+
             if (role == null) continue;
 
             int spawnX = borderX;
@@ -408,7 +486,7 @@ public final class EnemyEncounterSpawner {
                 continue;
             }
 
-            Entity entity = resolveEntity(Faction.PILLAGER_CONQUERORS, role, level, resistance);
+            Entity entity = resolveEntity(Faction.PILLAGER_CONQUERORS, role, level, resistance, upgradeTracker);
             if (!(entity instanceof Mob mob)) {
                 continue;
             }
@@ -505,11 +583,15 @@ public final class EnemyEncounterSpawner {
     }
 
     private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance) {
+        return resolveEntity(faction, role, level, resistance, null);
+    }
+
+    private static Entity resolveEntity(Faction faction, Object role, ServerLevel level, float resistance, SquadUpgradeTracker tracker) {
         if (faction == Faction.ZOMBIE_HORDE && role instanceof ZombieEnemyRole zr) {
             return EnemyEntityResolver.resolveZombieRole(zr, level);
         }
         if (faction == Faction.PILLAGER_CONQUERORS && role instanceof PillagerEnemyRole pr) {
-            return EnemyEntityResolver.resolvePillagerRole(pr, level, resistance);
+            return EnemyEntityResolver.resolvePillagerRole(pr, level, resistance, tracker);
         }
         return null;
     }
