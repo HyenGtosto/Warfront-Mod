@@ -13,16 +13,19 @@ import com.warfront.client.renderer.PillagerWarriorRenderer;
 import com.warfront.client.renderer.SmokeScreenRenderer;
 import com.warfront.client.renderer.SupplyWagonCartRenderer;
 import com.warfront.client.renderer.SupplyWagonExtensionRenderer;
+import com.warfront.client.renderer.WarfrontGeoEntityRenderer;
 import com.warfront.entity.ModEntities;
 import com.warfront.menu.WarfrontMenus;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
+import net.neoforged.neoforge.common.NeoForge;
 
 @Mod(value = Warfront.MOD_ID, dist = Dist.CLIENT)
 public final class RegionClientEvents {
@@ -31,6 +34,11 @@ public final class RegionClientEvents {
         modEventBus.addListener(RegionClientEvents::registerGuiLayers);
         modEventBus.addListener(RegionClientEvents::registerEntityRenderers);
         modEventBus.addListener(RegionClientEvents::registerMenuScreens);
+        NeoForge.EVENT_BUS.addListener(RegionClientEvents::onClientLoggingOut);
+    }
+
+    public static void onClientLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        WarfrontGeoEntityRenderer.clearRenderCaches();
     }
 
     public static void registerGuiLayers(RegisterGuiLayersEvent event) {

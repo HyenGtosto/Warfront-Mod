@@ -22,6 +22,7 @@ import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.event.entity.living.LivingChangeTargetEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.util.ArrayList;
@@ -36,27 +37,33 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * Rules:
  *   - Each squad belongs to a specific subregion (64×64 blocks).
- *   - Max 3 concurrent squads per subregion.
- *   - 40 seconds (800 ticks) spawn cooldown per subregion.
+ *   - Max 2 concurrent ambient squads per out-of-war subregion (3 in Kill Count war subregions).
+ *   - 90 seconds (1800 ticks) ambient spawn cooldown per subregion.
  *   - No percentage-loss respawns — spawns operate purely on cooldown timer.
  *   - Spawns persist in active missions as well as peaceful exploration.
  *   - Composition and resistance tiering match Attack Roamers (scouts are excluded).
  *
  * Patrol Behavior:
- *   1. Spawn from a subregion border.
- *   2. Select a random waypoint on another border at least 48 blocks away.
+ *   1. Spawn 4 blocks inside a subregion border.
+ *   2. Select a random waypoint 4 blocks inside another border at least 48 blocks away.
  *   3. March in formation to that point.
  *   4. Hold ground for 15 seconds (300 ticks).
- *   5. Pick another border waypoint at least 48 blocks away and repeat.
- *   6. If any member spots a player, the whole squad engages that player.
+ *   5. Pick another inset border waypoint at least 48 blocks away and repeat.
+ *   6. If any member spots a player, the whole squad engages (subject to home-subregion chase leash).
  */
 public final class SubregionPatrolManager {
 
     public static final int SUBREGION_SIZE_BLOCKS = 64;
-    public static final int MAX_SQUADS_PER_SUBREGION = 3;
+    public static final int BORDER_INSET_BLOCKS = 4;
+    public static final int MAX_SQUADS_PER_SUBREGION = 2;
     public static final long SPAWN_COOLDOWN_TICKS = 90L * 20L; // 90 seconds = 1800 ticks
     public static final double MIN_WAYPOINT_DIST = 48.0D;
     public static final int HOLD_GROUND_DURATION_TICKS = 15 * 20; // 15 seconds = 300 ticks
+
+    public static final double AMBIENT_CHASE_LEASH_BLOCKS = 96.0D;
+    public static final double HOMING_CHASE_LEASH_BLOCKS = 128.0D;
+    public static final long LEASH_NO_COMBAT_DISENGAGE_TICKS = 10L * 20L; // 10 seconds without combat exchanged
+    public static final long LEASH_RETURN_COOLDOWN_TICKS = 10L * 20L; // 10 seconds disengage return grace
 
     public static final long SCOUT_SPAWN_COOLDOWN_TICKS = 5L * 60L * 20L; // 5 minutes = 6000 ticks
     public static final long REINFORCEMENT_COOLDOWN_TICKS = 3L * 60L * 20L; // 3 minutes = 3600 ticks (Option 1b)
@@ -98,6 +105,9 @@ public final class SubregionPatrolManager {
         private boolean holdingGround = false;
         private int holdTicksRemaining = 0;
         private volatile boolean engagedInCombat = false;
+        private long lastDirectCombatGameTime = 0L;
+        private long leashDisengagedUntilGameTime = 0L;
+        private boolean wasTargetingLastCheck = false;
 
         public PatrolSquad(UUID squadId, int regionX, int regionZ, int subX, int subZ, BlockPos initialWaypoint) {
             this.squadId = squadId;
@@ -118,8 +128,44 @@ public final class SubregionPatrolManager {
         public boolean wasEngagedInCombat() { return engagedInCombat; }
         public void markEngaged() { this.engagedInCombat = true; }
 
+        public double getHomeCenterX() {
+            return regionX * RegionData.REGION_SIZE_BLOCKS + subX * SUBREGION_SIZE_BLOCKS + (SUBREGION_SIZE_BLOCKS * 0.5D);
+        }
+
+        public double getHomeCenterZ() {
+            return regionZ * RegionData.REGION_SIZE_BLOCKS + subZ * SUBREGION_SIZE_BLOCKS + (SUBREGION_SIZE_BLOCKS * 0.5D);
+        }
+
+        public double getActiveChaseLeashBlocks() {
+            return homingPlayerUuid != null ? HOMING_CHASE_LEASH_BLOCKS : AMBIENT_CHASE_LEASH_BLOCKS;
+        }
+
+        public boolean isWithinChaseLeash(LivingEntity target) {
+            if (target == null) return true;
+            double leash = getActiveChaseLeashBlocks();
+            double dx = target.getX() - getHomeCenterX();
+            double dz = target.getZ() - getHomeCenterZ();
+            return (dx * dx + dz * dz) <= (leash * leash);
+        }
+
+        public boolean shouldSuppressTargetAcquisition(Level level, LivingEntity mob, LivingEntity newTarget) {
+            if (level == null || newTarget == null) return false;
+            boolean directlyHurtMob = mob instanceof Mob m
+                    && m.getLastHurtByMob() == newTarget
+                    && m.getLastHurtByMobTimestamp() > 0
+                    && (m.tickCount - m.getLastHurtByMobTimestamp()) <= 40;
+            if (directlyHurtMob) {
+                return false;
+            }
+            if (level.getGameTime() < this.leashDisengagedUntilGameTime) {
+                return true;
+            }
+            return !isWithinChaseLeash(newTarget);
+        }
+
         public void addMember(UUID uuid) {
             memberUuids.add(uuid);
+            MOB_TO_SQUAD.put(uuid, this);
         }
 
         public int countLiving(ServerLevel level) {
@@ -174,6 +220,7 @@ public final class SubregionPatrolManager {
             this.homingPlayerUuid = playerUuid;
             this.holdingGround = false;
             this.holdTicksRemaining = 0;
+            this.leashDisengagedUntilGameTime = 0L;
         }
 
         public boolean isHoming() {
@@ -253,12 +300,89 @@ public final class SubregionPatrolManager {
          */
         public void alertSquadToTarget(Level level, LivingEntity target) {
             if (target == null || !target.isAlive()) return;
-            this.engagedInCombat = true;
             for (Mob mob : getLivingMembers(level)) {
                 if (com.warfront.entity.AlliedFactionHelper.isAllied(mob, target)) continue;
+                if (shouldSuppressTargetAcquisition(level, mob, target)) continue;
+                this.engagedInCombat = true;
                 if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
                     mob.setTarget(target);
                 }
+            }
+        }
+
+        /**
+         * Enforces the home-subregion chase leash for this squad.
+         * If any targeted entity has moved beyond the leash radius without recent combat
+         * for 10 seconds, all living members disengage and return to the home subregion.
+         */
+        public synchronized void enforceChaseLeash(ServerLevel level, long gameTime) {
+            List<Mob> living = getLivingMembers(level);
+            if (living.isEmpty()) {
+                this.wasTargetingLastCheck = false;
+                return;
+            }
+
+            LivingEntity activeTarget = null;
+            for (Mob mob : living) {
+                if ((mob.getLastHurtByMobTimestamp() > 0 && (mob.tickCount - mob.getLastHurtByMobTimestamp()) <= EVAL_INTERVAL_TICKS)
+                        || (mob.getLastHurtMobTimestamp() > 0 && (mob.tickCount - mob.getLastHurtMobTimestamp()) <= EVAL_INTERVAL_TICKS)) {
+                    this.lastDirectCombatGameTime = gameTime;
+                }
+                if (activeTarget == null) {
+                    LivingEntity t = mob.getTarget();
+                    if (t != null && t.isAlive() && !com.warfront.entity.AlliedFactionHelper.isAllied(mob, t)) {
+                        activeTarget = t;
+                    }
+                }
+            }
+
+            if (activeTarget == null && this.homingPlayerUuid != null) {
+                Entity homingEntity = level.getEntity(this.homingPlayerUuid);
+                if (homingEntity instanceof Player p && p.isAlive()) {
+                    activeTarget = p;
+                }
+            }
+
+            if (activeTarget == null) {
+                this.wasTargetingLastCheck = false;
+                return;
+            }
+
+            if (!this.wasTargetingLastCheck) {
+                this.wasTargetingLastCheck = true;
+                this.lastDirectCombatGameTime = Math.max(this.lastDirectCombatGameTime, gameTime);
+            }
+
+            if (!isWithinChaseLeash(activeTarget)
+                    && (gameTime - this.lastDirectCombatGameTime >= LEASH_NO_COMBAT_DISENGAGE_TICKS)) {
+                this.homingPlayerUuid = null;
+                this.holdingGround = false;
+                this.holdTicksRemaining = 0;
+                this.leashDisengagedUntilGameTime = gameTime + LEASH_RETURN_COOLDOWN_TICKS;
+                this.wasTargetingLastCheck = false;
+
+                int subMinX = regionX * RegionData.REGION_SIZE_BLOCKS + subX * SUBREGION_SIZE_BLOCKS;
+                int subMaxX = subMinX + SUBREGION_SIZE_BLOCKS - 1;
+                int subMinZ = regionZ * RegionData.REGION_SIZE_BLOCKS + subZ * SUBREGION_SIZE_BLOCKS;
+                int subMaxZ = subMinZ + SUBREGION_SIZE_BLOCKS - 1;
+                if (this.currentWaypoint == null
+                        || this.currentWaypoint.getX() < subMinX || this.currentWaypoint.getX() > subMaxX
+                        || this.currentWaypoint.getZ() < subMinZ || this.currentWaypoint.getZ() > subMaxZ) {
+                    BlockPos homeWaypoint = pickRandomBorderPoint(level, regionX, regionZ, subX, subZ);
+                    if (homeWaypoint != null) {
+                        this.currentWaypoint = homeWaypoint;
+                    }
+                }
+
+                for (Mob mob : living) {
+                    mob.setTarget(null);
+                    mob.setLastHurtByMob(null);
+                    mob.setAggressive(false);
+                    mob.getNavigation().stop();
+                }
+
+                Warfront.LOGGER.debug("[PATROL] Squad {} exceeded {}m home leash without combat for 10s; disengaging.",
+                        squadId, (int) AMBIENT_CHASE_LEASH_BLOCKS);
             }
         }
 
@@ -270,7 +394,9 @@ public final class SubregionPatrolManager {
             LivingEntity target = null;
             for (Mob mob : living) {
                 LivingEntity t = mob.getTarget();
-                if (t != null && t.isAlive() && !com.warfront.entity.AlliedFactionHelper.isAllied(mob, t)) {
+                if (t != null && t.isAlive()
+                        && !com.warfront.entity.AlliedFactionHelper.isAllied(mob, t)
+                        && !shouldSuppressTargetAcquisition(level, mob, t)) {
                     target = t;
                     break;
                 }
@@ -279,6 +405,7 @@ public final class SubregionPatrolManager {
                 this.engagedInCombat = true;
                 for (Mob mob : living) {
                     if (com.warfront.entity.AlliedFactionHelper.isAllied(mob, target)) continue;
+                    if (shouldSuppressTargetAcquisition(level, mob, target)) continue;
                     if (mob.getTarget() == null || !mob.getTarget().isAlive()) {
                         mob.setTarget(target);
                     }
@@ -289,6 +416,9 @@ public final class SubregionPatrolManager {
 
     /** Active squads per subregion: SubKey -> List of PatrolSquads */
     private static final Map<Long, List<PatrolSquad>> ACTIVE_PATROLS = new ConcurrentHashMap<>();
+
+    /** Reverse index from living patrol member UUID to owning PatrolSquad */
+    private static final Map<UUID, PatrolSquad> MOB_TO_SQUAD = new ConcurrentHashMap<>();
 
     /** Last spawn game time per subregion: SubKey -> GameTime */
     private static final Map<Long, Long> LAST_SPAWN_TIME = new ConcurrentHashMap<>();
@@ -352,12 +482,33 @@ public final class SubregionPatrolManager {
         PENDING_REINFORCEMENTS.removeIf(task -> task.rx == rx && task.rz == rz && task.sx == sx && task.sz == sz);
         if (squads != null) {
             for (PatrolSquad squad : squads) {
+                removeSquadMembersFromLookup(squad);
                 for (UUID id : squad.memberUuids) {
                     if (!TERMINAL_PATROL_MOBS.contains(id)) {
                         TERMINAL_PATROL_MOBS.add(id);
                     }
                 }
             }
+        }
+    }
+
+    private static void removeSquadMembersFromLookup(PatrolSquad squad) {
+        if (squad == null) return;
+        for (UUID id : squad.memberUuids) {
+            MOB_TO_SQUAD.remove(id, squad);
+        }
+    }
+
+    public static void onLivingChangeTarget(LivingChangeTargetEvent event) {
+        LivingEntity entity = event.getEntity();
+        LivingEntity newTarget = event.getNewAboutToBeSetTarget();
+        if (entity == null || newTarget == null || entity.level().isClientSide()) {
+            return;
+        }
+        PatrolSquad squad = MOB_TO_SQUAD.get(entity.getUUID());
+        if (squad != null && squad.shouldSuppressTargetAcquisition(entity.level(), entity, newTarget)) {
+            event.setNewAboutToBeSetTarget(null);
+            event.setCanceled(true);
         }
     }
 
@@ -397,6 +548,7 @@ public final class SubregionPatrolManager {
         // In Peaceful mode, suppress all patrol, scout, and reinforcement spawning and clean up tracking
         if (level.getDifficulty() == Difficulty.PEACEFUL) {
             if (!ACTIVE_PATROLS.isEmpty()) ACTIVE_PATROLS.clear();
+            if (!MOB_TO_SQUAD.isEmpty()) MOB_TO_SQUAD.clear();
             if (!ACTIVE_SCOUTS.isEmpty()) ACTIVE_SCOUTS.clear();
             if (!PENDING_REINFORCEMENTS.isEmpty()) PENDING_REINFORCEMENTS.clear();
             if (!TERMINAL_PATROL_MOBS.isEmpty()) TERMINAL_PATROL_MOBS.clear();
@@ -498,12 +650,13 @@ public final class SubregionPatrolManager {
 
         RegionData regions = RegionData.get(level);
 
-        // 1. Tick hold timers, sync targets, and clean up empty squads
+        // 1. Tick hold timers, enforce chase leashes, sync targets, and clean up empty squads
         for (Map.Entry<Long, List<PatrolSquad>> entry : ACTIVE_PATROLS.entrySet()) {
             long subKey = entry.getKey();
             List<PatrolSquad> squads = entry.getValue();
             squads.removeIf(squad -> {
                 if (squad.countLiving(level) == 0) {
+                    removeSquadMembersFromLookup(squad);
                     if (!squad.wasEngagedInCombat() && level.getDifficulty() != Difficulty.PEACEFUL) {
                         LAST_SPAWN_TIME.remove(subKey);
                         Warfront.LOGGER.debug("[PATROL] Squad {} emptied without combat. Subregion cooldown refunded.", squad.getSquadId());
@@ -513,6 +666,7 @@ public final class SubregionPatrolManager {
                 return false;
             });
             for (PatrolSquad squad : squads) {
+                squad.enforceChaseLeash(level, gameTime);
                 squad.tickHoldTimer(level);
                 squad.syncSquadTarget(level);
             }
@@ -606,7 +760,7 @@ public final class SubregionPatrolManager {
                     cooldownTicks = 90L * 20L; // 90 seconds = 1800 ticks
                 }
             } else {
-                // Out-of-war Subregion: 3 max squads, 90s cooldown
+                // Out-of-war Subregion: 2 max squads, 90s cooldown
                 Faction owner = state.owner();
                 if (!owner.isAI() || state.underSiege()) {
                     continue; // Skip non-hostile subregions or subregions under siege
@@ -934,8 +1088,26 @@ public final class SubregionPatrolManager {
         return false;
     }
 
+    private static BlockPos pickInsetBorderCandidate(ServerLevel level, int subMinX, int subMaxX, int subMinZ, int subMaxZ) {
+        int innerSpan = SUBREGION_SIZE_BLOCKS - (BORDER_INSET_BLOCKS * 2);
+        int edge = level.getRandom().nextInt(4);
+        int inset = BORDER_INSET_BLOCKS + level.getRandom().nextInt(2); // 4 or 5 blocks inside border
+        int x, z;
+        switch (edge) {
+            case 0 -> { x = subMinX + BORDER_INSET_BLOCKS + level.getRandom().nextInt(innerSpan); z = subMinZ + inset; }
+            case 1 -> { x = subMinX + BORDER_INSET_BLOCKS + level.getRandom().nextInt(innerSpan); z = subMaxZ - inset; }
+            case 2 -> { x = subMinX + inset; z = subMinZ + BORDER_INSET_BLOCKS + level.getRandom().nextInt(innerSpan); }
+            default -> { x = subMaxX - inset; z = subMinZ + BORDER_INSET_BLOCKS + level.getRandom().nextInt(innerSpan); }
+        }
+        if (!isValidInfantryBorderPoint(level, x, z)) {
+            return null;
+        }
+        int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
+        return y != Integer.MIN_VALUE ? new BlockPos(x, y, z) : null;
+    }
+
     /**
-     * Picks a random surface point on one of the 4 borders of a subregion using infantry border validation.
+     * Picks a random surface point 4 blocks inside one of the 4 borders of a subregion using infantry border validation.
      */
     public static BlockPos pickRandomBorderPoint(ServerLevel level, int rx, int rz, int sx, int sz) {
         int subMinX = rx * RegionData.REGION_SIZE_BLOCKS + sx * SUBREGION_SIZE_BLOCKS;
@@ -943,33 +1115,23 @@ public final class SubregionPatrolManager {
         int subMinZ = rz * RegionData.REGION_SIZE_BLOCKS + sz * SUBREGION_SIZE_BLOCKS;
         int subMaxZ = subMinZ + SUBREGION_SIZE_BLOCKS - 1;
 
-        // 1. Randomized search across 4 perimeter edges
+        // 1. Randomized search across 4 inset perimeter edges
         for (int attempt = 0; attempt < 80; attempt++) {
-            int edge = level.getRandom().nextInt(4);
-            int inset = level.getRandom().nextInt(2); // 0 or 1 block inset
-            int x, z;
-            switch (edge) {
-                case 0 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMinZ + inset; }
-                case 1 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMaxZ - inset; }
-                case 2 -> { x = subMinX + inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
-                default -> { x = subMaxX - inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
-            }
-
-            if (isValidInfantryBorderPoint(level, x, z)) {
-                int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
-                return new BlockPos(x, y, z);
+            BlockPos candidate = pickInsetBorderCandidate(level, subMinX, subMaxX, subMinZ, subMaxZ);
+            if (candidate != null) {
+                return candidate;
             }
         }
 
-        // 2. Systematic perimeter sweep along borders
+        // 2. Systematic perimeter sweep along 4-block inset borders
         for (int edge = 0; edge < 4; edge++) {
-            for (int offset = 1; offset < SUBREGION_SIZE_BLOCKS - 1; offset += 2) {
+            for (int offset = BORDER_INSET_BLOCKS; offset < SUBREGION_SIZE_BLOCKS - BORDER_INSET_BLOCKS; offset += 2) {
                 int x, z;
                 switch (edge) {
-                    case 0 -> { x = subMinX + offset; z = subMinZ; }
-                    case 1 -> { x = subMinX + offset; z = subMaxZ; }
-                    case 2 -> { x = subMinX; z = subMinZ + offset; }
-                    default -> { x = subMaxX; z = subMinZ + offset; }
+                    case 0 -> { x = subMinX + offset; z = subMinZ + BORDER_INSET_BLOCKS; }
+                    case 1 -> { x = subMinX + offset; z = subMaxZ - BORDER_INSET_BLOCKS; }
+                    case 2 -> { x = subMinX + BORDER_INSET_BLOCKS; z = subMinZ + offset; }
+                    default -> { x = subMaxX - BORDER_INSET_BLOCKS; z = subMinZ + offset; }
                 }
                 if (isValidInfantryBorderPoint(level, x, z)) {
                     int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
@@ -983,7 +1145,7 @@ public final class SubregionPatrolManager {
     }
 
     /**
-     * Picks a border waypoint on another border at least 48 blocks away from the current location.
+     * Picks an inset border waypoint on another border at least 48 blocks away from the current location.
      */
     public static BlockPos pickNextBorderWaypoint(ServerLevel level, int rx, int rz, int sx, int sz, BlockPos fromPos) {
         int subMinX = rx * RegionData.REGION_SIZE_BLOCKS + sx * SUBREGION_SIZE_BLOCKS;
@@ -995,20 +1157,8 @@ public final class SubregionPatrolManager {
         double bestDist = 0.0D;
 
         for (int attempt = 0; attempt < 120; attempt++) {
-            int edge = level.getRandom().nextInt(4);
-            int inset = level.getRandom().nextInt(2);
-            int x, z;
-            switch (edge) {
-                case 0 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMinZ + inset; }
-                case 1 -> { x = subMinX + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); z = subMaxZ - inset; }
-                case 2 -> { x = subMinX + inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
-                default -> { x = subMaxX - inset; z = subMinZ + level.getRandom().nextInt(SUBREGION_SIZE_BLOCKS); }
-            }
-
-            if (!isValidInfantryBorderPoint(level, x, z)) continue;
-
-            int y = EnemyEncounterSpawner.findDryLandSurfaceY(level, x, z);
-            BlockPos candidate = new BlockPos(x, y, z);
+            BlockPos candidate = pickInsetBorderCandidate(level, subMinX, subMaxX, subMinZ, subMaxZ);
+            if (candidate == null) continue;
             if (fromPos == null) return candidate;
 
             double dist = Math.hypot(candidate.getX() - fromPos.getX(), candidate.getZ() - fromPos.getZ());

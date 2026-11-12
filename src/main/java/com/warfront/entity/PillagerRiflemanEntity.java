@@ -96,9 +96,9 @@ public class PillagerRiflemanEntity extends AbstractIllager implements GeoEntity
         return Monster.createMonsterAttributes()
                 .add(Attributes.MAX_HEALTH, 24.0D)
                 .add(Attributes.MOVEMENT_SPEED, 0.22D)
-                .add(Attributes.ATTACK_DAMAGE, 7.0D) // Bayonet strike damage
+                .add(Attributes.ATTACK_DAMAGE, 6.0D) // Bayonet strike damage
                 .add(Attributes.ARMOR, 6.0D)
-                .add(Attributes.FOLLOW_RANGE, 48.0D);
+                .add(Attributes.FOLLOW_RANGE, 30.0D);
     }
 
     @Override

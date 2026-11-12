@@ -48,12 +48,19 @@ public class SubregionPatrolGoal extends Goal {
     @Override
     public boolean canUse() {
         if (!mob.isAlive()) return false;
-        // Yield immediately to combat AI when actively targeting an enemy
-        if (mob.getTarget() != null && mob.getTarget().isAlive()) {
-            return false;
+        net.minecraft.world.entity.LivingEntity currentTarget = mob.getTarget();
+        if (currentTarget != null && currentTarget.isAlive()) {
+            if (squad.shouldSuppressTargetAcquisition(mob.level(), mob, currentTarget)) {
+                mob.setTarget(null);
+            } else {
+                // Yield immediately to combat AI when actively targeting a valid enemy
+                return false;
+            }
         }
-        // Retaliate if damaged by player
-        if (mob.getLastHurtByMob() instanceof net.minecraft.world.entity.player.Player player && player.isAlive()) {
+        // Retaliate if damaged by player within leash rules
+        if (mob.getLastHurtByMob() instanceof net.minecraft.world.entity.player.Player player
+                && player.isAlive()
+                && !squad.shouldSuppressTargetAcquisition(mob.level(), mob, player)) {
             squad.alertSquadToTarget(mob.level(), player);
             mob.setTarget(player);
             return false;
@@ -61,7 +68,8 @@ public class SubregionPatrolGoal extends Goal {
         // Throttle squad target polling to every 10 ticks to avoid 36 UUID lookups per squad per tick
         if ((mob.tickCount + mob.getId()) % 10 == 0) {
             net.minecraft.world.entity.LivingEntity squadTarget = squad.getSquadTarget(mob.level());
-            if (squadTarget != null && squadTarget.isAlive()) {
+            if (squadTarget != null && squadTarget.isAlive()
+                    && !squad.shouldSuppressTargetAcquisition(mob.level(), mob, squadTarget)) {
                 mob.setTarget(squadTarget);
                 return false;
             }

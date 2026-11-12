@@ -92,7 +92,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                 .add(Attributes.MOVEMENT_SPEED, 0.20D)
                 .add(Attributes.ATTACK_DAMAGE, 4.0D)
                 .add(Attributes.ARMOR, 4.0D)
-                .add(Attributes.FOLLOW_RANGE, 40.0D);
+                .add(Attributes.FOLLOW_RANGE, 28.0D);
     }
 
     @Override
@@ -146,7 +146,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
     protected void registerGoals() {
         super.registerGoals();
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(2, new MarksmanAttackGoal(this, 1.0D, 36.0F));
+        this.goalSelector.addGoal(2, new MarksmanAttackGoal(this, 1.0D, 24.0F));
         this.goalSelector.addGoal(3, new Raider.HoldGroundAttackGoal(this, 10.0F));
         this.goalSelector.addGoal(8, new WaterAvoidingRandomStrollGoal(this, 1.0D));
         this.goalSelector.addGoal(9, new LookAtPlayerGoal(this, Player.class, 8.0F));
@@ -432,6 +432,22 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                 this.repositionCooldown--;
             }
 
+            boolean inRange = distSq <= (double) (this.attackRadius * this.attackRadius);
+            boolean isGarrison = this.mob.getPersistentData().getBoolean("warfront_garrison");
+
+            if (this.currentPhase == STATE_AIMING && (!inRange || !canSee)) {
+                // Close distance until inside shooting range and line of sight before locking aim stance
+                this.attackPhaseTicks = 0;
+                this.mob.setCombatState(STATE_IDLE);
+                this.mob.getLookControl().setLookAt(target, 30.0F, 30.0F);
+                if (!isGarrison) {
+                    this.mob.getNavigation().moveTo(target, this.speedModifier);
+                } else {
+                    this.mob.getNavigation().stop();
+                }
+                return;
+            }
+
             if (this.currentPhase == STATE_AIMING || this.currentPhase == STATE_SHOOTING) {
                 // User directive: Turn to player when aiming and shooting, halt retreat navigation
                 this.mob.getNavigation().stop();
@@ -454,7 +470,7 @@ public class PillagerMarksmanEntity extends AbstractIllager implements GeoEntity
                 case STATE_AIMING -> {
                     this.mob.setCombatState(STATE_AIMING);
 
-                    if (this.attackPhaseTicks >= 20 && canSee) {
+                    if (this.attackPhaseTicks >= 20 && canSee && inRange) {
                         boolean shouldCheckLane = (this.attackPhaseTicks == 20) || ((this.mob.tickCount + this.mob.getId()) % 4 == 0);
                         boolean blockedByMarksman = shouldCheckLane && this.mob.isMarksmanInLineOfSight(target);
                         if (blockedByMarksman) {

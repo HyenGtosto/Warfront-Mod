@@ -58,6 +58,7 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener(com.warfront.mission.site.MissionSiteSnapshotManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.AttackRoamerManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.spawn.SubregionPatrolManager::onServerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.spawn.SubregionPatrolManager::onLivingChangeTarget);
         NeoForge.EVENT_BUS.addListener(com.warfront.region.base.hq.HQSquadPatrolManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.region.bridge.SubregionBridgeManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onLivingChangeTarget);

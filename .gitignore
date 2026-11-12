@@ -44,6 +44,7 @@ repo/
 .docs/
 .scratch/
 .tools/
+tools/
 
 ### Agent ###
 AGENTS.md
