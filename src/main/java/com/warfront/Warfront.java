@@ -24,7 +24,14 @@ public final class Warfront {
         com.warfront.block.entity.WarfrontBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         com.warfront.menu.WarfrontMenus.MENUS.register(modEventBus);
         com.warfront.entity.ModEntities.register(modEventBus);
+        com.warfront.effect.WarfrontMobEffects.MOB_EFFECTS.register(modEventBus);
+        com.warfront.stim.WarfrontAttachments.ATTACHMENT_TYPES.register(modEventBus);
         NeoForge.EVENT_BUS.addListener(ClaimCoreEvents::onBlockPlaced);
+        NeoForge.EVENT_BUS.addListener(com.warfront.stim.StimServerEvents::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.stim.StimServerEvents::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(com.warfront.stim.StimServerEvents::onPlayerChangedDimension);
+        NeoForge.EVENT_BUS.addListener(com.warfront.stim.StimServerEvents::onPlayerRespawn);
+        NeoForge.EVENT_BUS.addListener(com.warfront.stim.StimServerEvents::onPlayerClone);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {
             if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                 com.warfront.faction.PlayerFactionData.get(player.serverLevel()).syncToPlayer(player);
@@ -63,6 +70,14 @@ public final class Warfront {
         NeoForge.EVENT_BUS.addListener(com.warfront.region.bridge.SubregionBridgeManager::onServerTick);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onLivingChangeTarget);
         NeoForge.EVENT_BUS.addListener(com.warfront.entity.AlliedFactionHelper::onProjectileImpact);
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.AttackEntityEvent event) -> {
+            net.minecraft.world.entity.Entity target = event.getTarget();
+            if (target instanceof com.warfront.entity.PillagerLegionnaireEntity legionnaire) {
+                legionnaire.recordPlayerAttackAttempt(event.getEntity());
+            } else if (target instanceof com.warfront.entity.PillagerLegionnaireEntity.LegionnaireShieldPart shieldPart) {
+                shieldPart.getParent().recordPlayerAttackAttempt(event.getEntity());
+            }
+        });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.level.LevelEvent.Load event) -> {
             if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel serverLevel
                     && serverLevel.dimension() == net.minecraft.world.level.Level.OVERWORLD) {

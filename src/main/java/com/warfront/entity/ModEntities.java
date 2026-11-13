@@ -147,6 +147,21 @@ public final class ModEntities {
                             .updateInterval(1)
                             .build("ballista_bolt"));
 
+    public static final DeferredHolder<EntityType<?>, EntityType<PillagerLegionnaireEntity>> PILLAGER_LEGIONNAIRE =
+            ENTITY_TYPES.register("pillager_legionnaire", () ->
+                    EntityType.Builder.of(PillagerLegionnaireEntity::new, MobCategory.MONSTER)
+                            .sized(0.65f, 2.05f)
+                            .clientTrackingRange(10)
+                            .build("pillager_legionnaire"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<JavelinProjectileEntity>> JAVELIN_PROJECTILE =
+            ENTITY_TYPES.register("javelin_projectile", () ->
+                    EntityType.Builder.<JavelinProjectileEntity>of(JavelinProjectileEntity::new, MobCategory.MISC)
+                            .sized(0.4f, 0.4f)
+                            .clientTrackingRange(12)
+                            .updateInterval(1)
+                            .build("javelin_projectile"));
+
     private ModEntities() {
     }
 
@@ -167,5 +182,6 @@ public final class ModEntities {
         event.put(PILLAGER_IRONCLAD.get(), PillagerIroncladEntity.createAttributes().build());
         event.put(SUPPLY_WAGON_CART.get(), SupplyWagonCartEntity.createAttributes().build());
         event.put(SUPPLY_WAGON_EXTENSION.get(), SupplyWagonExtensionEntity.createAttributes().build());
+        event.put(PILLAGER_LEGIONNAIRE.get(), PillagerLegionnaireEntity.createAttributes().build());
     }
 }

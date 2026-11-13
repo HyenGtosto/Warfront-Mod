@@ -76,6 +76,9 @@ public final class WarfrontBlocks {
     public static final DeferredItem<Item> PILLAGER_IRONCLAD_SPAWN_EGG = ITEMS.register("pillager_ironclad_spawn_egg",
             () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_IRONCLAD, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
 
+    public static final DeferredItem<Item> PILLAGER_LEGIONNAIRE_SPAWN_EGG = ITEMS.register("pillager_legionnaire_spawn_egg",
+            () -> new net.neoforged.neoforge.common.DeferredSpawnEggItem(com.warfront.entity.ModEntities.PILLAGER_LEGIONNAIRE, 0xFFFFFF, 0xFFFFFF, new Item.Properties()));
+
     // --- Reward / Pristine Machinery Blocks & Items ---
     public static final DeferredBlock<Block> SALVAGED_MORTAR_CORE = BLOCKS.registerSimpleBlock("salvaged_mortar_core",
             BlockBehaviour.Properties.of()
@@ -135,6 +138,22 @@ public final class WarfrontBlocks {
             () -> new Item(new Item.Properties()));
     public static final DeferredItem<Item> CRYO_ARTILLERY_SHELL = ITEMS.register("cryo_artillery_shell",
             () -> new Item(new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> PILLAGER_JAVELIN = ITEMS.register("pillager_javelin",
+            () -> new com.warfront.item.PillagerJavelinItem(new Item.Properties().stacksTo(4)));
+
+    // --- Zombie Faction Bio-Stims (No recipes yet; tested on Pillager gameplay first) ---
+    public static final DeferredItem<Item> COMBAT_STIM = ITEMS.register("combat_stim",
+            () -> new com.warfront.item.StimInjectorItem(
+                    com.warfront.item.StimInjectorItem.StimType.COMBAT,
+                    new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> ACROBATICS_STIM = ITEMS.register("acrobatics_stim",
+            () -> new com.warfront.item.StimInjectorItem(
+                    com.warfront.item.StimInjectorItem.StimType.ACROBATICS,
+                    new Item.Properties().stacksTo(16)));
+    public static final DeferredItem<Item> HEALING_STIM = ITEMS.register("healing_stim",
+            () -> new com.warfront.item.StimInjectorItem(
+                    com.warfront.item.StimInjectorItem.StimType.HEALING,
+                    new Item.Properties().stacksTo(16)));
 
     // --- Sabotage Combat Targets (Volatile, Destroyed mid-combat) ---
     public static final DeferredBlock<Block> AMMUNITION_CRATE_TARGET = BLOCKS.register("ammunition_crate_target",
@@ -232,6 +251,10 @@ public final class WarfrontBlocks {
             event.accept(AIRBURST_ARTILLERY_SHELL);
             event.accept(SMOKE_ARTILLERY_SHELL);
             event.accept(CRYO_ARTILLERY_SHELL);
+            event.accept(PILLAGER_JAVELIN);
+            event.accept(COMBAT_STIM);
+            event.accept(ACROBATICS_STIM);
+            event.accept(HEALING_STIM);
         } else if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(MAP_TERMINAL);
             event.accept(TESTING_MAP_TERMINAL);
@@ -257,6 +280,7 @@ public final class WarfrontBlocks {
             event.accept(PILLAGER_CANNONEER_SPAWN_EGG);
             event.accept(PILLAGER_RAPIDBOW_SPAWN_EGG);
             event.accept(PILLAGER_IRONCLAD_SPAWN_EGG);
+            event.accept(PILLAGER_LEGIONNAIRE_SPAWN_EGG);
         }
     }
 }

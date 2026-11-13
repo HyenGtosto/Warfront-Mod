@@ -34,11 +34,37 @@ public final class RegionClientEvents {
         modEventBus.addListener(RegionClientEvents::registerGuiLayers);
         modEventBus.addListener(RegionClientEvents::registerEntityRenderers);
         modEventBus.addListener(RegionClientEvents::registerMenuScreens);
+        modEventBus.addListener(RegionClientEvents::onClientSetup);
         NeoForge.EVENT_BUS.addListener(RegionClientEvents::onClientLoggingOut);
+        NeoForge.EVENT_BUS.addListener(RegionClientEvents::onInteractionKeyMappingTriggered);
+        NeoForge.EVENT_BUS.addListener(com.warfront.client.stim.StimClientHandler::onClientTick);
+        NeoForge.EVENT_BUS.addListener(com.warfront.client.stim.StimClientHandler::onRenderLevelStage);
+    }
+
+    public static void onClientSetup(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent event) {
+        event.enqueueWork(() -> net.minecraft.client.renderer.item.ItemProperties.register(
+                com.warfront.block.WarfrontBlocks.PILLAGER_JAVELIN.get(),
+                ResourceLocation.withDefaultNamespace("throwing"),
+                (stack, level, entity, seed) ->
+                        entity != null && entity.isUsingItem() && entity.getUseItem() == stack ? 1.0F : 0.0F
+        ));
+    }
+
+    public static void onInteractionKeyMappingTriggered(
+            net.neoforged.neoforge.client.event.InputEvent.InteractionKeyMappingTriggered event) {
+        if (!event.isAttack()) {
+            return;
+        }
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player != null && mc.player.getMainHandItem().getItem() instanceof com.warfront.item.PillagerJavelinItem) {
+            event.setSwingHand(false);
+            event.setCanceled(true);
+        }
     }
 
     public static void onClientLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         WarfrontGeoEntityRenderer.clearRenderCaches();
+        com.warfront.client.stim.StimClientHandler.clear();
     }
 
     public static void registerGuiLayers(RegisterGuiLayersEvent event) {
@@ -68,6 +94,8 @@ public final class RegionClientEvents {
         event.registerEntityRenderer(ModEntities.FRIENDLY_CLUSTER_BOMBLET.get(), com.warfront.client.renderer.FriendlyClusterBombletRenderer::new);
         event.registerEntityRenderer(ModEntities.SMOKE_SCREEN.get(), SmokeScreenRenderer::new);
         event.registerEntityRenderer(ModEntities.BALLISTA_BOLT.get(), com.warfront.client.renderer.BallistaBoltRenderer::new);
+        event.registerEntityRenderer(ModEntities.PILLAGER_LEGIONNAIRE.get(), com.warfront.client.renderer.PillagerLegionnaireRenderer::new);
+        event.registerEntityRenderer(ModEntities.JAVELIN_PROJECTILE.get(), com.warfront.client.renderer.JavelinProjectileRenderer::new);
         event.registerBlockEntityRenderer(com.warfront.block.entity.WarfrontBlockEntities.MORTAR.get(), context -> new com.warfront.client.renderer.MortarBlockRenderer());
         event.registerBlockEntityRenderer(com.warfront.block.entity.WarfrontBlockEntities.PILLAGER_BALLISTA.get(), context -> new com.warfront.client.renderer.PillagerBallistaBlockRenderer());
         event.registerBlockEntityRenderer(com.warfront.block.entity.WarfrontBlockEntities.AMMO_RACK.get(), context -> new com.warfront.client.renderer.AmmoRackBlockRenderer());

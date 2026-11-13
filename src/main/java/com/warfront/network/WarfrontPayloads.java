@@ -50,5 +50,11 @@ public final class WarfrontPayloads {
                 com.warfront.network.faction.SyncFactionDataPayload::handle);
         registrar.playToClient(com.warfront.network.faction.FactionActionFeedbackPayload.TYPE, com.warfront.network.faction.FactionActionFeedbackPayload.STREAM_CODEC,
                 com.warfront.network.faction.FactionActionFeedbackPayload::handle);
+
+        // Stim Payloads
+        registrar.playToServer(com.warfront.network.stim.TriggerStimMobilityPayload.TYPE, com.warfront.network.stim.TriggerStimMobilityPayload.STREAM_CODEC,
+                com.warfront.network.stim.TriggerStimMobilityPayload::handle);
+        registrar.playToClient(com.warfront.network.stim.SyncStimStatePayload.TYPE, com.warfront.network.stim.SyncStimStatePayload.STREAM_CODEC,
+                com.warfront.network.stim.SyncStimStatePayload::handle);
     }
 }

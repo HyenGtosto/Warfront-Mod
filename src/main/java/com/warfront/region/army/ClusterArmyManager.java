@@ -24,6 +24,20 @@ public final class ClusterArmyManager {
     private static final int[][] CARDINAL_OFFSETS = new int[][] { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
     private static final int MAX_BFS_DEPTH_REGIONS = 48;
 
+    /**
+     * All 6 possible combinations of choosing 2 HQs out of the 4 cardinal HQs
+     * surrounding a procedural Mega Base.
+     * Cardinal indices: 0 = North (0, -1), 1 = South (0, 1), 2 = West (-1, 0), 3 = East (1, 0).
+     */
+    private static final int[][] MEGA_BASE_HQ_PAIRS = new int[][] {
+            { 0, 1 }, // North & South
+            { 0, 2 }, // North & West
+            { 0, 3 }, // North & East
+            { 1, 2 }, // South & West
+            { 1, 3 }, // South & East
+            { 2, 3 }  // West & East
+    };
+
     private ClusterArmyManager() {
     }
 
@@ -48,6 +62,16 @@ public final class ClusterArmyManager {
         }
 
         Faction faction = hqState.owner();
+
+        // Mega Base cluster army balance: only 2 deterministically selected HQs out of the 4 cardinal
+        // procedural HQs field an army. Upgraded outposts and Big Base HQs are never adjacent to a Mega Base.
+        if (!shouldHqFieldArmy(level, hqRX, hqRZ, faction)) {
+            regions.markHqArmyInitialized(hqKey);
+            Warfront.LOGGER.info("[Warfront Army] HQ at ({}, {}) in Mega Base cluster was not chosen to field an army (2-army cap). Skipping.",
+                    hqRX, hqRZ);
+            return false;
+        }
+
         long clusterId = hqState.clusterId();
         if (clusterId == 0L) {
             clusterId = regions.findAdjacentClusterId(hqRX, hqRZ, faction);
@@ -162,6 +186,64 @@ public final class ClusterArmyManager {
     }
 
     /**
+     * Checks if this HQ is one of the 4 procedural HQs surrounding a Mega Base,
+     * and if so, whether it is one of the 2 deterministically selected to field an army.
+     *
+     * HQs upgraded from Outposts are at distance 3 (or in non-mega clusters) and are never
+     * cardinally adjacent to a Mega Base, so they return true.
+     * Big Base HQs have no Mega Base in their cluster, so they return true.
+     */
+    public static boolean shouldHqFieldArmy(ServerLevel level, int hqRX, int hqRZ, Faction faction) {
+        if (faction == null || !faction.isAI()) {
+            return false;
+        }
+        long seed = (level != null) ? level.getSeed() : 0L;
+        ProceduralRegionGenerator generator = ProceduralRegionGenerator.getInstance();
+
+        int megaX = Integer.MIN_VALUE;
+        int megaZ = Integer.MIN_VALUE;
+
+        for (int[] offset : CARDINAL_OFFSETS) {
+            int nx = hqRX + offset[0];
+            int nz = hqRZ + offset[1];
+            RegionData.RegionState rawState = generator.generateRawRegionState(level, seed, nx, nz);
+            if (rawState.owner() == faction && rawState.baseType() == BaseType.MEGA_BASE) {
+                megaX = nx;
+                megaZ = nz;
+                break;
+            }
+        }
+
+        // If no cardinal neighbor is procedurally a MEGA_BASE, this HQ is either in a Big Base
+        // cluster (clusterSize == 2) or an Outpost upgraded to an HQ (bestDistance >= 3).
+        if (megaX == Integer.MIN_VALUE) {
+            return true;
+        }
+
+        // Deterministically select 2 out of the 4 surrounding HQs based on world seed + Mega Base coordinates
+        long megaHash = splitMix64(seed ^ (megaX * 73856093L) ^ (megaZ * 19349663L) ^ 0x517CC1B727220A95L);
+        int pairIndex = Math.floorMod((int) megaHash, 6);
+        int[] chosenPair = MEGA_BASE_HQ_PAIRS[pairIndex];
+
+        // Determine this HQ's index among the 4 cardinal directions relative to the Mega Base:
+        // 0 = North (0, -1), 1 = South (0, 1), 2 = West (-1, 0), 3 = East (1, 0)
+        int hqIndex;
+        if (hqRX == megaX && hqRZ == megaZ - 1) {
+            hqIndex = 0; // North
+        } else if (hqRX == megaX && hqRZ == megaZ + 1) {
+            hqIndex = 1; // South
+        } else if (hqRX == megaX - 1 && hqRZ == megaZ) {
+            hqIndex = 2; // West
+        } else if (hqRX == megaX + 1 && hqRZ == megaZ) {
+            hqIndex = 3; // East
+        } else {
+            return true;
+        }
+
+        return (hqIndex == chosenPair[0] || hqIndex == chosenPair[1]);
+    }
+
+    /**
      * Evaluates and moves all active Cluster Mobile Field Armies one step along their
      * contiguous friendly cluster territory.
      * Respects siege locks, base-tile avoidance (armies can only rest on BaseType.NONE),
@@ -199,6 +281,16 @@ public final class ClusterArmyManager {
                 regions.putClusterArmy(army);
                 ProceduralRegionGenerator.getInstance().invalidateFullStateCacheAround(curX, curZ);
                 anyMoved = true;
+            }
+
+            // Mega Base 2-army cap enforcement: prune excess armies spawned under previous logic
+            if (!shouldHqFieldArmy(level, hqX, hqZ, army.faction())) {
+                regions.removeClusterArmy(army.parentHqKey());
+                ProceduralRegionGenerator.getInstance().invalidateFullStateCacheAround(curX, curZ);
+                anyMoved = true;
+                Warfront.LOGGER.info("[Warfront Army] Pruned excess Army '{}' from unselected Mega Base HQ ({}, {}).",
+                        army.getDisplayName().getString(), hqX, hqZ);
+                continue;
             }
 
             // If current region somehow upgraded to a base (e.g. Outpost/HQ), immediately relocate to a connected NONE region if possible
